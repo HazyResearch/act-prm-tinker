@@ -7,6 +7,7 @@ from typing import Any
 
 from rich import print as rich_print
 from rich.errors import MarkupError
+from rich.panel import Panel
 from transformers import PreTrainedTokenizerBase
 
 logger = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ def display_state_action_next_obs(
     next_obs_messages: list[dict[str, Any]],
     hf_tokenizer: PreTrainedTokenizerBase,
     tools: list[dict[str, Any]] | None = None,
-    header_text: str = "Batch 0, Try 0, Sample 0, Generation 0",
+    header_text: str = "Batch 0, Try 0, Sample 0, Generation 0, Step 0",
     run_url: str | None = None,
     # silly coloring + formatting
     system_color: str = "bright yellow",
@@ -78,13 +79,12 @@ def display_state_action_next_obs(
     #     rich_tool_response_eos = f"{tool_response_eos}[/{tool_response_color}]"
     #     all_text = all_text.replace(tool_response_bos, rich_tool_response_bos)
     #     all_text = all_text.replace(tool_response_eos, rich_tool_response_eos)
-    header_text = f"{"-" * 50} {header_text} {"-" * 50}"
+    panel_content = f"Run URL: [cyan]{run_url}[/cyan]" if run_url is not None else ""
     try:
-        rich_print(f"[bold]{header_text}[/bold]")
         rich_print(all_text)
-        rich_print(f"[bold]{header_text}[/bold]")
-        if run_url is not None:
-            rich_print(f"[bright_cyan]Run URL: {run_url}[/bright_cyan]")
+        rich_print(Panel(panel_content, title=header_text, style="bold"))
     except MarkupError as e:
+        header_text = f"{"-" * 50} {header_text} {"-" * 50}"
         print(f"{header_text}\n{all_text}\n{header_text}")
+        rich_print(panel_content)
         logger.error(f"rich.errors.MarkupError: {e}")

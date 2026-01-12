@@ -57,13 +57,13 @@ async def main() -> None:
     args = get_args()
     seed_everything(args.seed)
     load_dotenv()  # Setup environment variables from .env file
-    
+
     # Get default configs
     env_cfg           = OmegaConf.load(f"./configs/environments/{args.env_config}.yaml")
     generator_cfg     = OmegaConf.load(f"./configs/generator/{args.generator_config}.yaml")
     trainer_cfg       = OmegaConf.load(f"./configs/trainer/{args.trainer_config}.yaml")
     replay_buffer_cfg = OmegaConf.load(f"./configs/replay_buffer/{args.replay_buffer_config}.yaml")
-    
+
     # Consolidate + update configs from args
     updated_cfgs = update_configs(args, env_cfg, generator_cfg, trainer_cfg, replay_buffer_cfg)
     if args.verbose:
@@ -71,7 +71,7 @@ async def main() -> None:
             print_config(cfg)
     env_cfg, generator_cfg, trainer_cfg, replay_buffer_cfg = updated_cfgs
     cfg = trainer_cfg  # Main config to reference (has all Tinker training attributes)
-    
+
     ml_logger = ml_log.setup_logging(
         log_dir=cfg.log_path,
         wandb_project=cfg.wandb_project,
@@ -80,7 +80,7 @@ async def main() -> None:
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("pylatexenc").setLevel(logging.WARNING)
-    
+
     resume_info = checkpoint_utils.get_last_checkpoint(cfg.log_path)
     if resume_info:
         start_batch = resume_info["batch"]
@@ -111,7 +111,7 @@ async def main() -> None:
     env = get_env(**env_cfg)
     eval_env = env  # Same environment; we just specify the split for loading new tasks
     replay_buffer = get_replay_buffer(**replay_buffer_cfg)
-    generator_ctor = get_generator_constructor(**generator_cfg)
+    generator_ctor = get_generator_constructor(**generator_cfg, ml_logger=ml_logger)
 
     # Training loop
     num_batches = cfg.num_batches  # number of training steps

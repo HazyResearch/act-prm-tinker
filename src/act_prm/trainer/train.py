@@ -88,7 +88,7 @@ async def do_sync_training(
     )
 
     model_name = cfg.model_name or training_client.get_info().model_data.model_name
-    hf_tokenizer = hf_tokenizer or training_client.get_tokenizer()  
+    hf_tokenizer = hf_tokenizer or training_client.get_tokenizer()
     # ^Same as tinker_cookbook.tokenizer_utils.get_tokenizer(cfg.model_name)?
     renderer_name = cfg.renderer_name or model_info.get_recommended_renderer_name(model_name)
     renderer = renderers.get_renderer(renderer_name, hf_tokenizer)
@@ -175,7 +175,6 @@ async def run_rollouts(
     num_tries: int = 1,
     start_idx: int = 0,
     tasks_per_update: int | None = None,  # i.e., batch_size
-    ml_logger: ml_log.Logger | None = None,
 ) -> tuple[dict[str, Any], list[Trajectory], ReplayBuffer]:
     """
     Run rollouts for a single batch, e.g., by generating rollouts and grading them
@@ -194,7 +193,6 @@ async def run_rollouts(
         llm=tinker_completer,
         env=env,
         hf_tokenizer=hf_tokenizer,
-        ml_logger=ml_logger,
     )
 
     batch_size = tasks_per_update or len(env)  # len(env) is the number of tasks or problems

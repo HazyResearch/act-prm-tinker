@@ -44,7 +44,7 @@ class TinkerGenerator:
 
         self.discount_factor = discount_factor
         self.verbose = verbose
-        self.run_url = ml_logger.get_run_url() if ml_logger is not None else None
+        self.run_url = ml_logger.get_logger_url() if ml_logger is not None else None
 
     def _get_trajectory_group(self, **kwargs: Any) -> TrajectoryGroup:
         """
@@ -197,7 +197,8 @@ class TinkerGenerator:
             if self.verbose:
                 _header_text = (
                     f"Batch {batch_id}, Try {try_step}, "
-                    f"Sample {unique_data_sample_id}, Generation {generation_id}"
+                    f"Sample {unique_data_sample_id}, Generation {generation_id}, "
+                    f"Step {state.timestep} / {env.max_turns - 1}"
                 )
                 # Silly coloring to differentiate between generations
                 _base_color = f"color({(generation_id + 1) % 8 + 8})"
