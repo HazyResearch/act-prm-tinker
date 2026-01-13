@@ -142,8 +142,8 @@ class LongBenchEnvironment(Environment):
         """
         Reset environment (starting new episode + loading a new task)
         """
-        sample_idx = self.adjust_sample_idx(sample_idx)  # Wrap around if out of bounds
-        sample = self.datasets[self.split][sample_idx]
+        sample_idx_adj = self.adjust_sample_idx(sample_idx)  # Wrap around if out of bounds
+        sample = self.datasets[self.split][sample_idx_adj]
         document = sample["context"]
         # Split document into chunks
         _, text_chunks = chunk_text_by_tokens(document, self.tokenizer)

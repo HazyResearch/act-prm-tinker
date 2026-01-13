@@ -173,8 +173,8 @@ class HotpotQAMultipleChoiceEnv(Environment):
         """
         Reset environment (starting new episode + loading a new task)
         """
-        sample_idx = self.adjust_sample_idx(sample_idx)  # Wrap around if out of bounds
-        sample = self.datasets[self.split][sample_idx]
+        sample_idx_adj = self.adjust_sample_idx(sample_idx)  # Wrap around if out of bounds
+        sample = self.datasets[self.split][sample_idx_adj]
         # Build lookup dictionary for all documents by title
         sample["all_docs_dict"] = {
             title: doc
