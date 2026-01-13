@@ -352,8 +352,14 @@ class BrowseCompPlusSearchEnv(Environment):
                 fc_name = action.name
                 fc_args = action.arguments
 
-                if fc_name == "invalid_tool_call" or fc_name not in current_state.tool_registry:
-                    stdout = f"Invalid tool call: {action.text}"
+                if fc_name == "invalid_tool_call":
+                    stdout = f"Invalid tool call:\n\n{action.text}"
+                    made_tool_call = False
+                elif fc_name not in current_state.tool_registry:
+                    stdout = (
+                        f"Invalid tool call:\n\n{action.text}\n\n"
+                        f"'{fc_name}' not currently available."
+                    )
                     made_tool_call = False
                 else:
                     if not isinstance(fc_args, dict):
@@ -423,13 +429,15 @@ class BrowseCompPlusSearchEnv(Environment):
                     metadata["correct"] = reward
                     metadata["total"] = 1
 
-        if made_tool_call:  # Update available tools based on what was called
+        # Update available tools based on what was called
+        if made_tool_call:
             available_tool_names = []
-            if fc_name == "search":  # Enforce that model can only expand after searching
+            if fc_name == "search":
                 available_tools = [
                     self.tool_registry["expand"].get_tool_desc(),
+                    self.tool_registry["search"].get_tool_desc(),
                 ]
-                available_tool_names.append("expand")
+                available_tool_names.extend(["expand", "search"])
             else:  # e.g., if fc_name == "expand":
                 available_tools = [
                     self.tool_registry["search"].get_tool_desc(),
@@ -451,7 +459,7 @@ class BrowseCompPlusSearchEnv(Environment):
                     available_tools.append(self.tool_registry["scroll_up"].get_tool_desc())
                     available_tool_names.append("scroll_up")
             available_tool_registry = {
-                k: v for k, v in current_state.tool_registry.items() if k in available_tool_names
+                k: v for k, v in self.tool_registry.items() if k in available_tool_names
             }
 
         # Update timesteps, fail if too many turns
