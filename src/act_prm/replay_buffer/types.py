@@ -12,11 +12,12 @@ from .utils import compute_returns_with_last_value
 class EpisodeStep(BaseModel):
     """
     Single episode step, i.e., a transition between two states
+    -> Note that tools is optional, but should be saved if available
     """
     state: list[dict[str, Any]]
     action: dict[str, Any]
     next_obs: list[dict[str, Any]]
-
+    
     state_len: int
     state_action_tokens: list[int]
     old_logprobs: list[float]
@@ -38,6 +39,8 @@ class EpisodeStep(BaseModel):
     return_is_computed: bool = False
     advantage_is_computed: bool = False
     constant_reward_group: bool = False
+
+    tools: list[dict[str, Any]] | None = None
 
 
 class Trajectory():

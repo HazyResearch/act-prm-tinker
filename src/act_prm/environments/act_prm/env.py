@@ -20,9 +20,9 @@ from tqdm import tqdm
 
 from ...llm_handlers import ActionFromLLM
 from ..base import Environment
-from ..types import EnvironmentStateWithAnswer
+from ..types import EnvironmentState
 
-from .utils import get_chat_from_ds_sample, get_ds_trajectory, get_latent_completion
+from .utils import get_chat_from_ds_sample, get_latent_completion, get_thought_and_actions
 
 
 SYSTEM_PROMPT = {
@@ -38,15 +38,14 @@ THOUGHT_ACTION_FEWSHOT_PROMPTS = [
 ]
 
 
-class ActionProcessRewardState(EnvironmentStateWithAnswer):
+class ActionProcessRewardState(EnvironmentState):
     """
     State of the ActionProcessReward environment
     """
-    system_prompt: str
-    new_messages: list[Message]
-    model_response: ModelResponse | None
-    prior_messages: list[PriorMessage]
-    tools: list[Tool]
+    assistant_indices: list[int]
+    generated_thoughts: list[str]
+    action_target: str
+
 
 
 class ActionFirstProcessRewardEnv(Environment):
@@ -78,9 +77,9 @@ class ActionFirstProcessRewardEnv(Environment):
         
         # Use for parsing thoughts and actions from LLM messages
         self.thought_action_kwargs = {
-            "action_bos": self.action_bos,
-            "action_eos": self.action_eos,
-            "final_answer_bos": self.final_answer_bos,
+            "action_bos": action_bos,
+            "action_eos": action_eos,
+            "final_answer_bos": final_answer_bos,
         }
         # Build fewshot examples, i.e., default context, for all samples
         fewshot_prompts = []
@@ -165,9 +164,37 @@ class ActionFirstProcessRewardEnv(Environment):
         sample_trajectory = self.datasets[self.split][sample_idx_adj]
         # Initial sample is just first step of the trajectory
         sample = sample_trajectory[0]
-        messages, (reward, return_) = get_chat_from_ds_sample(sample)
+        messages, _ = get_chat_from_ds_sample(sample)
         # Get actions only from messages
-        messages = [get_thought_and_actions(msg)[1] for msg in messages]
+        messages = [
+            get_thought_and_actions(msg, **self.thought_action_kwargs)[1] for msg in messages
+        ]
+        # Remove system prompt in messages
+        messages = messages[1:] if messages[0]["role"] == "system" else messages
+        assistant_indices = [i for i, msg in enumerate(chat) if msg["role"] == "assistant"]
+        # Get prompt for thought generation, and target action (str)
+        latent_chat, action_str = get_latent_completion(chat, continue_final_message=True)
+        # latent_chat = [self.system_prompt] + self.default_context + latent_chat
+        latent_chat = self.default_context + latent_chat
+        # tokens_state_action_next_obs = self.tokenizer.apply_chat_template(
+        #     latent_chat,
+        #     tokenize=True,
+        #     add_generation_prompt=False,
+        #     continue_final_message=True,  # remove added eos_token
+        # )
+        return EnvironmentStateWithAnswer(
+            system_prompt=self.system_prompt,
+            new_messages=latent_chat,
+            model_response=None,
+            prior_messages=[],
+            tools=[],  # leave out for now
+            # Step-wise metadata
+            sample_id=sample_idx,
+            generation_id=generation_idx,
+            batch_id=batch_idx,
+            try_step=try_step,
+            timestep=0,
+        )
 
         
         

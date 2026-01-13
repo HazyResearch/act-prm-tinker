@@ -26,6 +26,7 @@ class ReplayBuffer:
             "state": episode_step.state,
             "action": episode_step.action,
             "next_obs": episode_step.next_obs,
+            "tools": episode_step.tools,
             "old_logprobs": episode_step.old_logprobs,
             "return": episode_step.return_,
             "advantage": episode_step.advantage,

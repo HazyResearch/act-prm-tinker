@@ -175,6 +175,7 @@ class TinkerGenerator:
                 state=state_messages,  # state,
                 action=model_messages[0],  # parsed_actions,
                 next_obs=next_obs,
+                tools=state.tools,
                 state_len=len(input_ids),
                 state_action_tokens=state_action_input_ids,
                 # old_logprobs=response.logprobs,
