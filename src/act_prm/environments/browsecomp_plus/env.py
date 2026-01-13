@@ -31,7 +31,7 @@ class BrowseCompPlusSearchState(EnvironmentStateWithAnswer):
     tool_registry: dict[str, InstanceOf[BaseTool]]  # callable tools, by name
     tools: list[dict[str, Any]]                     # tool descriptions
     doc_dict: dict[str, Any] | None                 # current document (in the corpus)
-    current_doc_id: int | None                      # current document id (to retrieve from corpus)
+    current_doc_id: str | None                      # current document id (to retrieve from corpus)
 
 
 class BrowseCompPlusSearchStepResult(EnvironmentStepResult):
@@ -377,7 +377,6 @@ class BrowseCompPlusSearchEnv(Environment):
                         made_tool_call = False
                         results = None
                         maybe_new_doc = None
-                        # breakpoint()
 
                     # Update the document and identifiers
                     if isinstance(maybe_new_doc, dict):
