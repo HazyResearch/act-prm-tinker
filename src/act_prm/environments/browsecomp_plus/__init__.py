@@ -4,8 +4,10 @@ BrowseComp-Plus Environments
 Originally from https://github.com/texttron/BrowseComp-Plus
 """
 
-from .env_search import BrowseCompPlusSearchEnv
+from .env import BrowseCompPlusSearchEnv
+from .env_async import AsyncBrowseCompPlusSearchEnv
 
 __all__ = [
     "BrowseCompPlusSearchEnv",
+    "AsyncBrowseCompPlusSearchEnv",
 ]

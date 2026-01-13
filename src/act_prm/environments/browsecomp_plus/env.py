@@ -2,11 +2,11 @@
 Search environment for BrowseComp-Plus
 """
 
+import json
+import os
 from copy import copy
 from os.path import join
 from typing import Any
-import json
-import os
 
 import numpy as np
 from datasets import DatasetDict, Dataset, load_from_disk, load_dataset
@@ -500,23 +500,6 @@ class BrowseCompPlusSearchEnv(Environment):
             truncated=truncated,
             info=new_state.metadata,  # alternative access
         )
-
-
-class AsyncBrowseCompPlusSearchEnv(BrowseCompPlusSearchEnv):
-    """
-    Asynchronous BrowseComp-Plus search environment
-    """
-    async def async_reset(self, **kwargs: Any) -> BrowseCompPlusSearchState:
-        """
-        Asynchronous reset -> assumes super().reset() is fast and non-blocking
-        """
-        return super().reset(**kwargs)
-
-    async def async_step(self, **kwargs: Any) -> BrowseCompPlusSearchStepResult:
-        """
-        Asynchronous step -> assumes super().step() is fast and non-blocking
-        """
-        return super().step(**kwargs)
 
 
 class BrowseCompPlusGeneratedSearchEnv(BrowseCompPlusSearchEnv):

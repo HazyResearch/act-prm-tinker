@@ -11,6 +11,7 @@ import numpy as np
 import bm25s
 from bm25s import BM25
 from Stemmer import Stemmer
+from rich import print as rich_print
 from transformers import PreTrainedTokenizerBase
 
 from ...base import BaseTool
@@ -41,7 +42,10 @@ def build_retriever(
         save_path = save_path or ""
         return BM25.load(save_path, load_corpus=True)
     except FileNotFoundError:
-        print(f"-> No retriever found at {save_path}, building new retriever")
+        rich_print(
+            f"-> No retriever found at [bright_blue]{save_path}[/bright_blue]. "
+            "Building new retriever..."
+        )
 
     if retriever_name.startswith("bm25"):
         # Lowercase corpus for BM25
