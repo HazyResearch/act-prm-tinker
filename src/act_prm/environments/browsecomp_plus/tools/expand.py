@@ -66,7 +66,6 @@ class ExpandTool(BaseTool):
         result_str += f"{doc["text"]}"
         # Give some minor indication of where the document is in the context
         if doc["next_scroll_id"] is not None:
-            result_str += " [...Scroll down for more]"
             if not (
                 self.ds_corpus_index is not None
                 and doc["next_scroll_id"] not in self.ds_corpus_index

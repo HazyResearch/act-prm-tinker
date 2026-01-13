@@ -157,7 +157,7 @@ class BrowseCompPlusSearchEnv(Environment):
         _hf_repo_id_text = f"[bright_blue]{hf_repo_id}[/bright_blue]"
         try:
             datasets = load_from_disk(hf_repo_id)
-            rich_print(f"Loaded dataset from {_hf_repo_id_text}!")
+            rich_print(f"-> Loaded dataset from {_hf_repo_id_text}!")
         
         except Exception as e:  # File probably doesn't exist yet
             _error_text = f"[bright_red]{e}[/bright_red]"
@@ -197,7 +197,7 @@ class BrowseCompPlusSearchEnv(Environment):
         _doc_corpus_hf_repo_text = f"[bright_blue]{doc_corpus_hf_repo_id}[/bright_blue]"
         try:
             ds_corpus = load_from_disk(doc_corpus_hf_repo_id)
-            rich_print(f"Loaded dictionary corpus from {_doc_corpus_hf_repo_text}!")
+            rich_print(f"-> Loaded dictionary corpus from {_doc_corpus_hf_repo_text}!")
         
         except Exception as e:  # File probably doesn't exist yet
             _error_text = f"[bright_red]{e}[/bright_red]"
@@ -335,6 +335,11 @@ class BrowseCompPlusSearchEnv(Environment):
         generation_id = current_state.generation_id
         batch_id = current_state.batch_id
 
+        # Keep track of next doc_id and doc
+        # -> Tool call should update, but by default will be same as current state
+        next_doc_id = copy(current_state.current_doc_id)
+        next_doc_dict = copy(current_state.doc_dict)
+
         # Create environment response
         env_messages = []
         available_tools = current_state.tools
@@ -373,9 +378,6 @@ class BrowseCompPlusSearchEnv(Environment):
                         # True for all tool calls except SearchTool
                         next_doc_id = maybe_new_doc["doc_id"]
                         next_doc_dict = maybe_new_doc
-                    else:
-                        next_doc_id = current_state.current_doc_id
-                        next_doc_dict = current_state.doc_dict
 
                     if results is not None:
                         stdout = (

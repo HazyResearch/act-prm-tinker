@@ -368,13 +368,13 @@ class AsyncLongBenchEnvironment(LongBenchEnvironment):
     """
     Asynchronous LongBench environment
     """
-    async def async_reset(self, **kwargs: Any) -> LongBenchState:
+    async def reset_async(self, **kwargs: Any) -> LongBenchState:
         """
         Asynchronous reset -> assumes super().reset() is fast and non-blocking
         """
         return super().reset(**kwargs)
 
-    async def async_step(self, **kwargs: Any) -> LongBenchStepResult:
+    async def step_async(self, **kwargs: Any) -> LongBenchStepResult:
         """
         Asynchronous step -> assumes super().step() is fast and non-blocking
         """

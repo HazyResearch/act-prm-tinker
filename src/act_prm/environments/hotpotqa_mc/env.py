@@ -354,7 +354,7 @@ class AsyncHotpotQAMultipleChoiceEnv(HotpotQAMultipleChoiceEnv):
     """
     Asynchronous environment for HotpotQA multiple choice tasks
     """
-    async def async_reset(
+    async def reset_async(
         self,
         sample_idx: int = 0,
         generation_idx: int = 0,
@@ -373,7 +373,7 @@ class AsyncHotpotQAMultipleChoiceEnv(HotpotQAMultipleChoiceEnv):
             **kwargs,
         )
 
-    async def async_step(
+    async def step_async(
         self,
         **kwargs: Any,
     ) -> HotpotQAMultipleChoiceStepResult:

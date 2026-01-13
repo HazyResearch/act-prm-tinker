@@ -112,7 +112,7 @@ class TinkerGenerator:
         temperature = temperature or llm.temperature
 
         episode_steps: list[EpisodeStep] = []
-        state: EnvironmentState = await env.async_reset(
+        state: EnvironmentState = await env.reset_async(
             sample_idx=unique_data_sample_id,
             generation_idx=generation_id,
             try_step=try_step,
@@ -152,7 +152,7 @@ class TinkerGenerator:
             logprobs = logprobs[-action_token_len:]
 
             # 2. Step through the environment
-            env_step_result: EnvironmentStepResult = await env.async_step(
+            env_step_result: EnvironmentStepResult = await env.step_async(
                 parsed_actions=parsed_actions,
                 model_response=model_messages,
                 current_state=state,

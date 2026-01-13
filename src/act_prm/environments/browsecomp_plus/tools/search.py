@@ -40,7 +40,9 @@ def build_retriever(
     """
     try:
         save_path = save_path or ""
-        return BM25.load(save_path, load_corpus=True)
+        retriever = BM25.load(save_path, load_corpus=True)
+        rich_print(f"-> Loaded retriever from [bright_blue]{save_path}[/bright_blue]!")
+        return retriever
     except FileNotFoundError:
         rich_print(
             f"-> No retriever found at [bright_blue]{save_path}[/bright_blue]. "
@@ -106,6 +108,7 @@ class SearchTool(BaseTool):
     def __call__(
         self,
         query: str,
+        **kwargs: Any,
     ) -> tuple[list[dict[str, Any]], str]:
         """
         Search the corpus for top document based on the given query
@@ -124,8 +127,8 @@ class SearchTool(BaseTool):
             topk_result_preview: list[dict] = []
 
             for i in range(results.shape[1]):
-                doc_idx, _ = results[0, i], scores[0, i]  # for now, don't show score
-                doc_dict = self.corpus[doc_idx]
+                result_i, _ = results[0, i], scores[0, i]  # for now, don't show score
+                doc_dict = self.corpus[result_i["id"]]
                 result_preview = self._format_result_preview(
                     doc_dict, i, llm_query_input_ids
                 )
@@ -135,7 +138,7 @@ class SearchTool(BaseTool):
         except Exception as e:
             result_str = f"error: {str(e)}"
             topk_result_preview = {}
-            logger.error(f"Error in SearchTool: {e}")
+            logger.error(f"SearchTool error: {e}")
             breakpoint()
 
         return topk_result_preview, result_str
