@@ -67,6 +67,24 @@ uv run python main.py \
 --seed 42 --replicate 0 --verbose
 ```
 
+### BrowseComp-Plus Search  
+
+**Default Policy Gradient**  
+
+```bash
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config browsecomp_plus/search \
+--generator_config default \
+--trainer_config qwen3_4b_pg \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+```
+
 ### LongBench v2  
 
 **Default Policy Gradient**  

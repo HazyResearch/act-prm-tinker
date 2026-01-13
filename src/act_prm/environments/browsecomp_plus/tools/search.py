@@ -4,6 +4,7 @@ Search tool for SlackChat QA Environment
 
 from os.path import join
 from typing import Any
+import json
 import logging
 
 import numpy as np
@@ -48,9 +49,7 @@ def build_retriever(
         corpus_tokens = bm25s.tokenize(corpus, stopwords=stopwords, stemmer=stemmer)
         # Create the BM25 model and index the corpus
         retriever = (
-            bm25s.BM25(**retriever_config)
-            if retriever_config is not None
-            else bm25s.BM25()
+            bm25s.BM25(**retriever_config) if retriever_config is not None else bm25s.BM25()
         )
     else:
         raise NotImplementedError(f"Sorry, retriever {retriever_name} not implemented")
@@ -64,7 +63,7 @@ def build_retriever(
 
 class SearchTool(BaseTool):
     """
-    Search tool
+    Search tool using BM25 ranking function (lexical matching)
     """
 
     def __init__(
@@ -73,20 +72,22 @@ class SearchTool(BaseTool):
         tokenizer: PreTrainedTokenizerBase,
         retriever_name: str = "bm25_index",
         use_stemmer: bool = True,
-        top_k: int = 1,
-        save_path: str | None = None,
         retriever_config: dict[str, Any] | None = None,
+        top_k: int = 5,
+        max_preview_tokens: int = 204,  # about 1024 tokens overall
+        save_path: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
+        self.corpus = corpus
+        self.tokenizer = tokenizer
+
         self.retriever_name = retriever_name
         self.stemmer = Stemmer("english") if use_stemmer else None  
         self.retriever_config = retriever_config
-        
-        # self.tokenizer = tokenizer
-        self.corpus = corpus
         self.top_k = top_k
-
+        self.max_preview_tokens = max_preview_tokens
+        
         if save_path is not None:
             save_path = join(save_path, f"{retriever_name}")
         self.retriever = build_retriever(
@@ -101,53 +102,84 @@ class SearchTool(BaseTool):
     def __call__(
         self,
         query: str,
-    ) -> tuple[None, list[dict[str, Any]] | str]:
+    ) -> tuple[list[dict[str, Any]], str]:
         """
         Search the corpus for top document based on the given query
 
         Returns:
-        - top-k document dicts or string
+        - top-k document dicts
+        - string representation of the top-k document dicts
         """
         try:
             # Query the corpus
             bm25_query_tokens = bm25s.tokenize(query.lower(), self.stemmer)
-            # results, scores = self.retriever.retrieve(bm25_query_tokens, k=self.top_k)
-            results = self.retriever.retrieve(bm25_query_tokens, k=self.top_k)[0]
-            # tokenizer_fn = cast(Callable[[str], dict[str, Any]], self.tokenizer)
-            # llm_query_input_ids = tokenizer_fn(query)["input_ids"]
-            topk_results: list[dict[str, Any]] = []
-            topk_results_str: list[str] = []
+            results, scores = self.retriever.retrieve(bm25_query_tokens, k=self.top_k)
+            
+            # For each top-k result, get the preview text
+            llm_query_input_ids = self.tokenizer(query)["input_ids"]
+            topk_result_preview: list[dict] = []
+
             for i in range(results.shape[1]):
-                # doc_idx, score = results[0, i], scores[0, i]
-                doc_idx = results[0, i]
+                doc_idx, _ = results[0, i], scores[0, i]  # for now, don't show score
                 doc_dict = self.corpus[doc_idx]
-                if self.return_str:
-                    # Return string representation of the result
-                    scroll_msg = ""
-                    if doc_dict["next_chunk_idx"] is not None:
-                        scroll_msg += "\n- Scroll down for more..."
-                    if doc_dict["prev_chunk_idx"] is not None:
-                        scroll_msg += "\n- Scroll up for more..."
-                    topk_results_str.append(RESULT_TEMPLATE.format(
-                        document=doc_dict["text"],
-                        scroll_msg=scroll_msg,
-                    ))
-                    topk_results.append(doc_dict)
-                else:
-                    topk_results.append(doc_dict)
-                break
-            new_doc_dict = topk_results[0]
-            result_str = topk_results_str[0]
-            # result_str = json.dumps(topk_results, indent=2)
-            result_str = f"# Search Results:\n\n{result_str}"
+                result_preview = self._format_result_preview(
+                    doc_dict, i, llm_query_input_ids
+                )
+                topk_result_preview.append(result_preview)
+            result_str = json.dumps(topk_result_preview, indent=2)
 
         except Exception as e:
             result_str = f"error: {str(e)}"
-            new_doc_dict = {}
+            topk_result_preview = {}
             logger.error(f"Error in SearchTool: {e}")
             breakpoint()
 
-        return new_doc_dict, result_str
+        return topk_result_preview, result_str
+
+    def _format_result_preview(
+        self,
+        retrieved_doc: dict[str, Any],
+        retrieve_rank: int,
+        query_input_ids: list[int],
+        retriever_score: float | None = None,
+    ) -> dict:
+        """
+        Format the result preview for a message
+        """
+        doc_input_ids = self.tokenizer(retrieved_doc["text"])["input_ids"]
+        doc_title = retrieved_doc["title"]
+        if len(doc_input_ids) > self.max_preview_tokens:
+            _start_idx, _end_idx, tokens_span = best_window_total_hits_np(
+                doc_input_ids, query_input_ids, window=self.max_preview_tokens
+            )
+            doc_content = self.tokenizer.decode(
+                tokens_span, skip_special_tokens=True
+            ).strip()
+            # Decorate (split on words, add ellipsis prefix / suffix)
+            _doc_content_delim = doc_content.split(" ")
+            _doc_prefix, _doc_suffix = "", ""
+            if _end_idx < len(doc_input_ids):
+                _doc_content_delim = _doc_content_delim[:-1]
+                _doc_suffix = " [...Expand for more]"
+            if _start_idx > 0:
+                _doc_content_delim = _doc_content_delim[1:]
+                _doc_prefix = "[Expand for more...] "
+            doc_content = f"{_doc_prefix}{' '.join(_doc_content_delim)}{_doc_suffix}"
+        else:
+            doc_content = retrieved_doc["text"]
+
+        # Make retriever score JSON serializable as string
+        retriever_score = str(retriever_score) if retriever_score is not None else ""
+        return {
+            "doc_id": retrieved_doc["doc_id"],
+            "title": doc_title,
+            "text_preview": doc_content,
+            "retriever_rank": retrieve_rank + 1,  # 1-indexed
+            "retriever_score": retriever_score,
+            # "url": retrieved_doc["url"],
+            # "past_scroll_id": retrieved_doc["past_scroll_id"],
+            # "next_scroll_id": retrieved_doc["next_scroll_id"],
+        }
 
     def get_tool_desc(self) -> dict:
         """
@@ -176,8 +208,14 @@ def best_window_total_hits_np(
     window: int = 256,
 ) -> tuple[int, int, list[int]]:
     """
-    Returns (start_idx, score, best_window_slice) where score counts how many
-    ints in the window are members of the query (duplicates count).
+    Helper to find window in the document that matches the query best
+    - Use for slightly more intelligent preview of document text vs just
+      returning the first window tokens (i.e., doc[:window])
+
+    Returns: 
+    - start_idx: index of the start of the best window
+    - score: number of query tokens in the best window
+    - best_window_slice: slice of the document that matches the query best
     """
     if not doc or not query or window <= 0:
         return (0, 0, [])

@@ -21,6 +21,14 @@ def get_env(name: str, is_async: bool = False, **kwargs: Any) -> Environment:
             from .hotpotqa_mc import HotpotQAMultipleChoiceEnv
             return HotpotQAMultipleChoiceEnv(**kwargs)
 
+    elif name == "browsecomp_plus_search":
+        if is_async:
+            from .browsecomp_plus import AsyncBrowseCompPlusSearchEnv
+            return AsyncBrowseCompPlusSearchEnv(**kwargs)
+        else:
+            from .browsecomp_plus import BrowseCompPlusSearchEnv
+            return BrowseCompPlusSearchEnv(**kwargs)
+
     elif name == "longbench_v2":
         if is_async:
             from .longbench_v2 import AsyncLongBenchEnvironment

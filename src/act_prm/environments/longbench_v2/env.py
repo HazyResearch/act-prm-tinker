@@ -140,12 +140,9 @@ class LongBenchEnvironment(Environment):
         batch_idx: int = 0,
     ) -> LongBenchState:
         """
-        Reset environment (starting new episode, or working on a new sample)
+        Reset environment (starting new episode + loading a new task)
         """
-        # Wrap around if sample index is out of bounds
-        if sample_idx > len(self.datasets[self.split]):
-            rich_print(f"Sample index {sample_idx} is out of bounds for {self.split} split, wrapping around.")
-            sample_idx = sample_idx % len(self.datasets[self.split])  # wrap around if out of bounds
+        sample_idx = self.adjust_sample_idx(sample_idx)  # Wrap around if out of bounds
         sample = self.datasets[self.split][sample_idx]
         document = sample["context"]
         # Split document into chunks

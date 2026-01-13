@@ -171,12 +171,9 @@ class HotpotQAMultipleChoiceEnv(Environment):
         batch_idx: int = 0,
     ) -> HotpotQAMultipleChoiceState:
         """
-        Reset environment
+        Reset environment (starting new episode + loading a new task)
         """
-        # Wrap around if sample index is out of bounds
-        if sample_idx > len(self.datasets[self.split]):
-            rich_print(f"Sample index {sample_idx} is out of bounds for {self.split} split, wrapping around.")
-            sample_idx = sample_idx % len(self.datasets[self.split])  # wrap around if out of bounds
+        sample_idx = self.adjust_sample_idx(sample_idx)  # Wrap around if out of bounds
         sample = self.datasets[self.split][sample_idx]
         # Build lookup dictionary for all documents by title
         sample["all_docs_dict"] = {
@@ -198,7 +195,7 @@ class HotpotQAMultipleChoiceEnv(Environment):
             answer=str(sample["answer"]),
             all_docs_dict=sample["all_docs_dict"],
             # Step-wise metadata
-            sample_idx=sample_idx,
+            sample_id=sample_idx,
             generation_id=generation_idx,
             batch_id=batch_idx,
             try_step=try_step,
@@ -210,10 +207,9 @@ class HotpotQAMultipleChoiceEnv(Environment):
     def step(
         self,
         **kwargs: Any,
-    ) -> tuple[HotpotQAMultipleChoiceState, float, bool, bool, dict[str, Any]]:
+    ) -> HotpotQAMultipleChoiceStepResult:
         """
         Step through the environment; see _step_impl for details
-        - Returns (next_state, reward, done, truncated, info)
         """
         return self._step_impl(**kwargs)
 
@@ -224,7 +220,7 @@ class HotpotQAMultipleChoiceEnv(Environment):
         current_state: HotpotQAMultipleChoiceState,
         current_messages: list[dict[str, Any]] | None = None,
         **kwargs: Any,
-    ) -> tuple[HotpotQAMultipleChoiceState, float, bool, bool, dict[str, Any]]:
+    ) -> HotpotQAMultipleChoiceStepResult:
         """
         Subclass implementation of step
         """
@@ -293,11 +289,10 @@ class HotpotQAMultipleChoiceEnv(Environment):
                         generation_id=generation_id,
                         split=self.split,
                     )
-                    reward = float(reward)  # convert bool to float for reward
+                    reward = float(reward)  # Convert bool to float for reward
                     done = True
                     user_content = "# RESULT: CORRECT!" if reward == 1 else "# RESULT: INCORRECT!"
-                    if self.next_obs_feedback:
-                        # include feedback in the next observation
+                    if self.next_obs_feedback:  # Include feedback in the next observation
                         user_content += f"\n\n{grader_text}"
                     env_messages.append({
                         "role": "user",

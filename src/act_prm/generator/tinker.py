@@ -198,7 +198,7 @@ class TinkerGenerator:
                 _header_text = (
                     f"Batch {batch_id}, Try {try_step}, "
                     f"Sample {unique_data_sample_id}, Generation {generation_id}, "
-                    f"Step {state.timestep} / {env.max_turns - 1}"
+                    f"Step {state.timestep} (Max {env.max_turns - 1})"
                 )
                 # Silly coloring to differentiate between generations
                 _base_color = f"color({(generation_id + 1) % 8 + 8})"

@@ -9,7 +9,7 @@ from typing import Any
 
 from transformers import AutoTokenizer
 
-from .types import EnvironmentState, EnvironmentStateWithAnswer, EnvironmentStepResult
+from .types import EnvironmentState, EnvironmentStepResult
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +46,18 @@ class Environment(ABC):
         self.pretrained_model_config = pretrained_model_config
         self.tokenizer = self._init_tokenizer()
 
-    @abstractmethod
     def __len__(self) -> int:
-        raise NotImplementedError
+        """
+        Get the environment's number of sample tasks
+        """
+        return len(self.datasets[self.split])
+
+    def adjust_sample_idx(self, sample_idx: int) -> int:
+        """
+        Adjust sample index to be in range of environment's number of tasks.
+        -> Wrap around if out of bounds.
+        """
+        return sample_idx % len(self.datasets[self.split])
 
     def _init_tokenizer(self) -> AutoTokenizer | None:
         if self.pretrained_model_config is not None:
@@ -83,7 +92,8 @@ class Environment(ABC):
         sample_idx: int,
         generation_idx: int,
         try_step: int = 0,
-    ) -> tuple[Any, dict[str, Any]]:
+        batch_idx: int = 0,
+    ) -> EnvironmentState:
         """
         Reset environment (starting new episode, or working on a new sample)
         """
