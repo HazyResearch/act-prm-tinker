@@ -55,6 +55,7 @@ class ScrollUpTool(BaseScrollTool):
         self,
         current_doc_id: str,
         doc_dict: dict[str, dict[str, Any]] | None = None,
+        **kwargs: Any,
     ) -> tuple[dict[str, Any], str]:
         """
         Scroll up in the document context
@@ -99,7 +100,7 @@ class ScrollUpTool(BaseScrollTool):
         }
 
 
-class ScrollDownTool(BaseTool):
+class ScrollDownTool(BaseScrollTool):
     """
     Scroll down in the document context
     """
@@ -107,6 +108,7 @@ class ScrollDownTool(BaseTool):
         self,
         current_doc_id: str,
         doc_dict: dict[str, dict[str, Any]] | None = None,
+        **kwargs: Any,
     ) -> tuple[dict[str, Any], str]:
         """
         Scroll down in the document context
