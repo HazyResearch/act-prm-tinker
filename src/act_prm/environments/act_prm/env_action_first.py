@@ -67,10 +67,10 @@ class ActionProcessRewardStepResult(EnvironmentStepResult):
     info: dict[str, Any] | None = None
 
 
-class ActPrmEnv(Environment):
+class ActionFirstActPrmEnv(Environment):
     """
-    ActPRM environment where we prompt LLMs with just the present state
-    to generate thoughts that lead to the next observed action.
+    ActPRM environment where we prompt LLMs with ground-truth actions
+    to generate thoughts that lead to that action.
     """
 
     def __init__(
@@ -95,16 +95,21 @@ class ActPrmEnv(Environment):
         self.num_fewshot_prompts = num_fewshot_prompts
         
         # Use for parsing thoughts and actions from LLM messages
-        self.action_bos = action_bos
-        self.action_eos = action_eos
-        self.final_answer_bos = final_answer_bos
         self.thought_action_kwargs = {
-            "action_bos": self.action_bos,
-            "action_eos": self.action_eos,
-            "final_answer_bos": self.final_answer_bos,
+            "action_bos": action_bos,
+            "action_eos": action_eos,
+            "final_answer_bos": final_answer_bos,
         }
         # Build fewshot examples, i.e., default context, for all samples
-        self.default_context = self.get_default_context()
+        fewshot_prompts = []
+        for fewshot_prompt in THOUGHT_ACTION_FEWSHOT_PROMPTS[:self.num_fewshot_prompts]:
+            fewshot_prompts.extend(fewshot_prompt)
+        if len(fewshot_prompts) > 0:
+            self.default_context, _ = get_latent_completion(
+                fewshot_prompts, continue_final_message=False, **self.thought_action_kwargs
+            )
+        else:
+            self.default_context = []
         
         self.num_train_samples = num_train_samples
         self.num_val_samples = num_val_samples
@@ -119,10 +124,16 @@ class ActPrmEnv(Environment):
     def get_default_context(self) -> list[dict[str, str]]:
         """
         Build fewshot examples, i.e., default context, for all samples
+        -> Here we translate the fewshot prompts into latent completions
         """
         fewshot_prompts = []
         for fewshot_prompt in THOUGHT_ACTION_FEWSHOT_PROMPTS[:self.num_fewshot_prompts]:
             fewshot_prompts.extend(fewshot_prompt)
+        
+        if len(fewshot_prompts) > 0:
+            fewshot_prompts, _ = get_latent_completion(
+                fewshot_prompts, continue_final_message=False, **self.thought_action_kwargs
+            )
         return fewshot_prompts
 
     def init_data(self) -> dict[str, list[Any]]:
@@ -140,7 +151,7 @@ class ActPrmEnv(Environment):
             ds = ds.filter(lambda x: x["return_"] > 0)
 
         # Organize source samples into Act-PRM samples
-        # -> Each Act-PRM sample is a single trajectory (a list of chat dicts), i.e.,
+        # -> Each Act-PRM sample is a single trajectory, each a list of chat dicts, i.e.,
         #    [{"role": "user", "content": "..."}, 
         #    {"role": "assistant", "content": <tool_call> ... </tool_call>}, 
         #    ...]  # (^Note that we only have actions, no thoughts in these trajectories)
@@ -181,16 +192,23 @@ class ActPrmEnv(Environment):
         action_trajectory: list[dict[str, Any]] = self.datasets[self.split][sample_idx_adj]
         # Initial sample is just first (obs, action) of the trajectory
         chat_step_idx = 2
-        messages = action_trajectory[:1]  # [{"role": "user", "content": "..."}]
-        action_target = action_trajectory[1]["content"]  # <tool_call> ... </tool_call>
-        # Keep track of assistant indices in the trajectory (e.g., to load next action_target)
-        assistant_indices = [
-            i for i, msg in enumerate(action_trajectory) if msg["role"] == "assistant"
-        ]
-        new_messages = self.default_context + messages
+        messages = action_trajectory[:chat_step_idx]
+        assistant_indices = [i for i, msg in enumerate(action_trajectory) if msg["role"] == "assistant"]
+        # Get prompt for thought generation, and target action (str)
+        latent_chat, action_target = get_latent_completion(
+            messages, continue_final_message=True, **self.thought_action_kwargs,
+        )
+        latent_chat = self.default_context + latent_chat
+        # We should call this during the tinker generator loop
+        # tokens_state_action_next_obs = self.tokenizer.apply_chat_template(
+        #     latent_chat,
+        #     tokenize=True,
+        #     add_generation_prompt=False,
+        #     continue_final_message=True,  # remove added eos_token
+        # )
         return ActionProcessRewardState(
             system_prompt=self.system_prompt,
-            new_messages=new_messages,
+            new_messages=latent_chat,
             model_response=None,
             prior_messages=[],
             tools=[],  # leave out for now
@@ -232,12 +250,6 @@ class ActPrmEnv(Environment):
 
         Here we maintain the entire input context via state.new_messages (no prior_messages).
         We also already compute rewards in the Act-PRM generator; we just pass them in here.
-
-        (We could treat this like a normal environment, but maintain consistency with
-         ActionFirstActPrmEnv, which currently does the entire context in state.new_messages)
-
-        MZ 1/13/26: We should look into adopting the next_message and model_response convention,
-        where action-first or state-only completions are handled via different Act-PRM generators
         """
         thought_action_chat = deepcopy(current_state.thought_action_chat)
 
@@ -271,25 +283,28 @@ class ActPrmEnv(Environment):
         if action.type == "message":
             # Parse the generated thought
             thought_text = action.text or ""
-            thought_text = thought_text.split("<thought>")[1].strip()      # Extract if in tags
             thought_text = thought_text.split("</thought>")[0].strip()
-            thought_text = thought_text.split(self.action_bos)[0].strip()  # Ignore any actions
-            thought_text = thought_text.split(self.final_answer_bos)[0].strip()
 
             # Update the (state, thought-action) chat
             # 1. Update last assistant message to include the generated thought
-            thought_action_chat.append({
+            thought_action_chat[-1] = {
                 "role": "assistant",
                 "content": f"{thought_text}\n\n{action_target}"
-            })
-            # 2. Add next_obs to chat
-            for t in range(1):
+            }
+            # 2. Add next_obs and next_action to chat
+            for t in range(2):
                 if chat_step_idx + t < len(action_trajectory):
                     thought_action_chat.append(action_trajectory[chat_step_idx + t])
 
-            # Create new chat (next_state.new_messages)
-            # -> (obs, thought, action, next_obs)
-            new_messages = self.default_context + thought_action_chat
+            # Create new latent chat (next_state.new_messages)
+            # -> From (obs, thought, action, next_obs, next_action), get_latent_completion
+            #    prompts for next_thought via (obs, action, thought, next_action)
+            latent_chat, action_target = get_latent_completion(
+                thought_action_chat,
+                continue_final_message=True,
+                **self.thought_action_kwargs,
+            )
+            latent_chat = self.default_context + latent_chat
 
             # Update chat step index (to deal with next action)
             chat_step_idx += 2
@@ -298,8 +313,8 @@ class ActPrmEnv(Environment):
             
             new_state = ActionProcessRewardState(
                 system_prompt=self.system_prompt,
-                new_messages=new_messages,  # Only use new_messages to contain entire context
-                model_response=None,        # So leave model_response and prior_messages empty
+                new_messages=latent_chat,  # Only use new_messages to contain entire context
+                model_response=None,       # So leave model_response and prior_messages empty
                 prior_messages=[],
                 tools=[],
                 # Act-PRM-specific fields
@@ -331,7 +346,7 @@ class ActPrmEnv(Environment):
         )
 
 
-class AsyncActPrmEnv(ActPrmEnv):
+class AsyncActionFirstActPrmEnv(ActionFirstActPrmEnv):
     """
     Asynchronous environment for ActionFirstProcessRewardEnv
     """

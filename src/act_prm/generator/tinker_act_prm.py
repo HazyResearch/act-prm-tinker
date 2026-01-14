@@ -11,7 +11,7 @@ from tinker.types import ModelInput
 from transformers import PreTrainedTokenizerBase
 
 from ..environments.base import Environment
-from ..environments.act_prm.env import ActionProcessRewardState
+from ..environments.act_prm import ActionProcessRewardState
 from ..environments.types import EnvironmentStepResult
 from ..llm_handlers.action_utils import get_actions
 from ..llm_handlers.tinker import SamplingClient, TinkerCompleter, TokensWithLogprobsAndText
