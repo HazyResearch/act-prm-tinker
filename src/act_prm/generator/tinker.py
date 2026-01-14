@@ -203,27 +203,14 @@ class TinkerGenerator:
                     f"Sample {unique_data_sample_id}, Generation {generation_id}, "
                     f"Step {state.timestep} (Max {env.max_turns - 1})"
                 )
-                # Silly coloring to differentiate between generations
-                _base_color = f"color({(generation_id + 1) % 8 + 8})"
-                _bold_color = f"bold color({(generation_id + 1) % 8 + 8})"
-                _rich_colors = {
-                    "system_color": "bold bright_yellow",
-                    "user_color": _base_color,
-                    "assistant_color": _bold_color,
-                    # "tool_call_color": f"bold {_bright_color}",
-                    # "tool_response_color": f"bold {_base_color}",
-                    "tool_call_color": "bold bright_blue",
-                    "tool_response_color": "bright_green",
-                }
-                display_state_action_next_obs(  # slightly coded for Qwen models for now
+                self.display_state_action_next_obs(  # slightly coded for Qwen models for now
                     state_messages=state_messages,
                     action_messages=model_messages,
                     next_obs_messages=next_obs,
                     hf_tokenizer=hf_tokenizer,
                     tools=state.tools,
                     header_text=_header_text,
-                    run_url=self.run_url,
-                    **_rich_colors,
+                    generation_id=generation_id,
                 )
             # Transition to next state
             state = env_step_result.state
@@ -264,6 +251,45 @@ class TinkerGenerator:
                 discount_factor=self.discount_factor,
             )
         ]
+
+    def display_state_action_next_obs(self,
+        state_messages: list[dict[str, Any]],
+        action_messages: list[dict[str, Any]],
+        next_obs_messages: list[dict[str, Any]],
+        hf_tokenizer: PreTrainedTokenizerBase,
+        tools: list[dict[str, Any]],
+        header_text: str,
+        generation_id: int,
+        # Rich colors
+        system_color: str = "bold bright_yellow",
+        tool_call_color: str = "bold bright_blue",
+        tool_response_color: str = "bright_green",
+        **other_rich_colors: Any,
+    ) -> None:
+        """
+        Display the state, action, and next observations in a rich format
+        """
+        # Silly coloring to differentiate between generations
+        _base_color = f"color({(generation_id + 1) % 8 + 8})"
+        _bold_color = f"bold color({(generation_id + 1) % 8 + 8})"
+        _rich_colors = {
+            "system_color": system_color,
+            "user_color": _base_color,
+            "assistant_color": _bold_color,
+            "tool_call_color": tool_call_color,
+            "tool_response_color": tool_response_color,
+        }
+        _rich_colors.update(other_rich_colors)
+        display_state_action_next_obs(
+            state_messages=state_messages,
+            action_messages=action_messages,
+            next_obs_messages=next_obs_messages,
+            hf_tokenizer=hf_tokenizer,
+            tools=tools,
+            header_text=header_text,
+            run_url=self.run_url,
+            **_rich_colors,
+        )
 
 
 class TinkerGRPOGenerator(TinkerGenerator):

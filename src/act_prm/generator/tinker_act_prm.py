@@ -5,7 +5,19 @@ Tinker Generator with Action Process Reward Models
 import asyncio
 from typing import Any
 
-from ..replay_buffer.types import Trajectory, TrajectoryGroup
+import numpy as np
+from tinker.types import ModelInput
+from transformers import PreTrainedTokenizerBase
+
+from ..environments.base import Environment
+from ..environments.act_prm.env import ActionProcessRewardState
+from ..environments.types import EnvironmentStepResult
+from ..llm_handlers.action_utils import get_actions
+from ..llm_handlers.tinker import SamplingClient, TinkerCompleter, TokensWithLogprobsAndText
+from ..llm_handlers.types import ActionFromLLM
+from ..replay_buffer.types import (
+    EpisodeStep, Trajectory, TrajectoryGroup, MeanCenteredTrajectoryGroup,
+)
 from ..trainer.utils import gather_with_progress
 
 from .tinker import TinkerGenerator
@@ -18,6 +30,7 @@ def process_state_messages_for_act_prm(
     """
     Ensure state messages have 1 system prompt and no last assistant message
     """
+    state_messages = deepcopy(state_messages)
     if state_messages[0]["role"] == "system":
         state_messages = state_messages[1:]
     if state_messages[-1]["role"] == "assistant":
@@ -32,17 +45,20 @@ async def compute_single_thought_action_metrics(
     hf_tokenizer: PreTrainedTokenizerBase,
     sampling_client: SamplingClient,
     tools: list[dict[str, str]] | None = None,
-) -> dict[str, float | list[int] | list[float] | int]:
+) -> dict[str, float | list[int] | list[float] | int, list[dict[str, str]]]:
     """
     Compute logprob and likelihood metrics for a given state, thought, and target action
+
+    These include artifacts useful for SFT training, e.g., (state, thought, action) tokens
 
     Returns a dictionary with the following keys:
     - action_probs:                  p(action | state, generated_thought)
     - action_logprobs:               logprobs of the action tokens
-    - state_thought_action_tokens:   tokens of the entire (state, thought, action) trajectory
-    - state_thought_action_logprobs: logprobs of the entire (state, thought, action) trajectory
+    - state_thought_action_tokens:   tokens of the current (state, thought, action) trajectory
+    - state_thought_action_logprobs: logprobs of the current (state, thought, action) trajectory
     - state_thought_len:             number of (state, thought) tokens
     - action_len:                    number of action tokens
+    - thought_action_messages:       thought-action model response
     """
     _tokenize_kwargs = {
         "add_generation_prompt": False,
@@ -80,10 +96,11 @@ async def compute_single_thought_action_metrics(
         "state_thought_action_logprobs": logprobs,
         "state_thought_len": len(prefix_tokens),
         "action_len": action_token_len,
+        "thought_action_messages": thought_action_msgs,
     }
 
 
-def compute_group_thought_action_metrics(
+async def compute_group_thought_action_metrics(
     state_messages: list[dict[str, str]],
     generated_thoughts: list[str],
     target_action: str,
@@ -95,14 +112,8 @@ def compute_group_thought_action_metrics(
     """
     Compute thought-action metrics for a group of generated thoughts
 
-    Returns a dictionary with the following keys:
-    - action_probs:                  p(action | state, generated_thought)
-    - action_logprobs:               logprobs of the action tokens
-    - state_thought_action_tokens:   tokens of the entire (state, thought, action) trajectory
-    - state_thought_action_logprobs: logprobs of the entire (state, thought, action) trajectory
-    - state_thought_len:             number of (state, thought) tokens
-    - action_len:                    number of action tokens
-    - state_len:                     number of state tokens
+    Returns a dictionary with the same keys as compute_single_thought_action_metrics, but also:
+    - state_len: number of state tokens
     """
     state_messages = process_state_messages_for_act_prm(state_messages, system_prompt)
     state_len = len(
@@ -171,19 +182,26 @@ class TinkerActPrmGenerator(TinkerGenerator):
         However for training, we still save each (state, action', thought', reward') tuple 
         for all `num_return_sequences` thoughts as a TrajectoryGroup. This results in returning
         `num_steps` TrajectoryGroups.
+
+        Currently only saves samples of the form (state, thought, action) for RL training
+        -> So we can at best do 1 round of action-prompted generation
+
         """
         llm = llm or self.llm
         env = env or self.env
         hf_tokenizer = hf_tokenizer or self.hf_tokenizer
-
         max_tokens = max_tokens or llm.max_tokens
         temperature = temperature or llm.temperature
 
-        state = await env.reset_async(
+        all_trajectory_groups: list[TrajectoryGroup] = []  # Will fill this 
+
+        state: ActionProcessRewardState = await env.reset_async(
             sample_idx=unique_data_sample_id,
             generation_idx=0,
             try_step=try_step,
         )
+        max_turns = len(state.assistant_indices)
+
         done = False
         while not done:
             # Generate model responses and step through the environment
@@ -205,10 +223,13 @@ class TinkerActPrmGenerator(TinkerGenerator):
                 ) for _ in range(num_return_sequences)
             ])
             # Parse thoughts from responses
-            thoughts_in_group: list[str] = [response[0].text for response in responses_in_group]
+            thoughts_in_group: list[str] = [  # demonstrations may have <thought>...</thought>
+                response.text.split("</thought>")[0].strip() for response in responses_in_group
+            ]
             # Compute per-step rewards for each thought
-            standard_chat = state.thought_action_chat[:-1]  # Get current state (no last action
-            group_metrics = compute_group_thought_action_metrics(
+            standard_chat = state.thought_action_chat[:-1]  # Get current state without last action
+            standard_chat = process_state_messages_for_act_prm(standard_chat, state.system_prompt)
+            group_metrics = await compute_group_thought_action_metrics(
                 state_messages=standard_chat,
                 generated_thoughts=thoughts_in_group,
                 target_action=state.action_target,
@@ -217,14 +238,34 @@ class TinkerActPrmGenerator(TinkerGenerator):
                 hf_tokenizer=hf_tokenizer,
                 sampling_client=llm.sampling_client,
             )
+            # Get artifacts for RL training
             rewards_in_group = group_metrics["action_probs"]
+            thought_action_messages = group_metrics["thought_action_messages"]
+
+            # Visualize generated thoughts
+            if self.verbose:
+                for i in range(num_return_sequences):
+                    header_text = (
+                        f"Batch {batch_id}, Try {try_step}, "
+                        f"Sample {unique_data_sample_id}, Generation {i}, "
+                        f"Step {state.timestep} / {max_turns - 1}, "
+                        f"Reward {rewards_in_group[i]:.4f}"
+                    )
+                    self.display_state_action_next_obs(
+                        state_messages=standard_chat,
+                        action_messages=thought_action_messages[i],
+                        next_obs_messages=[],
+                        hf_tokenizer=hf_tokenizer,
+                        tools=state.tools,
+                        header_text=header_text,
+                        generation_id=i,
+                    )
 
             # Save episode steps for each generation
             episode_steps_in_group: list[EpisodeStep] = [
                 EpisodeStep(
-                    state=state_messages,
-                    # Be sure to handle specifically
-                    action={"role": "assistant", "content": thoughts_in_group[i]},
+                    state=standard_chat,
+                    action=thought_action_messages[i][0],  # dict[str, str]
                     next_obs=[],
                     tools=state.tools,
                     state_len=len(input_ids),
@@ -234,7 +275,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
                     temperature=temperature,
                     reward=rewards_in_group[i],
                     done=done,
-                    truncated=truncated,
+                    truncated=False,
                     timestep=state.timestep,
                     try_step=try_step,
                     batch_id=batch_id,
@@ -259,56 +300,22 @@ class TinkerActPrmGenerator(TinkerGenerator):
                 final_rewards=rewards_in_group,
                 discount_factor=self.discount_factor,
             )
+            all_trajectory_groups.append(trajectory_group)
             
             # Pick the highest-reward thought to continue for the next step
             best_thought_idx = np.argmax(rewards_in_group)
             best_thought = thoughts_in_group[best_thought_idx]
+            model_messages = [{"role": "assistant", "content": best_thought}]
+            parsed_actions: list[ActionFromLLM] = [get_actions(model_messages)]
 
             env_step_result: EnvironmentStepResult = await env.step_async(
                 parsed_actions=parsed_actions,
-                model_response=model_messages,
+                # model_response=model_messages,
                 current_state=state,
-                # Set next_state.prior_messages to all messages
-                current_messages=state_messages,
+                # # Set next_state.prior_messages to all messages
+                # current_messages=state_messages,
             )
-            next_state = env_step_result.state
-            
+            # Transition to next state
+            state = env_step_result.state
 
-
-
-
-
-
-        states_in_group: list[EnvironmentState] = await asyncio.gather(*[
-            env.reset_async(
-                sample_idx=unique_data_sample_id,
-                generation_idx=gen_idx,
-                try_step=try_step,
-            ) for gen_idx in range(num_return_sequences)
-        ])
-        state_messages_in_group: list[list[dict[str, Any]]] = [
-            self._get_messages_from_state(state) for state in states_in_group
-        ]
-
-        state: EnvironmentState = await env.reset_async(
-            sample_idx=unique_data_sample_id,
-            generation_idx=generation_id,
-            try_step=try_step,
-        )
-        
-        
-        
-        trajectories_in_group: list[Trajectory] = await asyncio.gather(
-            *[
-                self.do_single_rollout(generation_id=gen_idx, **single_rollout_kwargs)
-                for gen_idx in range(num_return_sequences)
-            ],
-        )
-        # final_rewards_in_group: list[float] = [t.final_reward for t in trajectories_in_group]
-        return [
-            self._get_trajectory_group(
-                trajectories=trajectories_in_group, 
-                # final_rewards=final_rewards_in_group,
-                discount_factor=self.discount_factor,
-            )
-        ]
+        return all_trajectory_groups

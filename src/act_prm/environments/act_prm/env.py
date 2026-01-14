@@ -221,16 +221,17 @@ class ActionFirstActPrmEnv(Environment):
     def _step_impl(
         self,
         parsed_actions: list[ActionFromLLM],
-        model_response: Any,
+        # model_response: Any,
         current_state: ActionProcessRewardState,
-        current_messages: list[dict[str, Any]] | None = None,
+        # current_messages: list[dict[str, Any]] | None = None,
+        reward: float = 0.0,
         **kwargs: Any,
     ) -> ActionProcessRewardStepResult:
         """
         Subclass implementation of step.
 
-        Here, we progress in a "Markov" way, updating the entire trajectory 
-        via state.new_messages.
+        Here we maintain the entire input context via state.new_messages (no prior_messages).
+        We also already compute rewards in the Act-PRM generator; we just pass them in here.
         """
         thought_action_chat = deepcopy(current_state.thought_action_chat)
 
@@ -242,7 +243,6 @@ class ActionFirstActPrmEnv(Environment):
 
         done = False
         truncated = False
-        reward = 0
 
         metadata = copy(current_state.metadata)
         timestep = copy(current_state.timestep)
@@ -291,9 +291,6 @@ class ActionFirstActPrmEnv(Environment):
             chat_step_idx += 2
             if chat_step_idx > len(action_trajectory):
                 done = True
-
-            # Compute reward using generated thought?
-            reward = 0  # TODO: Implement reward computation
             
             new_state = ActionProcessRewardState(
                 system_prompt=self.system_prompt,
@@ -330,7 +327,7 @@ class ActionFirstActPrmEnv(Environment):
         )
 
 
-class AsyncActionFirstActPrmEnv(ActionFirstProcessRewardEnv):
+class AsyncActionFirstActPrmEnv(ActionFirstActPrmEnv):
     """
     Asynchronous environment for ActionFirstProcessRewardEnv
     """
