@@ -4,11 +4,12 @@ Action Process Reward Environments
 We train LLMs to generate thoughts that lead to observed actions with high-likelihoods,
 where reward = p(observed_action | thought).
 
-We do this via two environments.
-1. `ActionFirstProcessRewardEnv`: To bootstrap generations, we first give the ground-truth
-   action to the LLM first, and ask it to generate the thought that leads to that action.
+Based on the Generator, we do this via two setups:
 
-2. `ActionProcessRewardEnv`: We can then optionally train the LLM to generate thoughts
+1. `TinkerActionPromptActPrmGenerator`: To bootstrap generations, we first give the ground-truth
+   action to the LLM first, and ask it to generate the thought that leads to that action.
+   
+2. `TinkerActPrmGenerator`: We can then optionally train the LLM to generate thoughts
     based on just the present state (i.e., it does not see the action as a hint).
 """
 
@@ -24,15 +25,12 @@ from ..types import EnvironmentState, EnvironmentStepResult
 
 from .utils import (
     get_action_only_trajectories_from_dataset,
-    get_chat_from_ds_sample,
-    get_latent_completion,
-    get_thought_and_actions,
 )
 
 
 SYSTEM_PROMPT = {
     "role": "system",
-    "content": "You are a helpful assistant that infers latent thoughts behind observed actions."
+    "content": "You are a helpful assistant that infers reasoning thoughts behind observed actions."
 }
 
 THOUGHT_ACTION_FEWSHOT_PROMPTS = [
@@ -51,9 +49,6 @@ class ActionProcessRewardState(EnvironmentState):
     chat_step_idx: int
     action_trajectory: list[dict[str, str]]    # True action-only trajectory
     assistant_indices: list[int]
-    past_gen_thoughts: list[str]
-    thought_action_chat: list[dict[str, str]]  # Chat we build via thought-action completion
-    # action_thought_chat: list[dict[str, str]]
 
 
 class ActionProcessRewardStepResult(EnvironmentStepResult):
@@ -179,9 +174,11 @@ class ActPrmEnv(Environment):
         """
         sample_idx_adj = self.adjust_sample_idx(sample_idx)  # Wrap around if out of bounds
         action_trajectory: list[dict[str, Any]] = self.datasets[self.split][sample_idx_adj]
-        # Initial sample is just first (obs, action) of the trajectory
+        # Initial sample is just first (obs, action) of the trajectory, i.e.,
+        # [{"role": "user", "content": "..."},
+        #  {"role": "assistant", "content": <tool_call> ... </tool_call>}]
         chat_step_idx = 2
-        messages = action_trajectory[:1]  # [{"role": "user", "content": "..."}]
+        messages = action_trajectory[:2]
         action_target = action_trajectory[1]["content"]  # <tool_call> ... </tool_call>
         # Keep track of assistant indices in the trajectory (e.g., to load next action_target)
         assistant_indices = [
@@ -199,8 +196,7 @@ class ActPrmEnv(Environment):
             chat_step_idx=chat_step_idx,
             action_trajectory=action_trajectory,
             assistant_indices=assistant_indices,
-            past_gen_thoughts=[],
-            thought_action_chat=messages,
+            thought_action_chat=messages,  # (state, action)
             # Step-wise metadata
             sample_id=sample_idx,
             generation_id=generation_idx,
@@ -223,29 +219,19 @@ class ActPrmEnv(Environment):
         parsed_actions: list[ActionFromLLM],
         # model_response: Any,
         current_state: ActionProcessRewardState,
-        # current_messages: list[dict[str, Any]] | None = None,
+        current_messages: list[dict[str, Any]] | None = None,
         reward: float = 0.0,
         **kwargs: Any,
     ) -> ActionProcessRewardStepResult:
         """
         Subclass implementation of step.
 
-        Here we maintain the entire input context via state.new_messages (no prior_messages).
-        We also already compute rewards in the Act-PRM generator; we just pass them in here.
-
-        (We could treat this like a normal environment, but maintain consistency with
-         ActionFirstActPrmEnv, which currently does the entire context in state.new_messages)
-
-        MZ 1/13/26: We should look into adopting the next_message and model_response convention,
-        where action-first or state-only completions are handled via different Act-PRM generators
+        We already compute rewards in the Act-PRM generator; we just pass them in here.
         """
-        thought_action_chat = deepcopy(current_state.thought_action_chat)
-
         action_target = current_state.action_target
         chat_step_idx = copy(current_state.chat_step_idx)
         action_trajectory = current_state.action_trajectory
         assistant_indices = current_state.assistant_indices
-        past_gen_thoughts = current_state.past_gen_thoughts
 
         done = False
         truncated = False
@@ -256,8 +242,6 @@ class ActPrmEnv(Environment):
         sample_id = current_state.sample_id
         generation_id = current_state.generation_id
         batch_id = current_state.batch_id
-
-        # Create environment response
 
         # Update timesteps, fail if too many turns
         timestep += 1
@@ -278,37 +262,33 @@ class ActPrmEnv(Environment):
 
             # Update the (state, thought-action) chat
             # 1. Update last assistant message to include the generated thought
-            thought_action_chat.append({
+            current_messages[-1] = {
                 "role": "assistant",
                 "content": f"{thought_text}\n\n{action_target}"
-            })
-            # 2. Add next_obs to chat
-            for t in range(1):
-                if chat_step_idx + t < len(action_trajectory):
-                    thought_action_chat.append(action_trajectory[chat_step_idx + t])
-
-            # Create new chat (next_state.new_messages)
-            # -> (obs, thought, action, next_obs)
-            new_messages = self.default_context + thought_action_chat
+            }
+            # 2. Add next_obs and next_action as new messages
+            env_messages = [
+                action_trajectory[chat_step_idx + t] for t in range(2)
+            ]
+            action_target = env_messages[-1]["content"]  # next action target
 
             # Update chat step index (to deal with next action)
             chat_step_idx += 2
             if chat_step_idx > len(action_trajectory):
                 done = True
-            
+
+            # Create environment response
             new_state = ActionProcessRewardState(
                 system_prompt=self.system_prompt,
-                new_messages=new_messages,  # Only use new_messages to contain entire context
-                model_response=None,        # So leave model_response and prior_messages empty
-                prior_messages=[],
-                tools=[],
+                new_messages=env_messages,
+                model_response=None,
+                prior_messages=current_messages,
+                tools=current_state.tools,
                 # Act-PRM-specific fields
                 action_target=action_target,
                 chat_step_idx=chat_step_idx,
                 action_trajectory=action_trajectory,
                 assistant_indices=assistant_indices,
-                past_gen_thoughts=past_gen_thoughts,
-                thought_action_chat=thought_action_chat,
                 # Step-wise metadata
                 sample_id=sample_id,
                 generation_id=generation_id,
