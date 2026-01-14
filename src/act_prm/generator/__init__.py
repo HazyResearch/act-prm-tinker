@@ -24,7 +24,7 @@ def get_generator_constructor(name: str, **kwargs: Any) -> Callable[..., TinkerG
         return partial(TinkerGenerator, **kwargs)
 
     elif name == "tinker_grpo":
-        from .tinker_grpo import TinkerGRPOGenerator
+        from .tinker import TinkerGRPOGenerator
         return partial(TinkerGRPOGenerator, **kwargs)
 
     else:

@@ -20,7 +20,9 @@ from ..environments.types import EnvironmentStepResult
 from ..llm_handlers.action_utils import get_actions
 from ..llm_handlers.tinker import TinkerCompleter, TokensWithLogprobsAndText
 from ..llm_handlers.types import ActionFromLLM
-from ..replay_buffer.types import EpisodeStep, Trajectory, TrajectoryGroup
+from ..replay_buffer.types import (
+    EpisodeStep, Trajectory, TrajectoryGroup, MeanCenteredTrajectoryGroup,
+)
 
 from .utils_display import display_state_action_next_obs
 
@@ -262,3 +264,16 @@ class TinkerGenerator:
                 discount_factor=self.discount_factor,
             )
         ]
+
+
+class TinkerGRPOGenerator(TinkerGenerator):
+    """
+    Tinker Generator with Mean-Centered Return Rollouts
+    """
+    def _get_trajectory_group(self, **kwargs: Any) -> MeanCenteredTrajectoryGroup:
+        """
+        Returns trajectory group where we compute advantages by:
+        1. Computing mean-centered final rewards: final_reward - mean(final_rewards)
+        2. Optionally apply step-wise discounting to these values
+        """
+        return MeanCenteredTrajectoryGroup(**kwargs)
