@@ -12,17 +12,22 @@ We do this via two environments.
     based on just the present state (i.e., it does not see the action as a hint).
 """
 
+from copy import copy, deepcopy
 from typing import Any
 
 import numpy as np
-from datasets import Dataset, load_dataset
-from tqdm import tqdm
+from datasets import load_dataset
 
 from ...llm_handlers import ActionFromLLM
 from ..base import Environment
-from ..types import EnvironmentState
+from ..types import EnvironmentState, EnvironmentStepResult
 
-from .utils import get_chat_from_ds_sample, get_latent_completion, get_thought_and_actions
+from .utils import (
+    get_action_only_trajectories_from_dataset,
+    get_chat_from_ds_sample,
+    get_latent_completion,
+    get_thought_and_actions,
+)
 
 
 SYSTEM_PROMPT = {
@@ -42,13 +47,27 @@ class ActionProcessRewardState(EnvironmentState):
     """
     State of the ActionProcessReward environment
     """
-    assistant_indices: list[int]
-    generated_thoughts: list[str]
     action_target: str
+    chat_step_idx: int
+    action_trajectory: list[dict[str, str]]    # True action-only trajectory
+    assistant_indices: list[int]
+    past_gen_thoughts: list[str]
+    thought_action_chat: list[dict[str, str]]  # Chat we build via thought-action completion
+    # action_thought_chat: list[dict[str, str]]
 
 
+class ActionProcessRewardStepResult(EnvironmentStepResult):
+    """
+    Step result of the ActionProcessReward environment
+    """
+    state: ActionProcessRewardState
+    reward: float
+    done: bool
+    truncated: bool
+    info: dict[str, Any] | None = None
 
-class ActionFirstProcessRewardEnv(Environment):
+
+class ActionFirstActPrmEnv(Environment):
     """
     ActPRM environment where we prompt LLMs with ground-truth actions
     to generate thoughts that lead to that action.
@@ -118,22 +137,13 @@ class ActionFirstProcessRewardEnv(Environment):
 
         # Organize source samples into Act-PRM samples
         # -> Each Act-PRM sample is a single trajectory
-        unique_sample_ids = ds.unique("data_sample_id")
-        all_trajectories = []
-        current_trajectory = []
-        current_sample_id_ = unique_sample_ids[0]
-        for sample in tqdm(ds):
-            if sample["data_sample_id"] == current_sample_id_:
-                current_trajectory.append(sample)
-            else:
-                all_trajectories.append(current_trajectory)
-                current_trajectory = [sample]
-                current_sample_id_ = sample["data_sample_id"]
-        all_trajectories.append(current_trajectory)  # add last trajectory
+        all_action_trajectories = get_action_only_trajectories_from_dataset(
+            ds, **self.thought_action_kwargs,
+        )
 
         # Organize into dataset splits
         num_samples = min(
-            len(all_trajectories),
+            len(all_action_trajectories),
             self.num_train_samples + self.num_val_samples + self.num_test_samples,
         )
         shuffle_indices = list(range(num_samples))
@@ -144,9 +154,9 @@ class ActionFirstProcessRewardEnv(Environment):
         eval_indices  = shuffle_indices[self.num_train_samples:last_eval_idx]
         test_indices  = shuffle_indices[last_eval_idx:]
         datasets = {
-            "train": [all_trajectories[i] for i in train_indices],
-            "eval":  [all_trajectories[i] for i in eval_indices],
-            "test":  [all_trajectories[i] for i in test_indices],
+            "train": [all_action_trajectories[i] for i in train_indices],
+            "eval":  [all_action_trajectories[i] for i in eval_indices],
+            "test":  [all_action_trajectories[i] for i in test_indices],
         }
         return datasets
 
@@ -156,38 +166,41 @@ class ActionFirstProcessRewardEnv(Environment):
         generation_idx: int = 0,
         try_step: int = 0,
         batch_idx: int = 0,
-    ) -> EnvironmentStateWithAnswer:
+    ) -> ActionProcessRewardState:
         """
         Reset environment (starting new episode + loading a new task)
         """
         sample_idx_adj = self.adjust_sample_idx(sample_idx)  # Wrap around if out of bounds
-        sample_trajectory = self.datasets[self.split][sample_idx_adj]
-        # Initial sample is just first step of the trajectory
-        sample = sample_trajectory[0]
-        messages, _ = get_chat_from_ds_sample(sample)
-        # Get actions only from messages
-        messages = [
-            get_thought_and_actions(msg, **self.thought_action_kwargs)[1] for msg in messages
-        ]
-        # Remove system prompt in messages
-        messages = messages[1:] if messages[0]["role"] == "system" else messages
-        assistant_indices = [i for i, msg in enumerate(chat) if msg["role"] == "assistant"]
+        action_trajectory: list[dict[str, Any]] = self.datasets[self.split][sample_idx_adj]
+        # Initial sample is just first (obs, action) of the trajectory
+        chat_step_idx = 2
+        messages = action_trajectory[:chat_step_idx]
+        assistant_indices = [i for i, msg in enumerate(messages) if msg["role"] == "assistant"]
         # Get prompt for thought generation, and target action (str)
-        latent_chat, action_str = get_latent_completion(chat, continue_final_message=True)
-        # latent_chat = [self.system_prompt] + self.default_context + latent_chat
+        latent_chat, action_target = get_latent_completion(
+            messages, continue_final_message=True, **self.thought_action_kwargs,
+        )
         latent_chat = self.default_context + latent_chat
+        # We should call this during the tinker generator loop
         # tokens_state_action_next_obs = self.tokenizer.apply_chat_template(
         #     latent_chat,
         #     tokenize=True,
         #     add_generation_prompt=False,
         #     continue_final_message=True,  # remove added eos_token
         # )
-        return EnvironmentStateWithAnswer(
+        return ActionProcessRewardState(
             system_prompt=self.system_prompt,
             new_messages=latent_chat,
             model_response=None,
             prior_messages=[],
             tools=[],  # leave out for now
+            # ActPRM-specific fields
+            action_target=action_target,
+            chat_step_idx=chat_step_idx,
+            action_trajectory=action_trajectory,
+            assistant_indices=assistant_indices,
+            past_gen_thoughts=[],
+            thought_action_chat=messages,
             # Step-wise metadata
             sample_id=sample_idx,
             generation_id=generation_idx,
@@ -196,12 +209,142 @@ class ActionFirstProcessRewardEnv(Environment):
             timestep=0,
         )
 
-        
-        
-        
-        chat, (reward, return_) = get_chat_from_ds_sample(sample)
-        return EnvironmentStateWithAnswer(
-            system_prompt=self.system_prompt,
+    def step(
+        self,
+        **kwargs: Any,
+    ) -> ActionProcessRewardStepResult:
+        """
+        Step through the environment; see _step_impl for details
+        """
+        return self._step_impl(**kwargs)
 
-        
+    def _step_impl(
+        self,
+        parsed_actions: list[ActionFromLLM],
+        model_response: Any,
+        current_state: ActionProcessRewardState,
+        current_messages: list[dict[str, Any]] | None = None,
+        **kwargs: Any,
+    ) -> ActionProcessRewardStepResult:
+        """
+        Subclass implementation of step.
 
+        Here, we progress in a "Markov" way, updating the entire trajectory 
+        via state.new_messages.
+        """
+        thought_action_chat = deepcopy(current_state.thought_action_chat)
+
+        action_target = current_state.action_target
+        chat_step_idx = copy(current_state.chat_step_idx)
+        action_trajectory = current_state.action_trajectory
+        assistant_indices = current_state.assistant_indices
+        past_gen_thoughts = current_state.past_gen_thoughts
+
+        done = False
+        truncated = False
+        reward = 0
+
+        metadata = copy(current_state.metadata)
+        timestep = copy(current_state.timestep)
+        try_step = copy(current_state.try_step)
+        sample_id = current_state.sample_id
+        generation_id = current_state.generation_id
+        batch_id = current_state.batch_id
+
+        # Create environment response
+
+        # Update timesteps, fail if too many turns
+        timestep += 1
+        if timestep >= self.max_turns:
+            truncated = True
+            done = True
+            reward = 0
+
+        # Parse actions (messages and tool calls)
+        action = parsed_actions[0]  # only consider first generated action
+        if action.type == "message":
+            # Parse the generated thought
+            thought_text = action.text or ""
+            thought_text = thought_text.split("</thought>")[0].strip()
+
+            # Update the (state, thought-action) chat
+            # 1. Update last assistant message to include the generated thought
+            thought_action_chat[-1] = {
+                "role": "assistant",
+                "content": f"{thought_text}\n\n{action_target}"
+            }
+            # 2. Add next_obs and next_action to chat
+            for t in range(2):
+                if chat_step_idx + t < len(action_trajectory):
+                    thought_action_chat.append(action_trajectory[chat_step_idx + t])
+
+            # Create new latent chat (next_state.new_messages)
+            # -> From (obs, thought, action, next_obs, next_action), get_latent_completion
+            #    prompts for next_thought via (obs, action, thought, next_action)
+            latent_chat, action_target = get_latent_completion(
+                thought_action_chat,
+                continue_final_message=True,
+                **self.thought_action_kwargs,
+            )
+            latent_chat = self.default_context + latent_chat
+
+            chat_step_idx += 2
+            if chat_step_idx > len(action_trajectory):
+                done = True
+
+            # Compute reward using generated thought?
+            reward = 0  # TODO: Implement reward computation
+            
+            new_state = ActionProcessRewardState(
+                system_prompt=self.system_prompt,
+                new_messages=latent_chat,  # Only use new_messages to contain entire context
+                model_response=None,       # So leave model_response and prior_messages empty
+                prior_messages=[],
+                tools=[],
+                # ActPRM-specific fields
+                action_target=action_target,
+                chat_step_idx=chat_step_idx,
+                action_trajectory=action_trajectory,
+                assistant_indices=assistant_indices,
+                past_gen_thoughts=past_gen_thoughts,
+                thought_action_chat=thought_action_chat,
+                # Step-wise metadata
+                sample_id=sample_id,
+                generation_id=generation_id,
+                batch_id=batch_id,
+                try_step=try_step,
+                timestep=timestep,
+            )
+
+        else:
+            # No interpretable thoughts generated, just ask to try again
+            new_state = deepcopy(current_state)
+            new_state.timestep = timestep
+            
+        return ActionProcessRewardStepResult(
+            state=new_state,
+            reward=reward,
+            done=done,
+            truncated=truncated,
+            info=metadata,
+        )
+
+
+class AsyncActionFirstActPrmEnv(ActionFirstProcessRewardEnv):
+    """
+    Asynchronous environment for ActionFirstProcessRewardEnv
+    """
+    async def reset_async(self, **kwargs: Any) -> ActionProcessRewardState:
+        """
+        Asynchronous reset -> assumes super().reset() is fast and non-blocking
+        """
+        return super().reset(**kwargs)
+
+    async def step_async(
+        self,
+        **kwargs: Any,
+    ) -> ActionProcessRewardStepResult:
+        """
+        Asynchronous step -> assumes super().step() is fast and non-blocking
+        """
+        return super().step(**kwargs)
