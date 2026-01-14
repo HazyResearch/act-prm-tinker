@@ -366,6 +366,8 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 current_messages=state_messages,
             )
             # Transition to next state
-            state = env_step_result.state
+            state     = env_step_result.state
+            done      = env_step_result.done
+            truncated = env_step_result.truncated
 
         return all_trajectory_groups, all_act_prompt_trajectory_groups
