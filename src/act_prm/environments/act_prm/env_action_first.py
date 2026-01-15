@@ -24,9 +24,7 @@ from ..types import EnvironmentState, EnvironmentStepResult
 
 from .utils import (
     get_action_only_trajectories_from_dataset,
-    get_chat_from_ds_sample,
     get_latent_completion,
-    get_thought_and_actions,
 )
 
 
