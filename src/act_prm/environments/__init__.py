@@ -12,7 +12,15 @@ def get_env(name: str, is_async: bool = False, **kwargs: Any) -> Environment:
     """
     Get environment based on name
     """
-    if name == "hotpotqa_mc":
+    if name == "act_prm":
+        if is_async:
+            from .act_prm import AsyncActPrmEnv
+            return AsyncActPrmEnv(**kwargs)
+        else:
+            from .act_prm import ActPrmEnv
+            return ActPrmEnv(**kwargs)
+
+    elif name == "hotpotqa_mc":
 
         if is_async:
             from .hotpotqa_mc import AsyncHotpotQAMultipleChoiceEnv

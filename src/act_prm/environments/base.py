@@ -7,6 +7,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
+import numpy as np
 from transformers import AutoTokenizer
 
 from .types import EnvironmentState, EnvironmentStepResult
@@ -106,12 +107,14 @@ class Environment(ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
     def shuffle(self, seed: int | None = None) -> None:
         """
         Shuffle environment's samples (e.g., after going through all during training)
         """
-        raise NotImplementedError
+        np.random.seed(seed or self.seed)
+        indices = np.arange(len(self.datasets[self.split]))
+        np.random.shuffle(indices)
+        self.datasets[self.split] = self.datasets[self.split][indices]
 
 
 class BaseTool(ABC):

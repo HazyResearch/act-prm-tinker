@@ -379,6 +379,6 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             state = next_state
 
         return {
-            "policy": all_trajectory_groups,
-            "act_prompt": all_act_prompt_trajectory_groups,
+            "policy": all_act_prompt_trajectory_groups, 
+            "thought_action_policy": all_trajectory_groups,
         }

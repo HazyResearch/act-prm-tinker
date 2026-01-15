@@ -69,7 +69,7 @@ async def main() -> None:
     else:
         eval_env_cfg = env_cfg
 
-    # Consolidate + update configs from args
+    # Update configs from args
     updated_cfgs = update_configs(
         args, env_cfg, eval_env_cfg, generator_cfg, trainer_cfg, replay_buffer_cfg,
     )
@@ -79,6 +79,7 @@ async def main() -> None:
     env_cfg, eval_env_cfg, generator_cfg, trainer_cfg, replay_buffer_cfg = updated_cfgs
     cfg = trainer_cfg  # Main config to reference (has all Tinker training attributes)
 
+    # Setup logging to WandB
     ml_logger = ml_log.setup_logging(
         log_dir=cfg.log_path,
         wandb_project=cfg.wandb_project,
@@ -88,6 +89,7 @@ async def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("pylatexenc").setLevel(logging.WARNING)
 
+    # Load or initialize Tinker training client
     resume_info = checkpoint_utils.get_last_checkpoint(cfg.log_path)
     if resume_info:
         start_batch = resume_info["batch"]
@@ -119,6 +121,7 @@ async def main() -> None:
     # Reuse env if eval_env not specified; we always specify the split for loading new tasks
     eval_env = get_env(**eval_env_cfg) if args.eval_env_config else env
     replay_buffer = get_replay_buffer(**replay_buffer_cfg)
+    # Get constructor for LLM policy, determines how we generate rollouts
     generator_ctor = get_generator_constructor(**generator_cfg, ml_logger=ml_logger)
 
     # Training loop

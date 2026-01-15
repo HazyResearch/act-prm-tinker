@@ -1,0 +1,28 @@
+# HotpotQA MC demonstrations with full reasoning traces / chains-of-thought
+name: "act_prm"
+is_async: false
+# Source of successful demonstrations
+dataset_config:
+  path: "mzio/rb_last-cql-mc_oai_gpt5_med-ec_hotpotqa_mc_gpt5_4s-ds_train-spp1-gbs1-s42-r_0-tools"
+  cache_dir: "/scr/mzhang/data/act_prm_data"
+  split: "train"
+
+success_rollouts_only: true
+actions_only: false
+
+num_fewshot_prompts: 1
+action_bos: "<tool_call>"
+action_eos: "</tool_call>"
+final_answer_bos: "Final Answer: "
+
+num_train_samples: 100
+num_val_samples: 64
+num_test_samples: 10
+
+max_turns: 20
+num_tries: 1
+seed: 0
+split: "train"
+system_prompt: "You are a helpful assistant that infers reasoning thoughts behind observed actions."
+truncation_message: "Sorry, you have reached the maximum number of steps. Please try again."
+verbose: false

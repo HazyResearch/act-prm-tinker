@@ -158,6 +158,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
         thought_bos: str = "<thought>",
         thought_eos: str = "</thought>",
         final_answer_bos: str = "Final Answer: ",
+        group_normalize: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -399,8 +400,8 @@ class TinkerActPrmGenerator(TinkerGenerator):
             EpisodeStep(
                 state=state_messages,
                 action=action,  # dict[str, str]
-                state_len=state_len,
                 state_action_tokens=state_action_tokens_in_group[i],
+                state_len=state_len,
                 old_logprobs=old_logprobs_in_group[i],
                 reward=rewards_in_group[i],
                 generation_id=generation_ids_in_group[i],
@@ -412,8 +413,6 @@ class TinkerActPrmGenerator(TinkerGenerator):
                 episode_steps=[episode_step],
                 try_step=try_step,
                 discount_factor=self.discount_factor,
-                final_state=state_messages,
-                final_obs=[],
                 final_reward=rewards_in_group[i],
             ) for i, episode_step in enumerate(episode_steps_in_group)
         ]

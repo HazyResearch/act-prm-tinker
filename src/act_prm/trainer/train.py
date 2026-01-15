@@ -104,7 +104,7 @@ async def do_sync_training(
 
     cfg.replay_buffer_path_best = join(cfg.checkpoint_path, "replay_buffer_best")
     cfg.replay_buffer_path_last = join(cfg.checkpoint_path, "replay_buffer")
-    best_metric = 1e8 if cfg.best_metric in ["loss"] else -1e8
+    best_metric = 1e8 if "loss" in cfg.best_metric else -1e8
 
     num_batches = end_batch - start_batch
     for batch_idx in range(start_batch, end_batch):
@@ -119,12 +119,11 @@ async def do_sync_training(
         if cfg.eval_every > 0 and batch_idx % cfg.eval_every == 0:
             with timed("run_evals", metrics):
                 eval_env.split = "eval"
-                eval_rollout_metrics, _, replay_buffer = await run_rollouts(
+                eval_rollout_metrics, _ = await run_rollouts(
                     sampling_client=sampling_client,
                     renderer=renderer,
                     hf_tokenizer=hf_tokenizer,
                     generator_constructor=generator_constructor,
-                    replay_buffer=replay_buffer,
                     env=eval_env,
                     cfg=cfg,
                     batch_id=batch_idx,
@@ -368,7 +367,7 @@ async def do_train_step_and_get_sampling_client(
     training_client: tinker.TrainingClient,
     service_client: tinker.ServiceClient,
     new_trajectories: list[Trajectory],
-    loss_fn: LossFnType | None = None,,
+    loss_fn: LossFnType | None = None,
 ) -> tuple[tinker.SamplingClient, dict[str, Any]]:
     """
     Update LLM policy with new trajectories and return updated sampling client

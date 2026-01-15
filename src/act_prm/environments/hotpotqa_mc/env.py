@@ -209,7 +209,7 @@ class HotpotQAMultipleChoiceEnv(Environment):
         **kwargs: Any,
     ) -> HotpotQAMultipleChoiceStepResult:
         """
-        Step through the environment; see _step_impl for details
+        Step through the environment; see `_step_impl` for details
         """
         return self._step_impl(**kwargs)
 

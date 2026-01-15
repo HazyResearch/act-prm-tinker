@@ -178,10 +178,9 @@ class TinkerGenerator:
                 action=model_messages[0],  # parsed_actions,
                 next_obs=next_obs,
                 tools=state.tools,
-                state_len=len(input_ids),
                 state_action_tokens=state_action_input_ids,
-                # old_logprobs=response.logprobs,
-                old_logprobs=logprobs,
+                state_len=len(input_ids),
+                old_logprobs=logprobs,  # old_logprobs=response.logprobs,
                 temperature=temperature,
                 reward=reward,
                 done=done,
@@ -219,8 +218,6 @@ class TinkerGenerator:
             episode_steps=episode_steps,
             try_step=try_step,
             discount_factor=self.discount_factor,
-            final_state=state,
-            final_obs=next_obs,
             final_reward=reward,
         )
 

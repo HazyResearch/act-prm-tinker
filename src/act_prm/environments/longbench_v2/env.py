@@ -208,7 +208,7 @@ class LongBenchEnvironment(Environment):
 
     def step(self, **kwargs: Any) -> LongBenchStepResult:
         """
-        Step through the environment; see _step_impl for details
+        Step through the environment; see `_step_impl` for details
         """
         return self._step_impl(**kwargs)
 
