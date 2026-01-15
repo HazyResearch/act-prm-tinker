@@ -19,8 +19,8 @@ from ..environments import Environment
 from ..generator.tinker import TinkerGenerator
 from ..replay_buffer import ReplayBuffer
 
-from .train import is_better, run_rollouts, do_train_step_and_get_sampling_client
 from .tinker.utils import save_checkpoint_and_get_sampling_client, timed
+from .train import is_better, run_rollouts, do_train_step_and_get_sampling_client
 
 logger = logging.getLogger(__name__)
 

@@ -45,11 +45,7 @@ from ..replay_buffer.types import Trajectory, TrajectoryGroup
 
 from .tinker.metrics import incorporate_kl_penalty
 from .tinker.update import compute_full_batch_metrics_and_get_sampling_client, train_step
-from .tinker.utils import (
-    gather_with_progress,
-    save_checkpoint_and_get_sampling_client,
-    timed,
-)
+from .tinker.utils import gather_with_progress, save_checkpoint_and_get_sampling_client, timed
 
 logger = logging.getLogger(__name__)
 
