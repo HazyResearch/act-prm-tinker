@@ -324,41 +324,36 @@ class TinkerActPrmGenerator(TinkerGenerator):
                         generation_id=i,
                     )
 
-            # Save action-first state-action-thought artifacts for RL training
-            state_action_thought_messages_G = [
-                deepcopy(state_messages) for _ in range(num_return_sequences)
-            ]
-            state_action_thought_input_ids_G = []
-            for i, response in enumerate(responses_in_group):
-                state_action_thought_messages_G[i][-1]["content"] += response.text
-                state_action_thought_input_ids_G.append(
-                    hf_tokenizer.apply_chat_template(
-                        state_action_thought_messages_G[i],
-                        add_generation_prompt=False,
-                        tokenize=True,
-                        tools=state.tools,
-                    )
-                )
-            action_token_lens_G = [
-                len(state_action_thought_input_ids_G[i]) - len(input_ids)
-                for i in range(num_return_sequences)
-            ]
-            state_action_thought_tinker_input_G = [
-                ModelInput.from_ints(input_ids) for input_ids in state_action_thought_input_ids_G
-            ]
-            logprobs_G = await asyncio.gather(*[
-                llm.compute_logprobs_async(tinker_input)[-action_token_lens_G[i]:]
-                for i, tinker_input in enumerate(state_action_thought_tinker_input_G)
-            ])
+            # Pick the highest-reward thought to continue for the next step
+            best_thought_idx = np.argmax(rewards_in_group)
+            best_thought = thoughts_in_group[best_thought_idx]
+            model_messages = [{"role": "assistant", "content": best_thought}]
+            parsed_actions: list[ActionFromLLM] = [get_actions(model_messages)]
 
-            # ==================================================================
-            # Save episode steps for each generation
+            env_step_result: EnvironmentStepResult = await env.step_async(
+                parsed_actions=parsed_actions,
+                # model_response=model_messages,
+                current_state=state,
+                current_messages=state_messages,
+            )
+
+            next_state = env_step_result.state
+            truncated  = env_step_result.truncated
+            done       = env_step_result.done
+            next_obs = [
+                {
+                    "role": msg["role"],
+                    "content": msg["output"] if msg.get("output", None) else msg["content"]
+                } for msg in next_state.new_messages
+            ]
+
+            # ---------- Save episode steps for each generation ----------
             shared_kwargs = {
-                "next_obs": [],
+                "next_obs": next_obs,
                 "tools": state.tools,
                 "temperature": temperature,
                 "done": done,
-                "truncated": False,
+                "truncated": truncated,
                 "timestep": state.timestep,
                 "try_step": try_step,
                 "batch_id": batch_id,
@@ -378,24 +373,10 @@ class TinkerActPrmGenerator(TinkerGenerator):
                 **shared_kwargs,
             )
             all_trajectory_groups.append(trajectory_group)
-            # ==================================================================
+            # ---------- End saving episode steps for each generation ----------
 
-            # Pick the highest-reward thought to continue for the next step
-            best_thought_idx = np.argmax(rewards_in_group)
-            best_thought = thoughts_in_group[best_thought_idx]
-            model_messages = [{"role": "assistant", "content": best_thought}]
-            parsed_actions: list[ActionFromLLM] = [get_actions(model_messages)]
-
-            env_step_result: EnvironmentStepResult = await env.step_async(
-                parsed_actions=parsed_actions,
-                # model_response=model_messages,
-                current_state=state,
-                current_messages=state_messages,
-            )
             # Transition to next state
-            state     = env_step_result.state
-            done      = env_step_result.done
-            truncated = env_step_result.truncated
+            state = next_state
 
         return all_trajectory_groups, None
 

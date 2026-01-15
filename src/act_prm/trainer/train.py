@@ -17,6 +17,7 @@ so start_batch = 0, end_batch = len(dataset) = num_train_samples / batch_size
   we then interate through these indices where dataset.get_batch(batch_idx) returns a batch of problems
 """
 
+from os.path import join
 from typing import Any, Callable
 import logging
 import random
@@ -30,6 +31,7 @@ from omegaconf import DictConfig
 import tinker
 from tinker import TensorData
 from tinker_cookbook import model_info, renderers
+from tinker_cookbook.checkpoint_utils import save_checkpoint_async
 from tinker_cookbook.renderers import Renderer
 from tinker_cookbook.utils import ml_log
 from transformers import PreTrainedTokenizerBase
@@ -94,6 +96,11 @@ async def do_sync_training(
     renderer = renderers.get_renderer(renderer_name, hf_tokenizer)
     logger.info("Using renderer: %s", renderer_name)
 
+    cfg.replay_buffer_path_best = join(cfg.checkpoint_path, "replay_buffer_best")
+    cfg.replay_buffer_path_last = join(cfg.checkpoint_path, "replay_buffer")
+    best_metric = 1e8 if cfg.best_metric in ["loss"] else -1e8
+    is_better = lambda x, y: x <= y if cfg.best_metric in ["loss"] else x >= y
+
     num_batches = end_batch - start_batch
     for batch_idx in range(start_batch, end_batch):
         metrics = {
@@ -123,6 +130,20 @@ async def do_sync_training(
                 )
                 metrics.update(eval_rollout_metrics)
 
+            # Save best checkpoints
+            best_metric_key = f"eval/{cfg.eval_num_tries}/{cfg.best_metric}"
+            last_metric = eval_rollout_metrics[best_metric_key]
+            if is_better(last_metric, best_metric):
+                best_metric = last_metric
+                replay_buffer.save_to_hf_dataset(cfg.replay_buffer_best_path)
+                await save_checkpoint_async(
+                    training_client=training_client,
+                    name="best",
+                    log_path=cfg.log_path,
+                    loop_state={"batch": batch_idx},
+                    kind="state",
+                )
+
         # 1. Sample rollouts for training
         start_idx = batch_idx * cfg.batch_size
         tasks_per_update = cfg.batch_size
@@ -142,6 +163,9 @@ async def do_sync_training(
             tasks_per_update=tasks_per_update,
         )
         metrics.update(train_rollout_metrics)
+
+        # Save replay buffer samples
+        replay_buffer.save_to_hf_dataset(cfg.replay_buffer_path_last)
 
         # 2. Update policy LLM with generated rollouts
         sampling_client, train_update_metrics = await do_train_step_and_get_sampling_client(

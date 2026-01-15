@@ -278,14 +278,35 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                         generation_id=i,
                     )
 
-            # ==================================================================
-            # Save episode steps for each generation
+            # Pick the highest-reward thought to continue for the next step
+            best_thought_idx = np.argmax(rewards_in_group)
+            best_thought = thoughts_in_group[best_thought_idx]
+            model_messages = [{"role": "assistant", "content": best_thought}]
+            parsed_actions: list[ActionFromLLM] = [get_actions(model_messages)]
+
+            env_step_result: EnvironmentStepResult = await env.step_async(
+                parsed_actions=parsed_actions,
+                # model_response=model_messages,
+                current_state=state,
+                current_messages=state_messages,
+            )
+            next_state = env_step_result.state
+            truncated  = env_step_result.truncated
+            done       = env_step_result.done
+            next_obs = [
+                {
+                    "role": msg["role"],
+                    "content": msg["output"] if msg.get("output", None) else msg["content"]
+                } for msg in next_state.new_messages
+            ]
+
+            # ---------- Save episode steps for each generation ----------
             shared_kwargs = {
-                "next_obs": [],
+                "next_obs": next_obs,
                 "tools": state.tools,
                 "temperature": temperature,
                 "done": done,
-                "truncated": False,
+                "truncated": truncated,
                 "timestep": state.timestep,
                 "try_step": try_step,
                 "batch_id": batch_id,
@@ -351,23 +372,9 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 **shared_kwargs,
             )
             all_act_prompt_trajectory_groups.append(act_prompt_trajectory_group)
-            # ==================================================================
-
-            # Pick the highest-reward thought to continue for the next step
-            best_thought_idx = np.argmax(rewards_in_group)
-            best_thought = thoughts_in_group[best_thought_idx]
-            model_messages = [{"role": "assistant", "content": best_thought}]
-            parsed_actions: list[ActionFromLLM] = [get_actions(model_messages)]
-
-            env_step_result: EnvironmentStepResult = await env.step_async(
-                parsed_actions=parsed_actions,
-                # model_response=model_messages,
-                current_state=state,
-                current_messages=state_messages,
-            )
+            # ---------- End saving episode steps for each generation ----------
+            
             # Transition to next state
-            state     = env_step_result.state
-            done      = env_step_result.done
-            truncated = env_step_result.truncated
+            state = next_state
 
         return all_trajectory_groups, all_act_prompt_trajectory_groups

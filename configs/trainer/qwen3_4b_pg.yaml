@@ -30,13 +30,17 @@ compute_post_kl: false
 kl_penalty_coef: 0.0
 kl_discount_factor: 0.0
 
+# Checkpointing
 eval_every: 20
 save_every: 20
+best_metric: "correct"
 
 # Other miscellaneous
 base_url: null
 log_path: "./logs"
 load_checkpoint_path: null
+# Local parent dir for other checkpoints and data (e.g., replay buffer samples, etc.)
+checkpoint_path: "./checkpoints"
 
 wandb_project: null  # will set based on project_name
 wandb_name: null     # will set based on run name
