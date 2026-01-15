@@ -19,7 +19,7 @@ from ..llm_handlers.types import ActionFromLLM
 from ..replay_buffer.types import (
     EpisodeStep, Trajectory, TrajectoryGroup, MeanCenteredTrajectoryGroup,
 )
-from ..trainer.utils import gather_with_progress
+from ..trainer.tinker.utils import gather_with_progress
 
 from .tinker import TinkerGenerator
 

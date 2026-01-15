@@ -14,12 +14,9 @@ from ..environments.base import Environment
 from ..environments.act_prm import ActionProcessRewardState
 from ..environments.types import EnvironmentStepResult
 from ..llm_handlers.action_utils import get_actions
-from ..llm_handlers.tinker import SamplingClient, TinkerCompleter, TokensWithLogprobsAndText
+from ..llm_handlers.tinker import TinkerCompleter, TokensWithLogprobsAndText
 from ..llm_handlers.types import ActionFromLLM
-from ..replay_buffer.types import (
-    EpisodeStep, Trajectory, TrajectoryGroup, MeanCenteredTrajectoryGroup,
-)
-from ..trainer.utils import gather_with_progress
+from ..replay_buffer.types import TrajectoryGroup, MeanCenteredTrajectoryGroup
 
 from .tinker_act_prm import (
     compute_group_thought_action_metrics,
