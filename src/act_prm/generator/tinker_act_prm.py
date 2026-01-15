@@ -212,7 +212,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
         self,
         num_return_sequences: int,
         **single_rollout_kwargs: Any,
-    ) -> tuple[list[TrajectoryGroup], list[TrajectoryGroup] | None]:
+    ) -> dict[str, list[TrajectoryGroup]]:
         """
         Wrapper for do_act_prm_group_rollout
         """
@@ -233,7 +233,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
         try_step: int = 0,
         max_tokens: int | None = None,
         temperature: float | None = None,
-    ) -> tuple[list[TrajectoryGroup], list[TrajectoryGroup] | None]:
+    ) -> dict[str, list[TrajectoryGroup]]:
         """
         Generate thought-action trajectories given observed actions in an Act-PRM environment.
 
@@ -260,8 +260,8 @@ class TinkerActPrmGenerator(TinkerGenerator):
         max_tokens = max_tokens or llm.max_tokens
         temperature = temperature or llm.temperature
 
-        all_trajectory_groups: list[TrajectoryGroup] = []  # Will fill this 
-        all_act_prompt_trajectory_groups: list[TrajectoryGroup] = []  # Will fill this
+        # Initialize list of all trajectory groups to return
+        all_trajectory_groups: list[TrajectoryGroup] = []
 
         state: ActionProcessRewardState = await env.reset_async(
             sample_idx=unique_data_sample_id,
@@ -378,7 +378,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
             # Transition to next state
             state = next_state
 
-        return all_trajectory_groups, None
+        return {"policy": all_trajectory_groups}
 
     def _get_trajectory_group_from_generations(
         self,

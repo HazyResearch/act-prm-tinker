@@ -127,6 +127,16 @@ def get_args() -> argparse.Namespace:
             "By default, we adjust total_episode_steps to be a multiple of `num_substeps`."
         )
     )
+    parser.add_argument(
+        "--mini_batch_size",
+        type=int,
+        help=(
+            "Alternative to --num_substeps; size of each mini-batch during updates. "
+            "If specified and num_substeps is None, then we set num_substeps = "
+            "total_episode_steps // mini_batch_size. If both specified, then we (super)sample the "
+            "training data s.t. len(training_data) = mini_batch_size * num_substeps."
+        )
+    )
 
     ## Miscellaneous
     parser.add_argument("--eval_every", type=int, help="Iters to evaluate, 0 = disabled")

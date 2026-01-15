@@ -187,7 +187,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
         try_step: int = 0,
         max_tokens: int | None = None,
         temperature: float | None = None,
-    ) -> tuple[list[TrajectoryGroup], list[TrajectoryGroup]]:
+    ) -> dict[str, list[TrajectoryGroup]]:
         """
         Generate thought-action trajectories given observed actions in an Act-PRM environment.
 
@@ -214,8 +214,12 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
         max_tokens = max_tokens or llm.max_tokens
         temperature = temperature or llm.temperature
 
-        all_trajectory_groups: list[TrajectoryGroup] = []  # Will fill this 
-        all_act_prompt_trajectory_groups: list[TrajectoryGroup] = []  # Will fill this
+        # Initialize list of all trajectory groups to return
+        # -> We return (1) (state, thought, action) and (2) (state, action, thought) trajectories
+        #    (1) is used for SFT or TinkerActPrmGenerator RL
+        #    (2) is used for TinkerActionPromptActPrmGenerator RL
+        all_trajectory_groups: list[TrajectoryGroup] = []
+        all_act_prompt_trajectory_groups: list[TrajectoryGroup] = []
 
         state: ActionProcessRewardState = await env.reset_async(
             sample_idx=unique_data_sample_id,
@@ -377,4 +381,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             # Transition to next state
             state = next_state
 
-        return all_trajectory_groups, all_act_prompt_trajectory_groups
+        return {
+            "policy": all_trajectory_groups,
+            "act_prompt": all_act_prompt_trajectory_groups,
+        }
