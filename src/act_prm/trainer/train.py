@@ -288,6 +288,7 @@ async def run_rollouts(
         else:
             final_metrics[k] = np.mean(v).item()
         final_metrics[f"{k}_std"] = np.std(v).item()
+        final_metrics[f"{k}_max"] = np.max(v).item()
     # 2. Add accuracy (dummy for Act-PRM training rollouts)
     for k in keys_for_correct:
         total_v = final_metrics[k.replace("correct", "total")]

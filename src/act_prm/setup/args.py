@@ -20,7 +20,9 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--project_name", type=str, default="act-prm-tinker")
 
     # Necessary arguments + configs (to load default args from)
-    parser.add_argument("--is_async", action="store_true", default=False, help="Use asynchronous environment")
+    parser.add_argument("--is_async", action="store_true", help="Use asynchronous environment")
+    parser.add_argument("--resume_run", action="store_true", default=False, help="Resume from checkpoint in log_path")
+    
     parser.add_argument("--env_config", type=str, help="Environment config to load default args")
     parser.add_argument("--generator_config", type=str, help="Generator config; ditto")
     parser.add_argument("--trainer_config", type=str, help="Trainer config; ditto")
@@ -198,6 +200,11 @@ def get_args() -> argparse.Namespace:
             logger.info("Created %s at: %s", argname, getattr(args, argname))
         else:
             logger.info("Using %s at: %s", argname, getattr(args, argname))
+
+    # So Tinker doesn't load, delete checkpoints.jsonl at args.log_path if it exists
+    if not args.resume_run and os.path.exists(os.path.join(args.log_path, "checkpoints.jsonl")):
+        os.remove(os.path.join(args.log_path, "checkpoints.jsonl"))
+        logger.info("Deleted checkpoints.jsonl at: %s", os.path.join(args.log_path, "checkpoints.jsonl"))
 
     # Setup tinker-cookbook WandB logging
     args.wandb_project = args.project_name

@@ -98,7 +98,7 @@ async def main() -> None:
         start_batch = 0
 
     service_client = tinker.ServiceClient(base_url=cfg.base_url)
-    if resume_info:
+    if resume_info and args.resume_run:
         # Resuming interrupted training - load optimizer state for proper continuation
         training_client = (
             await service_client.create_training_client_from_state_with_optimizer_async(

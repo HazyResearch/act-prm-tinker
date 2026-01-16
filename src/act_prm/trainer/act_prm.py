@@ -267,7 +267,11 @@ class ActPrmTrainer(RLTrainer):
                 _metric_prefix = "eval" if checkpoint_name is None else f"{checkpoint_name}_eval"
                 best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
                 last_metric = eval_rollout_metrics[best_metric_key]
-                best_ckpt_name = "best" if checkpoint_name is None else f"{checkpoint_name}_best"
+                best_ckpt_name = (
+                    f"{batch_idx:06d}_best"
+                    if checkpoint_name is None
+                    else f"{checkpoint_name}_{batch_idx:06d}_best"
+                )
                 if is_better(last_metric, self.best_metric, cfg.best_metric):
                     self.best_metric = last_metric
                     path_dict = await save_checkpoint_async(

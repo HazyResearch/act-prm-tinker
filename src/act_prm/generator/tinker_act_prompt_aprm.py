@@ -281,10 +281,11 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                         f"Reward {rewards_in_group[i]:.4f}"
                     )
                     rewards_str = ", ".join([f"{r:.4f}" for r in sorted(rewards_in_group)[::-1]])
-                    panel_content = (
-                        f"Run URL: [cyan]{self.run_url}[/cyan]"
-                        f"\nRewards: [{rewards_str}]"
-                    )
+                    panel_content = "\n".join([
+                        f"Rewards: [bright_green][{rewards_str}][/bright_green]",
+                        f"Run url: [cyan]{self.run_url}[/cyan]",
+                        f"Run cmd: [bright_blue]{self.cmd_str}[/bright_blue]",
+                    ])
                     self.display_state_action_next_obs(
                         state_messages=standard_chat,
                         action_messages=thought_action_messages[i],
