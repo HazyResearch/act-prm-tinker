@@ -172,6 +172,7 @@ class ActPrmTrainer(RLTrainer):
         # via TinkerActionPromptActPrmGenerator (via self.action_prompt_generator_constructor)
         if cfg.action_prompts:
             if cfg.num_batches_action_prompts > 0:
+                logger.info("Starting first stage of training (include actions in prompts)")
                 best_action_prompt_sampling_client_path = await self.do_rl_loop(
                     start_batch=0,
                     end_batch=cfg.num_batches_action_prompts,
@@ -187,6 +188,7 @@ class ActPrmTrainer(RLTrainer):
                     model_path=best_action_prompt_sampling_client_path,
                 )
             # Generate thought-action rollouts for all tasks in the ActPrmEnv
+            logger.info("Generating thought-action rollouts for all tasks in the Act-PRM env")
             _end_batch = len(self.env) // cfg.batch_size
             all_new_trajectories: list[Trajectory] = []
             for batch_idx in range(0, _end_batch):
@@ -247,6 +249,7 @@ class ActPrmTrainer(RLTrainer):
             logger.info("Updated sampling client from SFT training")
         
         # ---------- Second stage of training (generate thoughts from states only) ----------
+        logger.info("Starting second stage of training (generate thoughts from states only)")
         num_batches = end_batch - start_batch
         for batch_idx in range(start_batch, end_batch):
             metrics = {

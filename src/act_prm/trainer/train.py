@@ -212,6 +212,8 @@ async def run_rollouts(
     - final_metrics: Metrics for the batch, keyed by "{split}/{try_idx}/{metric}"
     - new_trajectories: Trajectories for the batch, keyed by an identifier (default "policy")
     """
+    env.split = split  # Select task split
+    
     tinker_completer = TinkerCompleter(
         sampling_client=sampling_client,
         renderer=renderer,

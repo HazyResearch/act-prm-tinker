@@ -42,7 +42,7 @@ kl_discount_factor: 0.0
 # Checkpointing
 eval_every: 4
 save_every: 20
-best_metric: "correct"
+best_metric: "final_reward"
 
 # Other miscellaneous
 base_url: null
