@@ -5,7 +5,7 @@ Parent class for Tinker trainers
 import logging
 import random
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Callable
 
 from omegaconf import DictConfig
 
@@ -15,7 +15,8 @@ from tinker_cookbook.utils import ml_log
 from transformers import PreTrainedTokenizerBase
 
 from ..environments import Environment
-from ..replay_buffer.types import Trajectory
+from ..generator.tinker import TinkerGenerator
+# from ..replay_buffer.types import Trajectory
 
 from .tinker.update import compute_full_batch_metrics_and_get_sampling_client, train_step
 from .tinker.utils import timed
@@ -51,7 +52,16 @@ class BaseTrainer(ABC):
         self.best_sampling_client_path = ""
 
     @abstractmethod
-    async def train(self, start_batch: int, end_batch: int, cfg: DictConfig | None = None) -> None:
+    async def train(
+        self, 
+        start_batch: int,
+        end_batch: int,
+        cfg: DictConfig | None = None,
+        env: Environment | None = None,
+        eval_env: Environment | None = None,
+        generator_constructor: Callable[..., TinkerGenerator] | None = None,
+        checkpoint_name: str | None = None,
+    ) -> None:
         """
         Implement synchronous training with Tinker
         """
@@ -74,12 +84,19 @@ class BaseTrainer(ABC):
         data_D: list[tinker.Datum],
         prepare_minibatch_metrics: dict[str, Any] | None = None,
         loss_fn: LossFnType | None = None,
+        checkpoint_name: str | None = None,
+        mini_batch_size: int | None = None,
+        num_substeps: int | None = None,
     ) -> tuple[tinker.SamplingClient, dict[str, Any]]:
         """
         Update LLM policy with new trajectories and return updated sampling client
         """
         cfg = self.cfg
         loss_fn = loss_fn or cfg.loss_fn
+
+        mini_batch_size = mini_batch_size or cfg.mini_batch_size
+        num_substeps = num_substeps or cfg.num_substeps
+        
         metrics = {}
         # Move the minibatch creation to outside this function
         prepare_minibatch_metrics = prepare_minibatch_metrics or {}
@@ -93,18 +110,17 @@ class BaseTrainer(ABC):
         metrics.update(prepare_minibatch_metrics)
 
         # Resample from data_D to determine actual training set
-        if cfg.mini_batch_size and cfg.num_substeps is None:
-            num_substeps = len(data_D) // cfg.mini_batch_size
-        elif cfg.num_substeps:
-            num_substeps = cfg.num_substeps
-            if cfg.mini_batch_size:
+        if mini_batch_size and num_substeps is None:
+            num_substeps = len(data_D) // mini_batch_size
+        elif num_substeps:
+            if mini_batch_size:
                 # Potentially supersample data_D to hit mini_batch_size * num_substeps
-                data_D = data_D[:cfg.mini_batch_size * num_substeps]
-                while len(data_D) < cfg.mini_batch_size * num_substeps:
+                data_D = data_D[:mini_batch_size * num_substeps]
+                while len(data_D) < mini_batch_size * num_substeps:
                     data_D.extend(random.sample(data_D, k=len(data_D)))
-                data_D = data_D[:cfg.mini_batch_size * num_substeps]
+                data_D = data_D[:mini_batch_size * num_substeps]
         else:
-            raise ValueError("Either cfg.mini_batch_size or cfg.num_substeps must be specified")
+            raise ValueError("Either mini_batch_size or num_substeps must be specified")
         # Randomly subsample training data if not evenly divisible by num_substeps (# of mini-batches)
         # -> Tinker requires this: https://tinker-docs.thinkingmachines.ai/rl/rl-hyperparams#multiple-updates-per-sampling-iteration
         if len(data_D) % num_substeps != 0:
@@ -120,7 +136,6 @@ class BaseTrainer(ABC):
                 num_substeps,
                 loss_fn,
             )
-        
         sampling_client, full_batch_metrics = await compute_full_batch_metrics_and_get_sampling_client(
             training_client,
             batch_idx + 1,  # NOTE: saving the checkpoint as the i + 1 step
@@ -129,6 +144,7 @@ class BaseTrainer(ABC):
             cfg.log_path,
             cfg.save_every,
             cfg.compute_post_kl,
+            checkpoint_name=checkpoint_name,
         )
         metrics.update(full_batch_metrics)
 

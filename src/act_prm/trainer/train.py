@@ -273,7 +273,7 @@ async def run_rollouts(
                                 val = getattr(trajectory, metric_key, 1)  # 1 for total samples
                                 all_eval_metrics[_metric_key].append(val)
                         # Add trajectory to list of new trajectories
-                        new_trajectories.append(trajectory)
+                        new_trajectories[_key].append(trajectory)
 
     final_metrics = {}  # return these metrics for the batch
     # 1. Compute aggregate metrics
@@ -283,7 +283,7 @@ async def run_rollouts(
         else:
             final_metrics[k] = np.mean(v).item()
         final_metrics[f"{k}_std"] = np.std(v).item()
-    # 2. Add accuracy
+    # 2. Add accuracy (dummy for Act-PRM training rollouts)
     for k in keys_for_correct:
         total_v = final_metrics[k.replace("correct", "total")]
         final_metrics[k.replace("correct", "accuracy")] = final_metrics[k] / total_v

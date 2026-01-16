@@ -10,22 +10,25 @@ import time
 from omegaconf import DictConfig
 
 import tinker
+from tinker import TensorData
 from tinker_cookbook import model_info, renderers
 from tinker_cookbook.checkpoint_utils import save_checkpoint_async
 from tinker_cookbook.utils import ml_log
 from transformers import PreTrainedTokenizerBase
 
-from ..environments import Environment
+from ..environments import ActPrmEnv, Environment
 from ..generator.tinker import TinkerGenerator
 from ..replay_buffer import ReplayBuffer
+from ..replay_buffer.types import Trajectory
 
+from .rl import RLTrainer
 from .tinker.utils import save_checkpoint_and_get_sampling_client, timed
-from .train import is_better, run_rollouts, do_train_step_and_get_sampling_client
+from .train import is_better, run_rollouts
 
 logger = logging.getLogger(__name__)
 
 
-class ActPrmTrainer:
+class ActPrmTrainer(RLTrainer):
     """
     Trainer for fully synchronous Act-PRM training
     """
@@ -34,28 +37,83 @@ class ActPrmTrainer:
         cfg: DictConfig,
         training_client: tinker.TrainingClient,
         service_client: tinker.ServiceClient,
-        generator_constructor: Callable[..., TinkerGenerator],
+        # generator_constructor: Callable[..., TinkerGenerator],
+        generator_cfg: DictConfig,
         replay_buffer: ReplayBuffer,
-        env: Environment,
-        eval_env: Environment,  # could be the same as env, but update env.split
+        env: ActPrmEnv,
+        eval_env: Environment,
         ml_logger: ml_log.Logger,
         hf_tokenizer: PreTrainedTokenizerBase | None = None,
-        **kwargs: Any,
     ) -> None:
-        self.cfg = cfg
-        self.training_client = training_client
-        self.service_client = service_client
-        self.generator_constructor = generator_constructor
-        self.replay_buffer = replay_buffer
-        self.env = env
-        self.eval_env = eval_env
-        self.ml_logger = ml_logger
-        self.hf_tokenizer = hf_tokenizer
+        super().__init__(
+            cfg,
+            training_client,
+            service_client,
+            generator_cfg,
+            replay_buffer,
+            env,
+            eval_env,
+            ml_logger,
+            hf_tokenizer,
+        )
+        # Evaluation generator does standard rollouts, see act_prm/generator/default.py
+        self.eval_generator_constructor = self.get_generator_constructor(
+            name="default",
+            verbose=generator_cfg.verbose,
+        )
+        self.action_prompt_generator_constructor = self.get_generator_constructor(
+            name="action_prompt_act_prm",
+            **{k: v for k, v in generator_cfg.items() if k != "name"}
+        )
 
-        self.best_replay_buffer_path = join(cfg.checkpoint_path, "replay_buffer_best")
-        self.last_replay_buffer_path = join(cfg.checkpoint_path, "replay_buffer")
-        self.best_metric = 1e8 if "loss" in cfg.best_metric else -1e8
-        self.best_sampling_client_path = ""
+    async def do_rl_loop(
+        self,
+        start_batch: int,
+        end_batch: int,
+        cfg: DictConfig | None = None,
+        generator_constructor: Callable[..., TinkerGenerator] | None = None,
+        checkpoint_name: str | None = None,
+    ) -> None:
+        """
+        Run an RL training loop for a given generator (TinkerActPrmGenerator or TinkerActionPromptActPrmGenerator)
+        """
+        return super().train(
+            start_batch=start_batch,
+            end_batch=end_batch,
+            cfg=cfg,
+            generator_constructor=generator_constructor,
+            checkpoint_name=checkpoint_name,
+        )
+
+    async def prepare_sft_minibatch(
+        self,
+        new_trajectories: list[Trajectory],
+    ) -> tuple[list[tinker.Datum], dict[str, Any]]:
+        """
+        Prepare a minibatch of trajectories for SFT training
+        """
+        metrics = {}
+        # Assemble training data
+        with timed("assemble_training_data", metrics):
+            data_D: list[tinker.Datum] = []
+            for trajectory in new_trajectories:
+                for episode_step in trajectory.episode_steps:
+                    sa_input_ids = episode_step.state_action_tokens
+                    input_tokens = sa_input_ids[:-1]
+                    target_tokens = sa_input_ids[1:]
+                    target_state_len = episode_step.state_len - 1
+                    target_action_len = len(target_tokens) - target_state_len
+                    weights = [0.0] * target_state_len + [1.0] * target_action_len
+                    data_D.append(
+                        tinker.Datum(
+                            model_input=tinker.ModelInput.from_ints(input_tokens),
+                            loss_fn_inputs={
+                                "target_tokens": TensorData.from_torch(torch.tensor(target_tokens)),
+                                "weights": TensorData.from_torch(torch.tensor(weights)),
+                            },
+                        )
+                    )
+        return data_D, metrics
 
     # Modified from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L989
     async def train(self, start_batch: int, end_batch: int, cfg: DictConfig | None = None) -> None:
@@ -85,6 +143,65 @@ class ActPrmTrainer:
         renderer = renderers.get_renderer(renderer_name, hf_tokenizer)
         logger.info("Using renderer: %s", renderer_name)
 
+        # ---------- First stage of training ----------
+        # if cfg.action_first_prompts is True, we first train with action-first prompts
+        # via TinkerActionPromptActPrmGenerator (via self.action_prompt_generator_constructor)
+        if cfg.action_prompts:
+            await self.do_rl_loop(
+                start_batch=0,
+                end_batch=cfg.num_batches_action_prompts,
+                cfg=cfg,
+                env=self.env,
+                eval_env=self.eval_env,  # Evaluate how good thought-generation is
+                generator_constructor=self.action_prompt_generator_constructor,
+                checkpoint_name="action_prompts",
+            )
+            # Get best sampling client
+            sampling_client = await self.service_client.create_sampling_client(
+                model_path=self.best_sampling_client_path,
+            )
+
+            # Generate thought-action rollouts for all tasks in the ActPrmEnv
+            _end_batch = len(self.env) // cfg.batch_size
+            all_new_trajectories: list[Trajectory] = []
+            for batch_idx in range(0, _end_batch):
+                # 1. Sample rollouts for training
+                self.env.split = "train"
+                _, new_trajectories = await run_rollouts(
+                    sampling_client=sampling_client,
+                    renderer=renderer,
+                    hf_tokenizer=hf_tokenizer,
+                    generator_constructor=self.action_prompt_generator_constructor,
+                    env=self.env,
+                    cfg=cfg,
+                    batch_id=batch_idx,
+                    split="train",
+                    num_tries=cfg.num_tries,
+                    start_idx=batch_idx * cfg.batch_size,
+                    tasks_per_update=cfg.batch_size,
+                )
+                all_new_trajectories.extend(new_trajectories["thought_action_policy"])
+
+            # Train new policy LLM with the thought-action rollouts
+            self.training_client = await self.service_client.create_lora_training_client_async(
+                cfg.model_name, rank=cfg.lora_rank
+            )
+            data_D, prepare_minibatch_metrics = await self.prepare_sft_minibatch(
+                new_trajectories=all_new_trajectories,
+            )
+            # New sampling client from SFT training
+            sampling_client, update_metrics = await self.do_train_step_and_get_sampling_client(
+                batch_idx=0,
+                training_client=self.training_client,
+                data_D=data_D,
+                prepare_minibatch_metrics=prepare_minibatch_metrics,
+                loss_fn="cross_entropy",
+                checkpoint_name="action_prompts",
+                mini_batch_size=cfg.action_prompt_mini_batch_size,
+                num_substeps=cfg.action_prompt_num_substeps,
+            )
+        
+        # ---------- Second stage of training ----------
         num_batches = end_batch - start_batch
         for batch_idx in range(start_batch, end_batch):
             metrics = {
@@ -98,19 +215,19 @@ class ActPrmTrainer:
             if cfg.eval_every > 0 and batch_idx % cfg.eval_every == 0:
                 with timed("run_evals", metrics):
                     self.eval_env.split = "eval"
-                    eval_rollout_metrics, _, replay_buffer = await run_rollouts(
+                    eval_rollout_metrics, _ = await run_rollouts(
                         sampling_client=sampling_client,
                         renderer=renderer,
                         hf_tokenizer=hf_tokenizer,
-                        generator_constructor=self.generator_constructor,
-                        replay_buffer=self.replay_buffer,
+                        generator_constructor=self.eval_generator_constructor,
                         env=self.eval_env,
                         cfg=cfg,
                         batch_id=batch_idx,
                         split="eval",
                         num_tries=cfg.eval_num_tries,
-                        start_idx=0,
-                        tasks_per_update=len(self.eval_env),  # Just use all eval tasks
+                        # Just use all eval tasks
+                        start_idx=0,  
+                        tasks_per_update=len(self.eval_env),
                     )
                     metrics.update(eval_rollout_metrics)
 
@@ -158,15 +275,22 @@ class ActPrmTrainer:
             self.replay_buffer.save_to_hf_dataset(self.last_replay_buffer_path)
 
             # 2. Update policy LLM with generated rollouts
-            sampling_client, train_update_metrics = await do_train_step_and_get_sampling_client(
-                cfg=cfg,
+            data_D, prepare_minibatch_metrics = await self.prepare_minibatch(
+                new_trajectories=new_trajectories["policy"],
+                service_client=self.service_client,
+                model_name=cfg.model_name,
+                kl_penalty_coef=cfg.kl_penalty_coef,
+                kl_discount_factor=cfg.kl_discount_factor,
+            )
+            sampling_client, update_metrics = await self.do_train_step_and_get_sampling_client(
                 batch_idx=batch_idx,
                 training_client=self.training_client,
-                service_client=self.service_client,
-                new_trajectories=new_trajectories,
+                data_D=data_D,
+                prepare_minibatch_metrics=prepare_minibatch_metrics,
+                loss_fn="importance_sampling",
             )
 
             # Log metrics
-            metrics.update(train_update_metrics)
+            metrics.update(update_metrics)
             metrics["time/total"] = time.time() - t_start
             self.ml_logger.log_metrics(metrics, step=batch_idx)

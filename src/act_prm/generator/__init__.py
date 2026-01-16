@@ -20,12 +20,16 @@ def get_generator_constructor(name: str, **kwargs: Any) -> Callable[..., TinkerG
     generator = generator_ctor()
     ```
     """
-    if name == "tinker_default":
+    if name == "default":
         return partial(TinkerGenerator, **kwargs)
 
-    elif name == "tinker_grpo":
-        from .tinker import TinkerGRPOGenerator
-        return partial(TinkerGRPOGenerator, **kwargs)
+    elif name == "act_prm":
+        from .tinker_act_prm import TinkerActPrmGenerator
+        return partial(TinkerActPrmGenerator, **kwargs)
+
+    elif name == "action_prompt_act_prm":
+        from .tinker_act_prompt_aprm import TinkerActionPromptActPrmGenerator
+        return partial(TinkerActionPromptActPrmGenerator, **kwargs)
 
     else:
         raise NotImplementedError(f"Sorry, generator {name} is not implemented yet.")

@@ -85,7 +85,7 @@ async def train_step(
     return training_logprobs_D
 
 
-# Copied from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L778
+# Modified from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L778
 async def compute_full_batch_metrics_and_get_sampling_client(
     training_client: tinker.TrainingClient,
     i_batch: int,
@@ -94,6 +94,7 @@ async def compute_full_batch_metrics_and_get_sampling_client(
     log_path: str,
     save_every: int,
     do_compute_post_kl: bool,
+    checkpoint_name: str | None = None,
 ) -> tuple[tinker.SamplingClient, dict[str, Any]]:
     """
     At the end of the iteration, this will compute metrics for the full batch
@@ -111,7 +112,7 @@ async def compute_full_batch_metrics_and_get_sampling_client(
 
     # Get a sampling client using the new weights
     sampling_client, checkpoint_metrics = await save_checkpoint_and_get_sampling_client(
-        training_client, i_batch, log_path, save_every
+        training_client, i_batch, log_path, save_every, checkpoint_name=checkpoint_name
     )
     metrics.update(checkpoint_metrics)
 

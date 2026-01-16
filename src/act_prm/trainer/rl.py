@@ -5,7 +5,6 @@ Tinker RL Trainer for fully synchronous on-policy training
 from os.path import join
 from typing import Any, Callable
 import logging
-import random
 import time
 
 import torch
@@ -13,20 +12,19 @@ from omegaconf import DictConfig
 
 import tinker
 from tinker import TensorData
-from tinker.types import LossFnType
 from tinker_cookbook import model_info, renderers
 from tinker_cookbook.checkpoint_utils import save_checkpoint_async
 from tinker_cookbook.utils import ml_log
 from transformers import PreTrainedTokenizerBase
 
 from ..environments import Environment
+from ..generator import get_generator_constructor
 from ..generator.tinker import TinkerGenerator
 from ..replay_buffer import ReplayBuffer
 from ..replay_buffer.types import Trajectory
 
-from .base import BaseTrainer, StateActionSample
+from .base import BaseTrainer
 from .tinker.metrics import incorporate_kl_penalty
-from .tinker.update import compute_full_batch_metrics_and_get_sampling_client, train_step
 from .tinker.utils import save_checkpoint_and_get_sampling_client, timed
 from .train import is_better, run_rollouts
 
@@ -43,7 +41,8 @@ class RLTrainer(BaseTrainer):
         cfg: DictConfig,
         training_client: tinker.TrainingClient,
         service_client: tinker.ServiceClient,
-        generator_constructor: Callable[..., TinkerGenerator],
+        # generator_constructor: Callable[..., TinkerGenerator],
+        generator_cfg: DictConfig,
         replay_buffer: ReplayBuffer,
         env: Environment,
         eval_env: Environment,  # could be the same as env, but update env.split
@@ -59,14 +58,33 @@ class RLTrainer(BaseTrainer):
             ml_logger,
             hf_tokenizer,
         )
-        self.generator_constructor = generator_constructor
+        # Get constructor for LLM policy, determines how we generate rollouts
+        self.generator_constructor = self.get_generator_constructor(
+            **generator_cfg,
+            ml_logger=ml_logger,
+        )
         self.replay_buffer = replay_buffer
 
         self.best_replay_buffer_path = join(cfg.checkpoint_path, "replay_buffer_best")
         self.last_replay_buffer_path = join(cfg.checkpoint_path, "replay_buffer")
 
+    def get_generator_constructor(self, **kwargs: Any) -> Callable[..., TinkerGenerator]:
+        """
+        Get a (partially initialized) TinkerGenerator constructor by name
+        """
+        return get_generator_constructor(**kwargs, ml_logger=self.ml_logger)
+
     # Modified from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L989
-    async def train(self, start_batch: int, end_batch: int, cfg: DictConfig | None = None) -> None:
+    async def train(
+        self, 
+        start_batch: int,
+        end_batch: int,
+        cfg: DictConfig | None = None,
+        env: Environment | None = None,
+        eval_env: Environment | None = None,
+        generator_constructor: Callable[..., TinkerGenerator] | None = None,
+        checkpoint_name: str | None = None,
+    ) -> None:
         """
         Implement fully synchronous on-policy training with Tinker
 
@@ -76,6 +94,9 @@ class RLTrainer(BaseTrainer):
         3. Performs a policy update
         """
         cfg = cfg or self.cfg
+        generator_constructor = generator_constructor or self.generator_constructor
+        env = env or self.env
+        eval_env = eval_env or self.eval_env
 
         # Initial sampling client
         sampling_client, _ = await save_checkpoint_and_get_sampling_client(
@@ -84,6 +105,7 @@ class RLTrainer(BaseTrainer):
             log_path=cfg.log_path,
             save_every=cfg.save_every,
             start_batch=start_batch,
+            checkpoint_name=checkpoint_name,
         )
 
         model_name = cfg.model_name or self.training_client.get_info().model_data.model_name
@@ -105,32 +127,33 @@ class RLTrainer(BaseTrainer):
             # Run evaluations
             if cfg.eval_every > 0 and batch_idx % cfg.eval_every == 0:
                 with timed("run_evals", metrics):
-                    self.eval_env.split = "eval"
+                    eval_env.split = "eval"
                     eval_rollout_metrics, _ = await run_rollouts(
                         sampling_client=sampling_client,
                         renderer=renderer,
                         hf_tokenizer=hf_tokenizer,
-                        generator_constructor=self.generator_constructor,
-                        env=self.eval_env,
+                        generator_constructor=generator_constructor,
+                        env=eval_env,
                         cfg=cfg,
                         batch_id=batch_idx,
                         split="eval",
                         num_tries=cfg.eval_num_tries,
                         # Just use all eval tasks
                         start_idx=0,  
-                        tasks_per_update=len(self.eval_env),
+                        tasks_per_update=len(eval_env),
                     )
                     metrics.update(eval_rollout_metrics)
 
                 # Save best checkpoints
                 best_metric_key = f"eval/{cfg.eval_num_tries}/{cfg.best_metric}"
                 last_metric = eval_rollout_metrics[best_metric_key]
+                best_ckpt_name = "best" if checkpoint_name is None else f"{checkpoint_name}_best"
                 if is_better(last_metric, self.best_metric, cfg.best_metric):
                     self.best_metric = last_metric
                     self.replay_buffer.save_to_hf_dataset(self.best_replay_buffer_path)
                     path_dict = await save_checkpoint_async(
                         training_client=self.training_client,
-                        name="best",
+                        name=best_ckpt_name,
                         log_path=cfg.log_path,
                         loop_state={"batch": batch_idx},
                         kind="state",
@@ -144,13 +167,13 @@ class RLTrainer(BaseTrainer):
                     )
 
             # 1. Sample rollouts for training
-            self.env.split = "train"
+            env.split = "train"
             train_rollout_metrics, new_trajectories = await run_rollouts(
                 sampling_client=sampling_client,
                 renderer=renderer,
                 hf_tokenizer=hf_tokenizer,
                 generator_constructor=self.generator_constructor,
-                env=self.env,
+                env=env,
                 cfg=cfg,
                 batch_id=batch_idx,
                 split="train",
@@ -167,7 +190,7 @@ class RLTrainer(BaseTrainer):
 
             # 2. Update policy LLM with generated rollouts
             data_D, prepare_minibatch_metrics = await self.prepare_minibatch(
-                new_trajectories=new_trajectories,
+                new_trajectories=new_trajectories["policy"],
                 service_client=self.service_client,
                 model_name=cfg.model_name,
                 kl_penalty_coef=cfg.kl_penalty_coef,
@@ -179,6 +202,7 @@ class RLTrainer(BaseTrainer):
                 data_D=data_D,
                 prepare_minibatch_metrics=prepare_minibatch_metrics,
                 loss_fn="importance_sampling",
+                checkpoint_name=checkpoint_name,
             )
 
             # Log metrics

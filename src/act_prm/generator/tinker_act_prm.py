@@ -158,7 +158,6 @@ class TinkerActPrmGenerator(TinkerGenerator):
         thought_bos: str = "<thought>",
         thought_eos: str = "</thought>",
         final_answer_bos: str = "Final Answer: ",
-        group_normalize: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -186,7 +185,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
         ]
         ```
         So by default, we remove the last assistant message
-        -> TinkerActionFirstActPrmGenerator will do something different
+        -> TinkerActionPromptActPrmGenerator will do something different
         """
         hf_tokenizer = hf_tokenizer or self.hf_tokenizer
         state_messages = deepcopy(state_messages)[:-1]
@@ -215,7 +214,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
         **single_rollout_kwargs: Any,
     ) -> dict[str, list[TrajectoryGroup]]:
         """
-        Wrapper for do_act_prm_group_rollout
+        Wrapper for `do_act_prm_group_rollout`
         """
         return self.do_act_prm_group_rollout(
             num_return_sequences=num_return_sequences,

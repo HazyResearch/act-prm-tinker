@@ -37,6 +37,7 @@ class TinkerGenerator:
         env: Environment,
         hf_tokenizer: PreTrainedTokenizerBase,
         discount_factor: float = 0.9,
+        mean_center: bool = False,
         verbose: bool = False,
         ml_logger: ml_log.Logger | None = None,
     ) -> None:
@@ -45,14 +46,20 @@ class TinkerGenerator:
         self.hf_tokenizer = hf_tokenizer
 
         self.discount_factor = discount_factor
+        self.mean_center = mean_center
         self.verbose = verbose
         self.run_url = ml_logger.get_logger_url() if ml_logger is not None else None
 
-    def _get_trajectory_group(self, **kwargs: Any) -> TrajectoryGroup:
+    def _get_trajectory_group(self, mean_center: bool = False, **kwargs: Any) -> TrajectoryGroup:
         """
         Return trajectory group class
         - Override in subclasses, e.g., to return MeanCenteredTrajectoryGroup
         """
+        if mean_center:
+            # Returns trajectory group where we compute advantages by:
+            # 1. Computing mean-centered final rewards: final_reward - mean(final_rewards)
+            # 2. Optionally apply step-wise discounting to these values
+            return MeanCenteredTrajectoryGroup(**kwargs)
         return TrajectoryGroup(**kwargs)
 
     def _get_messages_from_state(
@@ -288,16 +295,3 @@ class TinkerGenerator:
             run_url=self.run_url,
             **_rich_colors,
         )
-
-
-class TinkerGRPOGenerator(TinkerGenerator):
-    """
-    Tinker Generator with Mean-Centered Return Rollouts
-    """
-    def _get_trajectory_group(self, **kwargs: Any) -> MeanCenteredTrajectoryGroup:
-        """
-        Returns trajectory group where we compute advantages by:
-        1. Computing mean-centered final rewards: final_reward - mean(final_rewards)
-        2. Optionally apply step-wise discounting to these values
-        """
-        return MeanCenteredTrajectoryGroup(**kwargs)

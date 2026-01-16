@@ -121,8 +121,8 @@ async def main() -> None:
     # Reuse env if eval_env not specified; we always specify the split for loading new tasks
     eval_env = get_env(**eval_env_cfg) if args.eval_env_config else env
     replay_buffer = get_replay_buffer(**replay_buffer_cfg)
-    # Get constructor for LLM policy, determines how we generate rollouts
-    generator_ctor = get_generator_constructor(**generator_cfg, ml_logger=ml_logger)
+    # # Get constructor for LLM policy, determines how we generate rollouts
+    # generator_ctor = get_generator_constructor(**generator_cfg, ml_logger=ml_logger)
 
     # Training loop
     num_batches = cfg.num_batches  # number of training steps

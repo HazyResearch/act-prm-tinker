@@ -6,7 +6,6 @@ import asyncio
 import logging
 import random
 import time
-from os.path import join
 from typing import Any, Callable
 
 import torch
@@ -14,20 +13,15 @@ from omegaconf import DictConfig
 
 import tinker
 from tinker import TensorData
-from tinker.types import LossFnType
 from tinker_cookbook import model_info, renderers
 from tinker_cookbook.checkpoint_utils import save_checkpoint_async
-from tinker_cookbook.utils import ml_log
 from transformers import PreTrainedTokenizerBase
 
 from ..environments import Environment, EnvironmentState
 from ..generator.tinker import TinkerGenerator
-from ..replay_buffer import ReplayBuffer
-from ..replay_buffer.types import Trajectory
+from ..replay_buffer.types import StateActionSample, Trajectory
 
-from .base import BaseTrainer, StateActionSample
-from .tinker.metrics import incorporate_kl_penalty
-from .tinker.update import compute_full_batch_metrics_and_get_sampling_client, train_step
+from .base import BaseTrainer
 from .tinker.utils import save_checkpoint_and_get_sampling_client, timed
 from .train import is_better, run_rollouts
 
@@ -39,10 +33,6 @@ class SFTTrainer(BaseTrainer):
     """
     Trainer for supervised fine-tuning (SFT) with Tinker
     """
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.trajectories: list[Trajectory] = []
-
     def _get_trajectory_from_messages(
         self,
         messages: list[dict[str, str]],
@@ -51,7 +41,8 @@ class SFTTrainer(BaseTrainer):
         tools: list[dict[str, str]] | None = None,
     ) -> Trajectory:
         """
-        Get a Trajectory where trajectory.episode_steps is a list of StateActionSamples
+        Get a Trajectory where trajectory.episode_steps is a list of StateActionSample
+        (See replay_buffer.types)
         """
         episode_steps: list[StateActionSample] = []
         _tokenize_kwargs = {"tokenize": True, "tools": tools}
@@ -91,7 +82,16 @@ class SFTTrainer(BaseTrainer):
         )
 
     # Modified from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L989
-    async def train(self, start_batch: int, end_batch: int, cfg: DictConfig | None = None) -> None:
+    async def train(
+        self, 
+        start_batch: int,
+        end_batch: int,
+        cfg: DictConfig | None = None,
+        env: Environment | None = None,
+        eval_env: Environment | None = None,
+        generator_constructor: Callable[..., TinkerGenerator] | None = None,
+        checkpoint_name: str | None = None,
+    ) -> None:
         """
         Implement supervised fine-tuning (SFT) with Tinker
 
@@ -101,6 +101,9 @@ class SFTTrainer(BaseTrainer):
         3. Performs a policy update
         """
         cfg = cfg or self.cfg
+        generator_constructor = generator_constructor or self.generator_constructor
+        env = env or self.env
+        eval_env = eval_env or self.eval_env
 
         # Initial sampling client
         sampling_client, _ = await save_checkpoint_and_get_sampling_client(
@@ -109,6 +112,7 @@ class SFTTrainer(BaseTrainer):
             log_path=cfg.log_path,
             save_every=cfg.save_every,
             start_batch=start_batch,
+            checkpoint_name=checkpoint_name,
         )
 
         model_name = cfg.model_name or self.training_client.get_info().model_data.model_name
@@ -120,7 +124,7 @@ class SFTTrainer(BaseTrainer):
 
         num_batches = end_batch - start_batch
         # Task indices from demonstrations we can sample
-        indices_to_sample = list(range(len(self.env)))
+        indices_to_sample = list(range(len(env)))
         random.shuffle(indices_to_sample)
 
         for batch_idx in range(start_batch, end_batch):
@@ -134,31 +138,32 @@ class SFTTrainer(BaseTrainer):
             # Run evaluations
             if cfg.eval_every > 0 and batch_idx % cfg.eval_every == 0:
                 with timed("run_evals", metrics):
-                    self.eval_env.split = "eval"
+                    eval_env.split = "eval"
                     eval_rollout_metrics, _ = await run_rollouts(
                         sampling_client=sampling_client,
                         renderer=renderer,
                         hf_tokenizer=hf_tokenizer,
-                        generator_constructor=self.generator_constructor,
-                        env=self.eval_env,
+                        generator_constructor=generator_constructor,
+                        env=eval_env,
                         cfg=cfg,
                         batch_id=batch_idx,
                         split="eval",
                         num_tries=cfg.eval_num_tries,
                         # Just use all eval tasks
                         start_idx=0,
-                        tasks_per_update=len(self.eval_env),
+                        tasks_per_update=len(eval_env),
                     )
                     metrics.update(eval_rollout_metrics)
 
                 # Save best checkpoints
                 best_metric_key = f"eval/{cfg.eval_num_tries}/{cfg.best_metric}"
                 last_metric = eval_rollout_metrics[best_metric_key]
+                best_ckpt_name = "best" if checkpoint_name is None else f"{checkpoint_name}_best"
                 if is_better(last_metric, self.best_metric, cfg.best_metric):
                     self.best_metric = last_metric
                     path_dict = await save_checkpoint_async(
                         training_client=self.training_client,
-                        name="best",
+                        name=best_ckpt_name,
                         log_path=cfg.log_path,
                         loop_state={"batch": batch_idx},
                         kind="state",
@@ -171,19 +176,22 @@ class SFTTrainer(BaseTrainer):
                     )
 
             # 1. "Sample rollouts" for training
-            self.env.split = "train"
-            # Here we iteratre through the task demonstrations in the environment
+            env.split = "train"
+            # Here we iterate through the task demonstrations in the environment
             # -> To match training samples vs RL, we set the total number of trajectories
             #    as cfg.batch_size * cfg.group_size (i.e., tasks_per_update * num_return_sequences)
             num_trajectories = cfg.batch_size * cfg.group_size
             if len(indices_to_sample) < num_trajectories:  # Reset and shuffle indices_to_sample
-                indices_to_sample = list(range(len(self.env)))
+                indices_to_sample = list(range(len(env)))
                 random.shuffle(indices_to_sample)
 
             sampled_indices = [indices_to_sample.pop() for _ in range(num_trajectories)]
-            states: list[EnvironmentState] = await asyncio.gather(*[
-                self.env.reset_async(sample_idx=idx, batch_idx=batch_idx) for idx in sampled_indices
-            ])
+            states: list[EnvironmentState] = await asyncio.gather(
+                *[
+                    env.reset_async(sample_idx=idx, batch_idx=batch_idx)
+                    for idx in sampled_indices
+                ]
+            )
             new_trajectories = [
                 self._get_trajectory_from_messages(
                     messages=state.action_trajectory,
@@ -204,6 +212,7 @@ class SFTTrainer(BaseTrainer):
                 data_D=data_D,
                 prepare_minibatch_metrics=prepare_minibatch_metrics,
                 loss_fn="cross_entropy",
+                checkpoint_name=checkpoint_name,
             )
 
             # Log metrics
