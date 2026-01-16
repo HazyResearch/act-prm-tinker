@@ -137,6 +137,7 @@ async def compute_group_thought_action_metrics(
         ],
         desc="Computing thought-action metrics, p(action | state, thought)",
         colour="green",
+        leave=False,
     )
     # Convert list of dicts to dict of lists
     metrics_by_key: dict[str, Any] = {}
@@ -159,6 +160,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
         thought_bos: str = "<thought>",
         thought_eos: str = "</thought>",
         final_answer_bos: str = "Final Answer: ",
+        samples_to_display: int = 1,
         **kwargs: Any,
     ) -> None:
         super().__init__(mean_center=mean_center, **kwargs)
@@ -169,6 +171,8 @@ class TinkerActPrmGenerator(TinkerGenerator):
         self.thought_bos = thought_bos
         self.thought_eos = thought_eos
         self.final_answer_bos = final_answer_bos
+
+        self.samples_to_display = samples_to_display  # for visualization
 
     def _get_thought_prompt(
         self,
@@ -213,6 +217,21 @@ class TinkerActPrmGenerator(TinkerGenerator):
                 response_text.split(self.final_answer_bos)[:-1]
             ).strip()
         return response_text
+
+    def _compute_group_rewards(
+        self,
+        rewards_in_group: list[float],
+        split: str = "train",
+    ) -> list[float]:
+        """
+        Compute group rewards
+        """
+        # Expectation-maximization tells us to normalize by the sum of action_probs
+        if self.reward_method == "em" and split == "train":
+            sum_p = sum(rewards_in_group)
+            rewards_in_group = [p / sum_p for p in rewards_in_group]
+            # ^But only do for train split as eval num_return_sequences is 1
+        return rewards_in_group
 
     async def do_group_rollout(
         self,
@@ -308,21 +327,24 @@ class TinkerActPrmGenerator(TinkerGenerator):
                 sampling_client=llm.sampling_client,
             )
             # Get artifacts for RL training
-            rewards_in_group = group_metrics["action_probs"]
-            if self.reward_method == "em":
-                # Expectation-maximization tells us to normalize by the sum of action_probs
-                sum_p = sum(rewards_in_group)
-                rewards_in_group = [p / sum_p for p in rewards_in_group]
-                
+            rewards_in_group = self._compute_group_rewards(
+                rewards_in_group=group_metrics["action_probs"],
+                split=split,
+            )
             thought_action_messages = group_metrics["thought_action_messages"]
             # Visualize generated thoughts
             if self.verbose:
-                for i in range(num_return_sequences):
+                for i in range(min(self.samples_to_display, num_return_sequences)):
                     header_text = (
-                        f"Batch {batch_id}, Try {try_step}, "
+                        f"Batch {batch_id}, Split {split}, Try {try_step}, "
                         f"Sample {unique_data_sample_id}, Generation {i}, "
                         f"Step {state.timestep} / {max_turns - 1}, "
                         f"Reward {rewards_in_group[i]:.4f}"
+                    )
+                    rewards_str = ", ".join([f"{r:.4f}" for r in sorted(rewards_in_group)[::-1]])
+                    panel_content = (
+                        f"Run URL: [cyan]{self.run_url}[/cyan]"
+                        f"\nRewards: [{rewards_str}]"
                     )
                     self.display_state_action_next_obs(
                         state_messages=standard_chat,
@@ -331,6 +353,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
                         hf_tokenizer=hf_tokenizer,
                         tools=state.tools,
                         header_text=header_text,
+                        panel_content=panel_content,
                         generation_id=i,
                     )
 
@@ -339,6 +362,11 @@ class TinkerActPrmGenerator(TinkerGenerator):
             best_thought = thoughts_in_group[best_thought_idx]
             model_messages = [{"role": "assistant", "content": best_thought}]
             parsed_actions: list[ActionFromLLM] = get_actions(model_messages)
+
+            try:
+                _action = parsed_actions[0]
+            except IndexError:
+                breakpoint()
 
             env_step_result: EnvironmentStepResult = await env.step_async(
                 parsed_actions=parsed_actions,

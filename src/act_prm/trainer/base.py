@@ -146,6 +146,7 @@ class BaseTrainer(ABC):
             cfg.save_every,
             cfg.compute_post_kl,
             checkpoint_name=checkpoint_name,
+            do_compute_kl=False if loss_fn == "cross_entropy" else True,
         )
         metrics.update(full_batch_metrics)
 

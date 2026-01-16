@@ -95,6 +95,7 @@ async def compute_full_batch_metrics_and_get_sampling_client(
     save_every: int,
     do_compute_post_kl: bool,
     checkpoint_name: str | None = None,
+    do_compute_kl: bool = True,
 ) -> tuple[tinker.SamplingClient, dict[str, Any]]:
     """
     At the end of the iteration, this will compute metrics for the full batch
@@ -106,9 +107,10 @@ async def compute_full_batch_metrics_and_get_sampling_client(
     metrics = {}
 
     # Compute KL metrics
-    with timed("compute_kl_sample_train", metrics):
-        kl_sample_train_metrics = compute_kl_sample_train(data_D, training_logprobs_D)
-        metrics.update(kl_sample_train_metrics)
+    if do_compute_kl:
+        with timed("compute_kl_sample_train", metrics):
+            kl_sample_train_metrics = compute_kl_sample_train(data_D, training_logprobs_D)
+            metrics.update(kl_sample_train_metrics)
 
     # Get a sampling client using the new weights
     sampling_client, checkpoint_metrics = await save_checkpoint_and_get_sampling_client(

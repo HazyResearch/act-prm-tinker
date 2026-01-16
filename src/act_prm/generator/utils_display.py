@@ -20,7 +20,8 @@ def display_state_action_next_obs(
     hf_tokenizer: PreTrainedTokenizerBase,
     tools: list[dict[str, Any]] | None = None,
     header_text: str = "Batch 0, Try 0, Sample 0, Generation 0, Step 0",
-    run_url: str | None = None,
+    # run_url: str | None = None,
+    panel_content: str | None = None,
     # silly coloring + formatting
     system_color: str = "bright yellow",
     user_color: str = "bright red",
@@ -79,7 +80,7 @@ def display_state_action_next_obs(
     #     rich_tool_response_eos = f"{tool_response_eos}[/{tool_response_color}]"
     #     all_text = all_text.replace(tool_response_bos, rich_tool_response_bos)
     #     all_text = all_text.replace(tool_response_eos, rich_tool_response_eos)
-    panel_content = f"Run URL: [cyan]{run_url}[/cyan]" if run_url is not None else ""
+    # panel_content = f"Run URL: [cyan]{run_url}[/cyan]" if run_url is not None else ""
     try:
         rich_print(all_text)
         rich_print(Panel(panel_content, title=header_text, style="bold"))

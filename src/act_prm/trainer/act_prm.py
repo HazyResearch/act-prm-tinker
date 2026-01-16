@@ -177,7 +177,7 @@ class ActPrmTrainer(RLTrainer):
                     end_batch=cfg.num_batches_action_prompts,
                     cfg=cfg,
                     env=self.env,
-                    eval_env=self.eval_env,  # Evaluate thought-generation
+                    eval_env=self.env,  # Evaluate thought-generation
                     generator_constructor=self.action_prompt_generator_constructor,
                     checkpoint_name="action_prompts",
                 )

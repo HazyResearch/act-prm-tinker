@@ -205,10 +205,11 @@ class TinkerGenerator:
             # If verbose, rich print the state and action
             if self.verbose:
                 _header_text = (
-                    f"Batch {batch_id}, Try {try_step}, "
+                    f"Batch {batch_id}, Split {split}, Try {try_step}, "
                     f"Sample {unique_data_sample_id}, Generation {generation_id}, "
                     f"Step {state.timestep} (Max {env.max_turns - 1})"
                 )
+                panel_content = f"Run URL: [cyan]{self.run_url}[/cyan]"
                 self.display_state_action_next_obs(  # slightly coded for Qwen models for now
                     state_messages=state_messages,
                     action_messages=model_messages,
@@ -216,6 +217,7 @@ class TinkerGenerator:
                     hf_tokenizer=hf_tokenizer,
                     tools=state.tools,
                     header_text=_header_text,
+                    panel_content=panel_content,
                     generation_id=generation_id,
                 )
             # Transition to next state
@@ -265,6 +267,7 @@ class TinkerGenerator:
         tools: list[dict[str, Any]],
         header_text: str,
         generation_id: int,
+        panel_content: str | None = None,
         # Rich colors
         system_color: str = "bold bright_yellow",
         tool_call_color: str = "bold bright_blue",
@@ -292,6 +295,7 @@ class TinkerGenerator:
             hf_tokenizer=hf_tokenizer,
             tools=tools,
             header_text=header_text,
-            run_url=self.run_url,
+            # run_url=self.run_url,  # f"Run URL: [cyan]{run_url}[/cyan]"
+            panel_content=panel_content,
             **_rich_colors,
         )

@@ -188,7 +188,7 @@ class RLTrainer(BaseTrainer):
                 sampling_client=sampling_client,
                 renderer=renderer,
                 hf_tokenizer=hf_tokenizer,
-                generator_constructor=self.generator_constructor,
+                generator_constructor=generator_constructor,
                 env=env,
                 cfg=cfg,
                 batch_id=batch_idx,
@@ -233,7 +233,7 @@ class RLTrainer(BaseTrainer):
         """
         Prepare a minibatch of trajectories for training; see `_prepare_minibatch` for details
         """
-        return self._prepare_minibatch(**kwargs)
+        return await self._prepare_minibatch(**kwargs)
 
     async def _prepare_minibatch(
         self,
@@ -264,12 +264,22 @@ class RLTrainer(BaseTrainer):
                     padded_advantages = [0.0] * target_state_len + [adv] * len(act_logprobs)
                     padded_mask = [0.0] * target_state_len + [1.0] * len(act_logprobs)
 
-                    assert (
-                        len(input_tokens)
-                        == len(padded_logprobs)
-                        == len(padded_advantages)
-                        == len(target_tokens)
-                    )
+                    try:
+                        assert (
+                            len(input_tokens)
+                            == len(padded_logprobs)
+                            == len(padded_advantages)
+                            == len(target_tokens)
+                        )
+                    except AssertionError:
+                        # print(self.hf_tokenizer.decode(target_tokens))
+                        # print(self.hf_tokenizer.decode(target_tokens[target_state_len:]))
+                        logger.error(f"len(input_tokens): {len(input_tokens)}")
+                        logger.error(f"len(padded_logprobs): {len(padded_logprobs)}")
+                        logger.error(f"len(padded_advantages): {len(padded_advantages)}")
+                        logger.error(f"len(target_tokens): {len(target_tokens)}")
+                        breakpoint()
+
                     metadata_D.append({
                         "sample_id": episode_step.unique_data_sample_id,
                         "generation_id": episode_step.generation_id,

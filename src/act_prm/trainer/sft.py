@@ -235,7 +235,7 @@ class SFTTrainer(BaseTrainer):
         """
         Prepare a minibatch of trajectories for training; see `_prepare_minibatch` for details
         """
-        return self._prepare_minibatch(**kwargs)
+        return await self._prepare_minibatch(**kwargs)
 
     async def _prepare_minibatch(
         self,
