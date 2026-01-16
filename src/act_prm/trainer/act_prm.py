@@ -67,6 +67,7 @@ class ActPrmTrainer(RLTrainer):
         )
         self.action_prompt_generator_constructor = self.get_generator_constructor(
             name="action_prompt_act_prm",
+            keep_top_k=cfg.get("action_prompt_keep_top_k", None),
             **{k: v for k, v in generator_cfg.items() if k != "name"}
         )
 

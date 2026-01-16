@@ -135,6 +135,9 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
     """
     Tinker Generator with Action Process Reward Models
     """
+    def __init__(self, keep_top_k: int | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.keep_top_k = keep_top_k
 
     def _get_thought_prompt(
         self,
@@ -349,6 +352,8 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 generation_ids_in_group=range(num_return_sequences),
                 **shared_kwargs,
             )
+            if self.keep_top_k is not None:
+                trajectory_group.keep_top_k(self.keep_top_k)
             all_trajectory_groups.append(trajectory_group)
 
             # Save action-prompted (state, action, thought) steps            

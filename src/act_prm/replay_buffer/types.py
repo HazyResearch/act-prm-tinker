@@ -138,6 +138,19 @@ class TrajectoryGroup():
                 self.trajectories[t_idx].episode_steps[e_idx].advantage_is_computed = True
         return advantages
 
+    def keep_top_k(self, k: int) -> None:
+        """
+        Keep the top k trajectories based on their first return
+        """
+        topk_indices = sorted(
+            range(len(self.trajectories)),
+            key=lambda x: self.trajectories[x].first_return, reverse=True
+        )[:k]
+        self.trajectories = [self.trajectories[i] for i in topk_indices]
+        self.final_rewards = [self.final_rewards[i] for i in topk_indices]
+        self.first_returns = [self.first_returns[i] for i in topk_indices]
+        self.advantages = [self.advantages[i] for i in topk_indices]
+
 
 class MeanCenteredTrajectoryGroup(TrajectoryGroup):
     """
