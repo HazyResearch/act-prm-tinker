@@ -259,6 +259,11 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             )
             # Get artifacts for RL training
             rewards_in_group = group_metrics["action_probs"]
+            if self.reward_method == "em":
+                # Expectation-maximization tells us to normalize by the sum of action_probs
+                sum_p = sum(rewards_in_group)
+                rewards_in_group = [p / sum_p for p in rewards_in_group]
+            
             thought_action_messages = group_metrics["thought_action_messages"]
             # Visualize generated thoughts
             if self.verbose:

@@ -81,6 +81,19 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--temperature", type=float)
 
     ## Training Rollouts
+    parser.add_argument(
+        "--reward_method",
+        type=str,
+        default=None,
+        choices=["action_probs", "em"],
+        help="Method to compute rewards",
+    )
+    parser.add_argument(
+        "--mean_center",
+        action="store_true",
+        default=None,
+        help="Mean-center rewards",
+    )
     parser.add_argument("--discount_factor", type=float) 
     parser.add_argument(
         "--group_size",

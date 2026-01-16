@@ -1,5 +1,6 @@
 # Act-PRM Tinker Generator for Qwen3 LLMs
 name: "act_prm"
+reward_method: "em"
 discount_factor: 1.0
 mean_center: false
 verbose: false

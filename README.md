@@ -35,6 +35,73 @@ If you haven't already, add this `.env` file to your `.gitignore` file to avoid 
 
 ### HotpotQA MC (Generated QAs)
 
+**Act-PRM**  
+
+```bash
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc \
+--generator_config aprm_qwen3 \
+--trainer_config qwen3_4b_aprm \
+--reward_method em \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+```
+
+**Act-PRM (GRPO-like rewards)**  
+
+```bash
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc \
+--generator_config aprm_qwen3 \
+--trainer_config qwen3_4b_aprm \
+--reward_method em \
+--mean_center \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+```
+
+**SFT on actions only**
+
+```bash
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc \
+--generator_config default \
+--trainer_config qwen3_4b_sft \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+```
+
+**SFT on *thoughts and actions* ("oracle")**
+
+```bash
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_cot \
+--generator_config default \
+--trainer_config qwen3_4b_sft \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+```
+
 **Default Policy Gradient**  
 
 ```bash
@@ -51,21 +118,22 @@ uv run python main.py \
 --seed 42 --replicate 0 --verbose
 ```
 
-**Act-PRM**  
+**GRPO-like Policy Gradient**
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
---env_config act_prm/hotpotqa_mc \
---generator_config aprm_qwen3 \
---trainer_config qwen3_4b_aprm \
+--env_config hotpotqa_mc/fewshot2_gen \
+--generator_config grpo \
+--trainer_config qwen3_4b_pg \
 --replay_buffer_config default \
 --log_path ./logs \
 --model_name Qwen/Qwen3-4B-Instruct-2507 \
 --lora_rank 32 \
 --seed 42 --replicate 0 --verbose
 ```
+Alternatively, can use `--generator_config default` and `--mean_center`.
 
 ### HotpotQA Multiple Choice  
 

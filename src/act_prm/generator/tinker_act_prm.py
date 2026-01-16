@@ -4,7 +4,7 @@ Tinker Generator with Action Process Reward Models
 
 import asyncio
 from copy import deepcopy
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from tinker.types import ModelInput
@@ -153,6 +153,8 @@ class TinkerActPrmGenerator(TinkerGenerator):
     """
     def __init__(
         self,
+        reward_method: Literal["action_probs", "em"] = "em",
+        mean_center: bool = False,
         action_bos: str = "<tool_call>",
         action_eos: str = "</tool_call>",
         thought_bos: str = "<thought>",
@@ -160,7 +162,8 @@ class TinkerActPrmGenerator(TinkerGenerator):
         final_answer_bos: str = "Final Answer: ",
         **kwargs: Any,
     ) -> None:
-        super().__init__(**kwargs)
+        super().__init__(mean_center=mean_center, **kwargs)
+        self.reward_method = reward_method  # How we compute rewards
         # Delimiters to parse thoughts and actions from response text
         self.action_bos  = action_bos
         self.action_eos  = action_eos
@@ -304,6 +307,11 @@ class TinkerActPrmGenerator(TinkerGenerator):
             )
             # Get artifacts for RL training
             rewards_in_group = group_metrics["action_probs"]
+            if self.reward_method == "em":
+                # Expectation-maximization tells us to normalize by the sum of action_probs
+                sum_p = sum(rewards_in_group)
+                rewards_in_group = [p / sum_p for p in rewards_in_group]
+                
             thought_action_messages = group_metrics["thought_action_messages"]
             # Visualize generated thoughts
             if self.verbose:
