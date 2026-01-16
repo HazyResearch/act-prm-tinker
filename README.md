@@ -41,7 +41,7 @@ If you haven't already, add this `.env` file to your `.gitignore` file to avoid 
 CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
---env_config act_prm/hotpotqa_mc \
+--env_config act_prm/hotpotqa_mc_1k \
 --eval_env_config hotpotqa_mc/fewshot2_gen \
 --generator_config aprm_qwen3 \
 --trainer_config qwen3_4b_aprm \
@@ -56,7 +56,7 @@ uv run python main.py \
 CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
---env_config act_prm/hotpotqa_mc \
+--env_config act_prm/hotpotqa_mc_1k \
 --eval_env_config hotpotqa_mc/fewshot2 \
 --generator_config aprm_qwen3 \
 --trainer_config qwen3_4b_aprm \
@@ -71,7 +71,7 @@ uv run python main.py \
 CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
---env_config act_prm/hotpotqa_mc \
+--env_config act_prm/hotpotqa_mc_1k \
 --eval_env_config hotpotqa_mc/fewshot2 \
 --generator_config aprm_qwen3 \
 --trainer_config qwen3_4b_aprm_ap100 \
@@ -86,7 +86,7 @@ uv run python main.py \
 CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
---env_config act_prm/hotpotqa_mc \
+--env_config act_prm/hotpotqa_mc_1k \
 --eval_env_config hotpotqa_mc/fewshot2 \
 --generator_config aprm_qwen3 \
 --trainer_config qwen3_4b_aprm_ap100 \
@@ -104,7 +104,7 @@ uv run python main.py \
 CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
---env_config act_prm/hotpotqa_mc \
+--env_config act_prm/hotpotqa_mc_1k \
 --eval_env_config hotpotqa_mc/fewshot2 \
 --generator_config aprm_qwen3 \
 --trainer_config qwen3_4b_aprm_ap100 \
@@ -121,12 +121,26 @@ uv run python main.py \
 CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
---env_config act_prm/hotpotqa_mc \
+--env_config act_prm/hotpotqa_mc_1k \
 --eval_env_config hotpotqa_mc/fewshot2 \
 --generator_config aprm_qwen3 \
 --trainer_config qwen3_4b_aprm_ap100 \
 --reward_method action_probs \
 --mean_center \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+
+# SFT on actions only
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_1k \
+--eval_env_config hotpotqa_mc/fewshot2 \
+--generator_config default \
+--trainer_config qwen3_4b_sft \
 --replay_buffer_config default \
 --log_path ./logs \
 --model_name Qwen/Qwen3-4B-Instruct-2507 \
@@ -140,7 +154,7 @@ uv run python main.py \
 CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
---env_config act_prm/hotpotqa_mc \
+--env_config act_prm/hotpotqa_mc_1k \
 --eval_env_config hotpotqa_mc/fewshot2_gen \
 --generator_config aprm_qwen3 \
 --trainer_config qwen3_4b_aprm \
@@ -159,7 +173,7 @@ uv run python main.py \
 CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
---env_config act_prm/hotpotqa_mc \
+--env_config act_prm/hotpotqa_mc_1k \
 --eval_env_config hotpotqa_mc/fewshot2_gen \
 --generator_config default \
 --trainer_config qwen3_4b_sft \
@@ -176,7 +190,7 @@ uv run python main.py \
 CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
---env_config act_prm/hotpotqa_mc_cot \
+--env_config act_prm/hotpotqa_mc_1k_cot \
 --eval_env_config hotpotqa_mc/fewshot2_gen \
 --generator_config default \
 --trainer_config qwen3_4b_sft \

@@ -138,7 +138,7 @@ class SFTTrainer(BaseTrainer):
             t_start = time.time()
 
             # Run evaluations
-            if cfg.eval_every > 0 and batch_idx % cfg.eval_every == 0:
+            if cfg.eval_every > 0 and batch_idx % cfg.eval_every == 0 and batch_idx > 0:
                 with timed("run_evals", metrics):
                     eval_env.split = "eval"
                     eval_rollout_metrics, _ = await run_rollouts(
@@ -198,7 +198,19 @@ class SFTTrainer(BaseTrainer):
                 indices_to_sample = list(range(len(env)))
                 random.shuffle(indices_to_sample)
 
-            sampled_indices = [indices_to_sample.pop() for _ in range(num_trajectories)]
+            try:
+                sampled_indices = [indices_to_sample.pop() for _ in range(num_trajectories)]
+            except IndexError:
+                logger.warning(
+                    "num_trajectories: %d, batch_size: %d, group_size: %d" "len(env): %d",
+                    num_trajectories, cfg.batch_size, cfg.group_size, len(env),
+                )
+                logger.warning(
+                    "Not enough tasks in the environment, using all %d tasks instead",
+                    len(indices_to_sample),
+                )
+                sampled_indices = indices_to_sample
+            
             states: list[EnvironmentState] = await asyncio.gather(
                 *[
                     env.reset_async(sample_idx=idx, batch_idx=batch_idx)

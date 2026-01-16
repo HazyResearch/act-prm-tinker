@@ -15,6 +15,12 @@ class StateActionSample(BaseModel):
     """
     state_action_tokens: list[int]
     state_len: int
+    
+    return_: float = 1     # Somewhat dummy values for consistency with EpisodeStep
+    advantage: float = 1   # and Trajectory computations, but also indicates training
+    return_is_computed: bool = True
+    advantage_is_computed: bool = True
+    constant_reward_group: bool = False
 
 
 class EpisodeStep(BaseModel):
