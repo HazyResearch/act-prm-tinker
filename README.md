@@ -138,7 +138,7 @@ CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
 --env_config act_prm/hotpotqa_mc_1k \
---eval_env_config hotpotqa_mc/fewshot2 \
+--eval_env_config hotpotqa_mc/default \
 --generator_config default \
 --trainer_config qwen3_4b_sft \
 --replay_buffer_config default \
