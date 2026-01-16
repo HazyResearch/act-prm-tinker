@@ -252,7 +252,6 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 state_messages=standard_chat,
                 generated_thoughts=thoughts_in_group,
                 target_action=state.action_target,
-                system_prompt=state.system_prompt,
                 tools=state.tools,
                 hf_tokenizer=hf_tokenizer,
                 sampling_client=llm.sampling_client,
@@ -288,7 +287,12 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             best_thought_idx = np.argmax(rewards_in_group)
             best_thought = thoughts_in_group[best_thought_idx]
             model_messages = [{"role": "assistant", "content": best_thought}]
-            parsed_actions: list[ActionFromLLM] = [get_actions(model_messages)]
+            parsed_actions: list[ActionFromLLM] = get_actions(model_messages)
+
+            try:
+                _action = parsed_actions[0]
+            except IndexError:
+                breakpoint()
 
             env_step_result: EnvironmentStepResult = await env.step_async(
                 parsed_actions=parsed_actions,
@@ -328,7 +332,6 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 old_logprobs_in_group=group_metrics["action_logprobs"],
                 rewards_in_group=rewards_in_group,
                 generation_ids_in_group=range(num_return_sequences),
-                try_step=try_step,
                 **shared_kwargs,
             )
             all_trajectory_groups.append(trajectory_group)
@@ -357,9 +360,10 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 ModelInput.from_ints(input_ids) for input_ids in state_action_thought_input_ids_G
             ]
             logprobs_G = await asyncio.gather(*[
-                llm.compute_logprobs_async(tinker_input)[-action_token_lens_G[i]:]
-                for i, tinker_input in enumerate(state_action_thought_tinker_input_G)
+                llm.compute_logprobs_async(tinker_input)
+                for tinker_input in state_action_thought_tinker_input_G
             ])
+            logprobs_G = [logprobs[-action_token_lens_G[i]:] for i, logprobs in enumerate(logprobs_G)]
             actions_in_group = [
                 {"role": "assistant", "content": responses_in_group[i].text}
                 for i in range(num_return_sequences)
@@ -370,11 +374,10 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 state_messages=act_prompt_state_messages,
                 actions_in_group=actions_in_group,  # list[dict[str, str]]
                 state_len=group_metrics["state_len"][0],
-                state_action_tokens_in_group=state_action_thought_input_ids_G[i],
-                old_logprobs_in_group=logprobs_G[i],
+                state_action_tokens_in_group=state_action_thought_input_ids_G,
+                old_logprobs_in_group=logprobs_G,
                 rewards_in_group=rewards_in_group,
                 generation_ids_in_group=range(num_return_sequences),
-                try_step=try_step,
                 **shared_kwargs,
             )
             all_act_prompt_trajectory_groups.append(act_prompt_trajectory_group)

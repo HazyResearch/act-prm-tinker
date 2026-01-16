@@ -42,6 +42,21 @@ CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
 --env_config act_prm/hotpotqa_mc \
+--eval_env_config hotpotqa_mc/fewshot2_gen \
+--generator_config aprm_qwen3 \
+--trainer_config qwen3_4b_aprm \
+--reward_method em \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc \
+--eval_env_config hotpotqa_mc/fewshot2 \
 --generator_config aprm_qwen3 \
 --trainer_config qwen3_4b_aprm \
 --reward_method em \
@@ -59,6 +74,7 @@ CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
 --env_config act_prm/hotpotqa_mc \
+--eval_env_config hotpotqa_mc/fewshot2_gen \
 --generator_config aprm_qwen3 \
 --trainer_config qwen3_4b_aprm \
 --reward_method em \
@@ -77,6 +93,7 @@ CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
 --env_config act_prm/hotpotqa_mc \
+--eval_env_config hotpotqa_mc/fewshot2_gen \
 --generator_config default \
 --trainer_config qwen3_4b_sft \
 --replay_buffer_config default \
@@ -93,6 +110,7 @@ CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
 --env_config act_prm/hotpotqa_mc_cot \
+--eval_env_config hotpotqa_mc/fewshot2_gen \
 --generator_config default \
 --trainer_config qwen3_4b_sft \
 --replay_buffer_config default \
@@ -109,6 +127,7 @@ CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
 --env_config hotpotqa_mc/fewshot2_gen \
+--eval_env_config hotpotqa_mc/fewshot2_gen \
 --generator_config default \
 --trainer_config qwen3_4b_pg \
 --replay_buffer_config default \
@@ -125,6 +144,7 @@ CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
 --env_config hotpotqa_mc/fewshot2_gen \
+--eval_env_config hotpotqa_mc/fewshot2_gen \
 --generator_config grpo \
 --trainer_config qwen3_4b_pg \
 --replay_buffer_config default \

@@ -46,7 +46,8 @@ class BaseTrainer(ABC):
         self.env = env
         self.eval_env = eval_env
         self.ml_logger = ml_logger
-        self.hf_tokenizer = hf_tokenizer
+        self.hf_tokenizer = hf_tokenizer or training_client.get_tokenizer()
+        # ^Same as tinker_cookbook.tokenizer_utils.get_tokenizer(cfg.model_name)?
 
         self.best_metric = 1e8 if "loss" in cfg.best_metric else -1e8
         # self.best_sampling_client_path = ""

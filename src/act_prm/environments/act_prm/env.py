@@ -259,10 +259,17 @@ class ActPrmEnv(Environment):
         if action.type == "message":
             # Parse the generated thought
             thought_text = action.text or ""
-            thought_text = thought_text.split("<thought>")[1].strip()      # Extract if in tags
+            thought_text = thought_text.split("<thought>")[-1].strip()      # Extract if in tags
             thought_text = thought_text.split("</thought>")[0].strip()
-            thought_text = thought_text.split(self.action_bos)[0].strip()  # Ignore any actions
-            thought_text = thought_text.split(self.final_answer_bos)[0].strip()
+            # Extract thought as text before action or final answer
+            if len(thought_text.split(self.action_bos)) > 1:
+                thought_text = self.action_bos.join(
+                    thought_text.split(self.action_bos)[:-1]
+                ).strip()
+            if len(thought_text.split(self.final_answer_bos)) > 1:
+                thought_text = self.final_answer_bos.join(
+                    thought_text.split(self.final_answer_bos)[:-1]
+                ).strip()
 
             # Update the (state, thought-action) chat
             # 1. Update last assistant message to include the generated thought
@@ -272,7 +279,10 @@ class ActPrmEnv(Environment):
             }
             # 2. Add next_obs and next_action as new messages
             env_messages = [
-                action_trajectory[chat_step_idx + t] for t in range(2)
+                action_trajectory[chat_step_idx + t]
+                if chat_step_idx + t < len(action_trajectory)
+                else {"role": "assistant", "content": ""}
+                for t in range(2)
             ]
             action_target = env_messages[-1]["content"]  # next action target
 

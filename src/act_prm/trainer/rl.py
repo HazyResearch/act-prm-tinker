@@ -15,6 +15,8 @@ from tinker import TensorData
 from tinker_cookbook import model_info, renderers
 from tinker_cookbook.checkpoint_utils import save_checkpoint_async
 from tinker_cookbook.utils import ml_log
+
+from datasets.arrow_writer import SchemaInferenceError
 from transformers import PreTrainedTokenizerBase
 
 from ..environments import Environment
@@ -59,10 +61,7 @@ class RLTrainer(BaseTrainer):
             hf_tokenizer,
         )
         # Get constructor for LLM policy, determines how we generate rollouts
-        self.generator_constructor = self.get_generator_constructor(
-            **generator_cfg,
-            ml_logger=ml_logger,
-        )
+        self.generator_constructor = self.get_generator_constructor(**generator_cfg)
         self.replay_buffer = replay_buffer
 
         self.best_replay_buffer_path = join(cfg.checkpoint_path, "replay_buffer_best")
@@ -151,21 +150,19 @@ class RLTrainer(BaseTrainer):
 
                 # Save best checkpoints
                 _metric_prefix = "eval" if checkpoint_name is None else f"{checkpoint_name}_eval"
-                best_metric_key = f"{_metric_prefix}/{cfg.eval_num_tries}/{cfg.best_metric}"
+                best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
                 last_metric = eval_rollout_metrics[best_metric_key]
                 best_ckpt_name = "best" if checkpoint_name is None else f"{checkpoint_name}_best"
                 if is_better(last_metric, self.best_metric, cfg.best_metric):
                     self.best_metric = last_metric
-                    self.replay_buffer.save_to_hf_dataset(self.best_replay_buffer_path)
                     path_dict = await save_checkpoint_async(
                         training_client=self.training_client,
                         name=best_ckpt_name,
                         log_path=cfg.log_path,
                         loop_state={"batch": batch_idx},
-                        kind="state",
+                        kind="both",
                     )
                     best_sampling_client_path = path_dict["sampler_path"]
-                    logger.info("Saved best replay buffer to %s", self.best_replay_buffer_path)
                     logger.info("Saved best sampling client to %s", best_sampling_client_path)
                     logger.info(
                         "Updated best %s to %f at batch %d",
@@ -176,6 +173,14 @@ class RLTrainer(BaseTrainer):
                         f"{_metric_prefix}/best_metric": self.best_metric,
                         f"{_metric_prefix}/best_sampling_client_path": best_sampling_client_path,
                     })
+                    try:  # Saving replay buffer
+                        self.replay_buffer.save_to_hf_dataset(self.best_replay_buffer_path)
+                        logger.info("Saved best replay buffer to %s", self.best_replay_buffer_path)
+                    except SchemaInferenceError:
+                        logger.warning(
+                            "Failed to save best replay buffer to %s\nIs replay buffer empty?",
+                            self.best_replay_buffer_path
+                        )
 
             # 1. Sample rollouts for training
             env.split = "train"

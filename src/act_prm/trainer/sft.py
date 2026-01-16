@@ -160,7 +160,7 @@ class SFTTrainer(BaseTrainer):
 
                 # Save best checkpoints
                 _metric_prefix = "eval" if checkpoint_name is None else f"{checkpoint_name}_eval"
-                best_metric_key = f"{_metric_prefix}/{cfg.eval_num_tries}/{cfg.best_metric}"
+                best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
                 last_metric = eval_rollout_metrics[best_metric_key]
                 best_ckpt_name = "best" if checkpoint_name is None else f"{checkpoint_name}_best"
                 if is_better(last_metric, self.best_metric, cfg.best_metric):
@@ -170,7 +170,7 @@ class SFTTrainer(BaseTrainer):
                         name=best_ckpt_name,
                         log_path=cfg.log_path,
                         loop_state={"batch": batch_idx},
-                        kind="state",
+                        kind="both",
                     )
                     best_sampling_client_path = path_dict["sampler_path"]
                     logger.info("Saved best sampling client to %s", best_sampling_client_path)

@@ -135,7 +135,7 @@ async def do_sync_training(
                 metrics.update(eval_rollout_metrics)
 
             # Save best checkpoints
-            best_metric_key = f"eval/{cfg.eval_num_tries}/{cfg.best_metric}"
+            best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
             last_metric = eval_rollout_metrics[best_metric_key]
             if is_better(last_metric, best_metric, cfg.best_metric):
                 best_metric = last_metric
@@ -145,7 +145,7 @@ async def do_sync_training(
                     name="best",
                     log_path=cfg.log_path,
                     loop_state={"batch": batch_idx},
-                    kind="state",
+                    kind="both",
                 )
 
         # 1. Sample rollouts for training
@@ -238,7 +238,7 @@ async def run_rollouts(
     ]
 
     # Store new trajectories to return
-    new_trajectories: dict[str, list[Trajectory]] = []
+    new_trajectories: dict[str, list[Trajectory]] = {}
     
     for try_idx in range(num_tries):
         all_trajectory_groups: list[dict[str, list[TrajectoryGroup]]] = await gather_with_progress(
@@ -255,6 +255,7 @@ async def run_rollouts(
                 for sample_idx in range(start_idx, start_idx + batch_size)  
             ),
             desc=f"Generating {batch_size} rollouts ({split} split)",
+            colour="cyan" if split == "train" else "magenta",
         )
         # Save metrics and samples
         trajectory_keys = all_trajectory_groups[0].keys()
@@ -267,7 +268,7 @@ async def run_rollouts(
                         if _key == "policy":
                             # Only store metrics for the default "policy" trajectory group
                             for metric_key in eval_metric_keys:
-                                _metric_key = f"{_metric_prefix}/{try_idx}/{metric_key}"
+                                _metric_key = f"{_metric_prefix}/try_{try_idx}/{metric_key}"
                                 if metric_key == "correct":
                                     keys_for_correct.append(_metric_key)
                                 if _metric_key not in all_eval_metrics:
@@ -275,6 +276,8 @@ async def run_rollouts(
                                 val = getattr(trajectory, metric_key, 1)  # 1 for total samples
                                 all_eval_metrics[_metric_key].append(val)
                         # Add trajectory to list of new trajectories
+                        if _key not in new_trajectories:
+                            new_trajectories[_key] = []
                         new_trajectories[_key].append(trajectory)
 
     final_metrics = {}  # return these metrics for the batch

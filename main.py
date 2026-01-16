@@ -74,8 +74,9 @@ async def main() -> None:
         args, env_cfg, eval_env_cfg, generator_cfg, trainer_cfg, replay_buffer_cfg,
     )
     if args.verbose:
-        for cfg in updated_cfgs:
-            print_config(cfg)
+        cfg_names = ["env", "eval_env", "generator", "trainer", "replay_buffer"]
+        for cfg, cfg_name in zip(updated_cfgs, cfg_names):
+            print_config(cfg, cfg_name.upper())
     env_cfg, eval_env_cfg, generator_cfg, trainer_cfg, replay_buffer_cfg = updated_cfgs
     cfg = trainer_cfg  # Main config to reference (has all Tinker training attributes)
 
@@ -129,14 +130,14 @@ async def main() -> None:
 
     trainer = get_trainer(
         cfg.trainer_name,
-        training_client,
-        service_client,
-        generator_cfg,
-        replay_buffer,
-        env,
-        eval_env,
-        ml_logger,
-        hf_tokenizer,
+        cfg=cfg,
+        training_client=training_client,
+        service_client=service_client,
+        generator_cfg=generator_cfg,
+        replay_buffer=replay_buffer,
+        env=env,
+        eval_env=eval_env,
+        ml_logger=ml_logger,
     )
     await trainer.train(start_batch=start_batch, end_batch=num_batches)
 

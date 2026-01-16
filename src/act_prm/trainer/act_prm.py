@@ -14,9 +14,12 @@ from tinker import TensorData
 from tinker_cookbook import model_info, renderers
 from tinker_cookbook.checkpoint_utils import save_checkpoint_async
 from tinker_cookbook.utils import ml_log
+
+from datasets.arrow_writer import SchemaInferenceError
 from transformers import PreTrainedTokenizerBase
 
-from ..environments import ActPrmEnv, Environment
+from ..environments import Environment
+from ..environments.act_prm import ActPrmEnv
 from ..generator.tinker import TinkerGenerator
 from ..replay_buffer import ReplayBuffer
 from ..replay_buffer.types import Trajectory
@@ -66,12 +69,13 @@ class ActPrmTrainer(RLTrainer):
             **{k: v for k, v in generator_cfg.items() if k != "name"}
         )
 
-
     async def do_rl_loop(
         self,
         start_batch: int,
         end_batch: int,
         cfg: DictConfig | None = None,
+        env: Environment | None = None,
+        eval_env: Environment | None = None,
         generator_constructor: Callable[..., TinkerGenerator] | None = None,
         checkpoint_name: str | None = None,
     ) -> str:
@@ -82,6 +86,8 @@ class ActPrmTrainer(RLTrainer):
             start_batch=start_batch,
             end_batch=end_batch,
             cfg=cfg,
+            env=env,
+            eval_env=eval_env,
             generator_constructor=generator_constructor,
             checkpoint_name=checkpoint_name,
         )
@@ -164,19 +170,20 @@ class ActPrmTrainer(RLTrainer):
         # if cfg.action_first_prompts is True, we first train with action-first prompts
         # via TinkerActionPromptActPrmGenerator (via self.action_prompt_generator_constructor)
         if cfg.action_prompts:
-            best_action_prompt_sampling_client_path = await self.do_rl_loop(
-                start_batch=0,
-                end_batch=cfg.num_batches_action_prompts,
-                cfg=cfg,
-                env=self.env,
-                eval_env=self.eval_env,  # Evaluate how good thought-generation is
-                generator_constructor=self.action_prompt_generator_constructor,
-                checkpoint_name="action_prompts",
-            )
-            # Get best action-prompted sampling client
-            sampling_client = await self.service_client.create_sampling_client(
-                model_path=best_action_prompt_sampling_client_path,
-            )
+            if cfg.num_batches_action_prompts > 0:
+                best_action_prompt_sampling_client_path = await self.do_rl_loop(
+                    start_batch=0,
+                    end_batch=cfg.num_batches_action_prompts,
+                    cfg=cfg,
+                    env=self.env,
+                    eval_env=self.eval_env,  # Evaluate thought-generation
+                    generator_constructor=self.action_prompt_generator_constructor,
+                    checkpoint_name="action_prompts",
+                )
+                # Get best action-prompted sampling client
+                sampling_client = await self.service_client.create_sampling_client(
+                    model_path=best_action_prompt_sampling_client_path,
+                )
             # Generate thought-action rollouts for all tasks in the ActPrmEnv
             _end_batch = len(self.env) // cfg.batch_size
             all_new_trajectories: list[Trajectory] = []
@@ -203,6 +210,10 @@ class ActPrmTrainer(RLTrainer):
             self.training_client = await self.service_client.create_lora_training_client_async(
                 cfg.model_name, rank=cfg.lora_rank
             )
+            logger.info(
+                "Training new policy LLM with %d thought-action rollouts",
+                len(all_new_trajectories),
+            )
             data_D, prepare_minibatch_metrics = await self.prepare_sft_minibatch(
                 new_trajectories=all_new_trajectories,
             )
@@ -217,6 +228,7 @@ class ActPrmTrainer(RLTrainer):
                 mini_batch_size=cfg.action_prompt_mini_batch_size,
                 num_substeps=cfg.action_prompt_num_substeps,
             )
+            logger.info("Updated sampling client from SFT training")
         
         # ---------- Second stage of training (generate thoughts from states only) ----------
         num_batches = end_batch - start_batch
@@ -251,20 +263,19 @@ class ActPrmTrainer(RLTrainer):
 
                 # Save best checkpoints
                 _metric_prefix = "eval" if checkpoint_name is None else f"{checkpoint_name}_eval"
-                best_metric_key = f"{_metric_prefix}/{cfg.eval_num_tries}/{cfg.best_metric}"
+                best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
                 last_metric = eval_rollout_metrics[best_metric_key]
+                best_ckpt_name = "best" if checkpoint_name is None else f"{checkpoint_name}_best"
                 if is_better(last_metric, self.best_metric, cfg.best_metric):
                     self.best_metric = last_metric
-                    self.replay_buffer.save_to_hf_dataset(self.best_replay_buffer_path)
                     path_dict = await save_checkpoint_async(
                         training_client=self.training_client,
-                        name="best",
+                        name=best_ckpt_name,
                         log_path=cfg.log_path,
                         loop_state={"batch": batch_idx},
-                        kind="state",
+                        kind="both",
                     )
                     best_sampling_client_path = path_dict["sampler_path"]
-                    logger.info("Saved best replay buffer to %s", self.best_replay_buffer_path)
                     logger.info("Saved best sampling client to %s", best_sampling_client_path)
                     logger.info(
                         "Updated best %s to %f at batch %d",
@@ -275,6 +286,14 @@ class ActPrmTrainer(RLTrainer):
                         f"{_metric_prefix}/best_metric": self.best_metric,
                         f"{_metric_prefix}/best_sampling_client_path": best_sampling_client_path,
                     })
+                    try:  # Saving replay buffer
+                        self.replay_buffer.save_to_hf_dataset(self.best_replay_buffer_path)
+                        logger.info("Saved best replay buffer to %s", self.best_replay_buffer_path)
+                    except SchemaInferenceError:
+                        logger.warning(
+                            "Failed to save best replay buffer to %s\nIs replay buffer empty?",
+                            self.best_replay_buffer_path
+                        )
 
             # 1. Sample rollouts for training
             self.env.split = "train"

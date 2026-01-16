@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import Any, Literal
 
 import numpy as np
+from tinker import SamplingClient
 from tinker.types import ModelInput
 from transformers import PreTrainedTokenizerBase
 
@@ -14,7 +15,7 @@ from ..environments.base import Environment
 from ..environments.act_prm import ActionProcessRewardState
 from ..environments.types import EnvironmentStepResult
 from ..llm_handlers.action_utils import get_actions
-from ..llm_handlers.tinker import SamplingClient, TinkerCompleter, TokensWithLogprobsAndText
+from ..llm_handlers.tinker import TinkerCompleter, TokensWithLogprobsAndText
 from ..llm_handlers.types import ActionFromLLM
 from ..replay_buffer.types import (
     EpisodeStep, Trajectory, TrajectoryGroup, MeanCenteredTrajectoryGroup,
@@ -26,7 +27,7 @@ from .tinker import TinkerGenerator
 
 def process_state_messages_for_metrics(
     state_messages: list[dict[str, str]],
-    system_prompt: dict[str, str],
+    system_prompt: str,
 ) -> list[dict[str, str]]:
     """
     Ensure state messages have 1 system prompt and no last assistant message
@@ -36,7 +37,7 @@ def process_state_messages_for_metrics(
         state_messages = state_messages[1:]
     if state_messages[-1]["role"] == "assistant":
         state_messages = state_messages[:-1]
-    return [system_prompt] + state_messages
+    return [{"role": "system", "content": system_prompt}] + state_messages
 
 
 async def compute_single_thought_action_metrics(
@@ -105,7 +106,6 @@ async def compute_group_thought_action_metrics(
     state_messages: list[dict[str, str]],
     generated_thoughts: list[str],
     target_action: str,
-    system_prompt: dict[str, str],
     tools: list[dict[str, str]],
     hf_tokenizer: PreTrainedTokenizerBase,
     sampling_client: SamplingClient,
@@ -116,7 +116,6 @@ async def compute_group_thought_action_metrics(
     Returns a dictionary with the same keys as compute_single_thought_action_metrics, but also:
     - state_len: number of state tokens
     """
-    state_messages = process_state_messages_for_metrics(state_messages, system_prompt)
     state_len = len(
         hf_tokenizer.apply_chat_template(
             state_messages,
@@ -142,7 +141,7 @@ async def compute_group_thought_action_metrics(
     # Convert list of dicts to dict of lists
     metrics_by_key: dict[str, Any] = {}
     for k, v in metrics_in_group[0].items():
-        metrics_by_key[k] = [getattr(m, k) for m in metrics_in_group]
+        metrics_by_key[k] = [m.get(k) for m in metrics_in_group]
     metrics_by_key["state_len"] = [state_len] * len(generated_thoughts)
     return metrics_by_key
 
@@ -207,9 +206,13 @@ class TinkerActPrmGenerator(TinkerGenerator):
         response_text = response_text.split(self.thought_bos)[-1].strip()
         response_text = response_text.split(self.thought_eos)[0].strip()
         # Extract thought as text before action or final answer
-        response_text = self.action_bos.join(response_text.split(self.action_bos)[:-1]).strip()
-        response_text = self.final_answer_bos.join(response_text.split(self.final_answer_bos)[:-1])
-        return response_text.strip()
+        if len(response_text.split(self.action_bos)) > 1:
+            response_text = self.action_bos.join(response_text.split(self.action_bos)[:-1]).strip()
+        if len(response_text.split(self.final_answer_bos)) > 1:
+            response_text = self.final_answer_bos.join(
+                response_text.split(self.final_answer_bos)[:-1]
+            ).strip()
+        return response_text
 
     async def do_group_rollout(
         self,
@@ -219,7 +222,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
         """
         Wrapper for `do_act_prm_group_rollout`
         """
-        return self.do_act_prm_group_rollout(
+        return await self.do_act_prm_group_rollout(
             num_return_sequences=num_return_sequences,
             **single_rollout_kwargs,
         )
@@ -300,7 +303,6 @@ class TinkerActPrmGenerator(TinkerGenerator):
                 state_messages=standard_chat,
                 generated_thoughts=thoughts_in_group,
                 target_action=state.action_target,
-                system_prompt=state.system_prompt,
                 tools=state.tools,
                 hf_tokenizer=hf_tokenizer,
                 sampling_client=llm.sampling_client,
@@ -336,7 +338,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
             best_thought_idx = np.argmax(rewards_in_group)
             best_thought = thoughts_in_group[best_thought_idx]
             model_messages = [{"role": "assistant", "content": best_thought}]
-            parsed_actions: list[ActionFromLLM] = [get_actions(model_messages)]
+            parsed_actions: list[ActionFromLLM] = get_actions(model_messages)
 
             env_step_result: EnvironmentStepResult = await env.step_async(
                 parsed_actions=parsed_actions,
@@ -377,7 +379,6 @@ class TinkerActPrmGenerator(TinkerGenerator):
                 old_logprobs_in_group=group_metrics["action_logprobs"],
                 rewards_in_group=rewards_in_group,
                 generation_ids_in_group=range(num_return_sequences),
-                try_step=try_step,
                 **shared_kwargs,
             )
             all_trajectory_groups.append(trajectory_group)
@@ -412,6 +413,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
                 old_logprobs=old_logprobs_in_group[i],
                 reward=rewards_in_group[i],
                 generation_id=generation_ids_in_group[i],
+                try_step=try_step,
                 **shared_kwargs,
             ) for i, action in enumerate(actions_in_group)
         ]

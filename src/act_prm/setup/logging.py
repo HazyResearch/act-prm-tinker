@@ -10,7 +10,9 @@ import rich.tree
 
 
 def print_header(x, border="both") -> None:
-    """Print with borders"""
+    """
+    Print with borders
+    """
     match border:
         case "both":
             prefix = f"{"-" * len(x)}\n"
