@@ -50,12 +50,12 @@ class TinkerGenerator:
         self.verbose = verbose
         self.run_url = ml_logger.get_logger_url() if ml_logger is not None else None
 
-    def _get_trajectory_group(self, mean_center: bool = False, **kwargs: Any) -> TrajectoryGroup:
+    def _get_trajectory_group(self, **kwargs: Any) -> TrajectoryGroup:
         """
         Return trajectory group class
         - Override in subclasses, e.g., to return MeanCenteredTrajectoryGroup
         """
-        if mean_center:
+        if self.mean_center:
             # Returns trajectory group where we compute advantages by:
             # 1. Computing mean-centered final rewards: final_reward - mean(final_rewards)
             # 2. Optionally apply step-wise discounting to these values

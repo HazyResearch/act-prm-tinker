@@ -160,7 +160,7 @@ class ActPrmTrainer(RLTrainer):
         renderer = renderers.get_renderer(renderer_name, hf_tokenizer)
         logger.info("Using renderer: %s", renderer_name)
 
-        # ---------- First stage of training ----------
+        # ---------- First stage of training (include actions in prompts) ----------
         # if cfg.action_first_prompts is True, we first train with action-first prompts
         # via TinkerActionPromptActPrmGenerator (via self.action_prompt_generator_constructor)
         if cfg.action_prompts:
@@ -218,7 +218,7 @@ class ActPrmTrainer(RLTrainer):
                 num_substeps=cfg.action_prompt_num_substeps,
             )
         
-        # ---------- Second stage of training ----------
+        # ---------- Second stage of training (generate thoughts from states only) ----------
         num_batches = end_batch - start_batch
         for batch_idx in range(start_batch, end_batch):
             metrics = {

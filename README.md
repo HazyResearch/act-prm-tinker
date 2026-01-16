@@ -33,6 +33,40 @@ If you haven't already, add this `.env` file to your `.gitignore` file to avoid 
 
 ## Example Commands
 
+### HotpotQA MC (Generated QAs)
+
+**Default Policy Gradient**  
+
+```bash
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config hotpotqa_mc/fewshot2_gen \
+--generator_config default \
+--trainer_config qwen3_4b_pg \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+```
+
+**Act-PRM**  
+
+```bash
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc \
+--generator_config aprm_qwen3 \
+--trainer_config qwen3_4b_aprm \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+```
+
 ### HotpotQA Multiple Choice  
 
 **Default Policy Gradient**  
