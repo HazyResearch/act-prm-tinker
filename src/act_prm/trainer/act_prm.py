@@ -2,11 +2,12 @@
 Tinker Trainers for fully synchronous Act-PRM training
 """
 
-from os.path import join
-from typing import Any, Callable
 import logging
 import time
+from os.path import join
+from typing import Any, Callable
 
+import torch
 from omegaconf import DictConfig
 
 import tinker
@@ -82,7 +83,7 @@ class ActPrmTrainer(RLTrainer):
         """
         Run an RL training loop for a given generator (TinkerActPrmGenerator or TinkerActionPromptActPrmGenerator)
         """
-        return super().train(
+        return await super().train(
             start_batch=start_batch,
             end_batch=end_batch,
             cfg=cfg,
@@ -181,7 +182,8 @@ class ActPrmTrainer(RLTrainer):
                     checkpoint_name="action_prompts",
                 )
                 # Get best action-prompted sampling client
-                sampling_client = await self.service_client.create_sampling_client(
+                # sampling_client = await self.service_client.create_sampling_client(
+                sampling_client = await self.training_client.create_sampling_client(
                     model_path=best_action_prompt_sampling_client_path,
                 )
             # Generate thought-action rollouts for all tasks in the ActPrmEnv
