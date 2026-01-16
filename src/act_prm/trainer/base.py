@@ -15,6 +15,7 @@ from tinker_cookbook.utils import ml_log
 from transformers import PreTrainedTokenizerBase
 
 from ..environments import Environment
+from ..generator import get_generator_constructor
 from ..generator.tinker import TinkerGenerator
 # from ..replay_buffer.types import Trajectory
 
@@ -34,6 +35,7 @@ class BaseTrainer(ABC):
         cfg: DictConfig,
         training_client: tinker.TrainingClient,
         service_client: tinker.ServiceClient,
+        generator_cfg: DictConfig,
         env: Environment,       # used to get training samples
         eval_env: Environment,  # could be the same as env, but update env.split
         ml_logger: ml_log.Logger,
@@ -43,14 +45,24 @@ class BaseTrainer(ABC):
         self.cfg = cfg
         self.training_client = training_client
         self.service_client = service_client
+        self.generator_cfg = generator_cfg
         self.env = env
         self.eval_env = eval_env
         self.ml_logger = ml_logger
         self.hf_tokenizer = hf_tokenizer or training_client.get_tokenizer()
         # ^Same as tinker_cookbook.tokenizer_utils.get_tokenizer(cfg.model_name)?
 
+        # Get constructor for LLM policy, determines how we generate rollouts
+        self.generator_constructor = self.get_generator_constructor(**generator_cfg)
+
         self.best_metric = 1e8 if "loss" in cfg.best_metric else -1e8
         # self.best_sampling_client_path = ""
+
+    def get_generator_constructor(self, **kwargs: Any) -> Callable[..., TinkerGenerator]:
+        """
+        Get a (partially initialized) TinkerGenerator constructor by name
+        """
+        return get_generator_constructor(**kwargs, ml_logger=self.ml_logger)
 
     @abstractmethod
     async def train(

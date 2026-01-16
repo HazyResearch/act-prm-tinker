@@ -54,12 +54,12 @@ async def compute_single_thought_action_metrics(
     These include artifacts useful for SFT training, e.g., (state, thought, action) tokens
 
     Returns a dictionary with the following keys:
-    - action_probs:                  p(action | state, generated_thought)
-    - action_logprobs:               logprobs of the action tokens
+    - target_action_probs:           p(action | state, generated_thought)
+    - target_action_logprobs:        logprobs of the action tokens
     - state_thought_action_tokens:   tokens of the current (state, thought, action) trajectory
     - state_thought_action_logprobs: logprobs of the current (state, thought, action) trajectory
     - state_thought_len:             number of (state, thought) tokens
-    - action_len:                    number of action tokens
+    - target_action_len:             number of action tokens
     - thought_action_messages:       thought-action model response
     """
     _tokenize_kwargs = {
@@ -83,21 +83,21 @@ async def compute_single_thought_action_metrics(
         continue_final_message=False,
         **_tokenize_kwargs,
     )
-    action_token_len = len(full_tokens) - len(prefix_tokens)
+    target_action_token_len = len(full_tokens) - len(prefix_tokens)
 
     # Compute length-normalized joint probabilities of action tokens as reward metrics
     tinker_prompt = ModelInput.from_ints(full_tokens)
-    logprobs = await sampling_client.compute_logprobs_async(tinker_prompt)
-    action_logprobs = np.array(logprobs[-action_token_len:])
-    action_probs = np.exp(action_logprobs.sum() / len(action_logprobs)).item()  # length-normalize
+    full_logprobs = await sampling_client.compute_logprobs_async(tinker_prompt)
+    target_logprobs = np.array(full_logprobs[-target_action_token_len:])
+    target_probs = np.exp(target_logprobs.sum() / len(target_logprobs)).item()  # length-normalize
 
     return {
-        "action_probs": action_probs,
-        "action_logprobs": action_logprobs.tolist(),
+        "target_action_probs": target_probs,
+        "target_action_logprobs": target_logprobs.tolist(),
         "state_thought_action_tokens": full_tokens,
-        "state_thought_action_logprobs": logprobs,
+        "state_thought_action_logprobs": full_logprobs,
         "state_thought_len": len(prefix_tokens),
-        "action_len": action_token_len,
+        "target_action_len": target_action_token_len,
         "thought_action_messages": thought_action_msgs,
     }
 
@@ -115,6 +115,7 @@ async def compute_group_thought_action_metrics(
 
     Returns a dictionary with the same keys as compute_single_thought_action_metrics, but also:
     - state_len: number of state tokens
+    - action_logprobs: logprobs of the model generation after state_len (thoughts and actions)
     """
     state_len = len(
         hf_tokenizer.apply_chat_template(
@@ -139,6 +140,9 @@ async def compute_group_thought_action_metrics(
         colour="green",
         leave=False,
     )
+    for sample_ix in range(len(metrics_in_group)):
+        full_logprobs = metrics_in_group[sample_ix]["state_thought_action_logprobs"]
+        metrics_in_group[sample_ix]["action_logprobs"] = full_logprobs[state_len:]
     # Convert list of dicts to dict of lists
     metrics_by_key: dict[str, Any] = {}
     for k, v in metrics_in_group[0].items():
@@ -178,6 +182,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
         self,
         state_messages: list[dict[str, Any]],
         hf_tokenizer: PreTrainedTokenizerBase | None = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> tuple[list[dict[str, Any]], list[int]]:
         """
         Get the thought prompt messages for the given state messages.
@@ -199,6 +204,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
             state_messages,
             add_generation_prompt=True,
             tokenize=True,
+            tools=tools,
         )
         return state_messages, input_ids
 
@@ -328,7 +334,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
             )
             # Get artifacts for RL training
             rewards_in_group = self._compute_group_rewards(
-                rewards_in_group=group_metrics["action_probs"],
+                rewards_in_group=group_metrics["target_action_probs"],
                 split=split,
             )
             thought_action_messages = group_metrics["thought_action_messages"]

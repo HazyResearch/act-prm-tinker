@@ -1,7 +1,7 @@
 # Qwen3-4B Act-PRM training config
 trainer_name: act_prm
 action_prompts: true
-num_batches_action_prompts: 0
+num_batches_action_prompts: 30
 action_prompt_mini_batch_size: 32
 action_prompt_num_substeps: null
 action_prompt_num_epochs: 10

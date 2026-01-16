@@ -20,7 +20,6 @@ from datasets.arrow_writer import SchemaInferenceError
 from transformers import PreTrainedTokenizerBase
 
 from ..environments import Environment
-from ..generator import get_generator_constructor
 from ..generator.tinker import TinkerGenerator
 from ..replay_buffer import ReplayBuffer
 from ..replay_buffer.types import Trajectory
@@ -43,7 +42,6 @@ class RLTrainer(BaseTrainer):
         cfg: DictConfig,
         training_client: tinker.TrainingClient,
         service_client: tinker.ServiceClient,
-        # generator_constructor: Callable[..., TinkerGenerator],
         generator_cfg: DictConfig,
         replay_buffer: ReplayBuffer,
         env: Environment,
@@ -55,23 +53,15 @@ class RLTrainer(BaseTrainer):
             cfg,
             training_client,
             service_client,
+            generator_cfg,
             env,
             eval_env,
             ml_logger,
             hf_tokenizer,
         )
-        # Get constructor for LLM policy, determines how we generate rollouts
-        self.generator_constructor = self.get_generator_constructor(**generator_cfg)
         self.replay_buffer = replay_buffer
-
         self.best_replay_buffer_path = join(cfg.checkpoint_path, "replay_buffer_best")
         self.last_replay_buffer_path = join(cfg.checkpoint_path, "replay_buffer")
-
-    def get_generator_constructor(self, **kwargs: Any) -> Callable[..., TinkerGenerator]:
-        """
-        Get a (partially initialized) TinkerGenerator constructor by name
-        """
-        return get_generator_constructor(**kwargs, ml_logger=self.ml_logger)
 
     # Modified from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L989
     async def train(

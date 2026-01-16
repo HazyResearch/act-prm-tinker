@@ -41,7 +41,6 @@ class ActPrmTrainer(RLTrainer):
         cfg: DictConfig,
         training_client: tinker.TrainingClient,
         service_client: tinker.ServiceClient,
-        # generator_constructor: Callable[..., TinkerGenerator],
         generator_cfg: DictConfig,
         replay_buffer: ReplayBuffer,
         env: ActPrmEnv,
@@ -213,14 +212,28 @@ class ActPrmTrainer(RLTrainer):
             self.training_client = await self.service_client.create_lora_training_client_async(
                 cfg.model_name, rank=cfg.lora_rank
             )
-            logger.info(
-                "Training new policy LLM with %d thought-action rollouts",
-                len(all_new_trajectories),
-            )
             data_D, prepare_minibatch_metrics = await self.prepare_sft_minibatch(
                 new_trajectories=all_new_trajectories,
             )
+            logger.info(
+                "Training new policy LLM with %d thought-action rollouts, %d total samples",
+                len(all_new_trajectories),
+                len(data_D),
+            )
             # New sampling client from SFT training
+            if cfg.get("action_prompt_num_epochs", None) is not None:
+                assert cfg.action_prompt_mini_batch_size is not None
+                num_substeps = (
+                    len(data_D) // cfg.action_prompt_mini_batch_size
+                ) * cfg.action_prompt_num_epochs
+                logger.info(
+                    "Using %d epochs, batch size %d, %d total substeps for SFT training",
+                    cfg.action_prompt_num_epochs, cfg.action_prompt_mini_batch_size, num_substeps
+                )
+            else:
+                num_substeps = cfg.get("action_prompt_num_substeps", None)
+                logger.info("Using %d substeps for SFT training", num_substeps)
+
             sampling_client, update_metrics = await self.do_train_step_and_get_sampling_client(
                 batch_idx=0,
                 training_client=self.training_client,
@@ -229,7 +242,7 @@ class ActPrmTrainer(RLTrainer):
                 loss_fn="cross_entropy",
                 checkpoint_name="action_prompts",
                 mini_batch_size=cfg.action_prompt_mini_batch_size,
-                num_substeps=cfg.action_prompt_num_substeps,
+                num_substeps=num_substeps,
             )
             logger.info("Updated sampling client from SFT training")
         

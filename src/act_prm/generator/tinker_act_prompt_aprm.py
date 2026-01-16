@@ -264,7 +264,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             )
             # Get artifacts for RL training
             rewards_in_group = self._compute_group_rewards(
-                rewards_in_group=group_metrics["action_probs"],
+                rewards_in_group=group_metrics["target_action_probs"],
                 split=split,
             )
             if self.reward_method == "em" and split == "train":

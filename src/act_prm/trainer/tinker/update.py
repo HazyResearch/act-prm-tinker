@@ -8,6 +8,7 @@ from typing import Any
 import logging
 
 import torch
+from tqdm import tqdm
 
 import tinker
 from tinker.types import LossFnType
@@ -37,7 +38,7 @@ def _training_logprobs_from_fwd_bwd(fwd_bwd_result: tinker.ForwardBackwardOutput
     return [output["logprobs"].to_torch() for output in fwd_bwd_result.loss_fn_outputs]
 
 
-# Copied from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L181
+# Modified from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L181
 async def train_step(
     data_D: list[tinker.Datum],
     training_client: tinker.TrainingClient,
@@ -63,7 +64,8 @@ async def train_step(
     )
     optim_future = await training_client.optim_step_async(adam_params)
 
-    for i in range(len(batches)):
+    pbar = tqdm(range(len(batches)), desc=f"Training with {loss_fn}", leave=False)
+    for i in pbar:
         # Enqueue next batch before consuming current results (to stay on same clock cycle)
         if i + 1 < len(batches):
             next_fwd_bwd_future = await training_client.forward_backward_async(

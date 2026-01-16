@@ -103,7 +103,7 @@ async def save_checkpoint_and_get_sampling_client(
     Save checkpoint and get sampling client
     """
     metrics = {}
-    name = checkpoint_name or f"{i_batch:06d}"
+    name = f"{checkpoint_name}_{i_batch:06d}" if checkpoint_name else f"{i_batch:06d}"
     with timed("save_checkpoint", metrics):
         if save_every > 0 and i_batch > start_batch and i_batch % save_every == 0:
             path_dict = await checkpoint_utils.save_checkpoint_async(
