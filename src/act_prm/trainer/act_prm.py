@@ -66,6 +66,7 @@ class ActPrmTrainer(RLTrainer):
             **{k: v for k, v in generator_cfg.items() if k != "name"}
         )
 
+
     async def do_rl_loop(
         self,
         start_batch: int,
@@ -73,7 +74,7 @@ class ActPrmTrainer(RLTrainer):
         cfg: DictConfig | None = None,
         generator_constructor: Callable[..., TinkerGenerator] | None = None,
         checkpoint_name: str | None = None,
-    ) -> None:
+    ) -> str:
         """
         Run an RL training loop for a given generator (TinkerActPrmGenerator or TinkerActionPromptActPrmGenerator)
         """
@@ -116,7 +117,16 @@ class ActPrmTrainer(RLTrainer):
         return data_D, metrics
 
     # Modified from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L989
-    async def train(self, start_batch: int, end_batch: int, cfg: DictConfig | None = None) -> None:
+    async def train(
+        self, 
+        start_batch: int, 
+        end_batch: int, 
+        cfg: DictConfig | None = None,
+        env: Environment | None = None,
+        eval_env: Environment | None = None,
+        generator_constructor: Callable[..., TinkerGenerator] | None = None,
+        checkpoint_name: str | None = None,
+    ) -> None:
         """
         Implement fully synchronous on-policy training with Tinker
 
@@ -126,6 +136,13 @@ class ActPrmTrainer(RLTrainer):
         3. Performs a policy update
         """
         cfg = cfg or self.cfg
+        env = env or self.env
+        eval_env = eval_env or self.eval_env
+        generator_constructor = generator_constructor or self.generator_constructor
+
+        # Paths to the best sampling clients
+        best_action_prompt_sampling_client_path = ""
+        best_sampling_client_path = ""
 
         # Initial sampling client
         sampling_client, _ = await save_checkpoint_and_get_sampling_client(
@@ -147,7 +164,7 @@ class ActPrmTrainer(RLTrainer):
         # if cfg.action_first_prompts is True, we first train with action-first prompts
         # via TinkerActionPromptActPrmGenerator (via self.action_prompt_generator_constructor)
         if cfg.action_prompts:
-            await self.do_rl_loop(
+            best_action_prompt_sampling_client_path = await self.do_rl_loop(
                 start_batch=0,
                 end_batch=cfg.num_batches_action_prompts,
                 cfg=cfg,
@@ -156,11 +173,10 @@ class ActPrmTrainer(RLTrainer):
                 generator_constructor=self.action_prompt_generator_constructor,
                 checkpoint_name="action_prompts",
             )
-            # Get best sampling client
+            # Get best action-prompted sampling client
             sampling_client = await self.service_client.create_sampling_client(
-                model_path=self.best_sampling_client_path,
+                model_path=best_action_prompt_sampling_client_path,
             )
-
             # Generate thought-action rollouts for all tasks in the ActPrmEnv
             _end_batch = len(self.env) // cfg.batch_size
             all_new_trajectories: list[Trajectory] = []
@@ -175,6 +191,7 @@ class ActPrmTrainer(RLTrainer):
                     env=self.env,
                     cfg=cfg,
                     batch_id=batch_idx,
+                    checkpoint_name="action_prompts",
                     split="train",
                     num_tries=cfg.num_tries,
                     start_idx=batch_idx * cfg.batch_size,
@@ -223,6 +240,7 @@ class ActPrmTrainer(RLTrainer):
                         env=self.eval_env,
                         cfg=cfg,
                         batch_id=batch_idx,
+                        checkpoint_name=checkpoint_name,
                         split="eval",
                         num_tries=cfg.eval_num_tries,
                         # Just use all eval tasks
@@ -232,7 +250,8 @@ class ActPrmTrainer(RLTrainer):
                     metrics.update(eval_rollout_metrics)
 
                 # Save best checkpoints
-                best_metric_key = f"eval/{cfg.eval_num_tries}/{cfg.best_metric}"
+                _metric_prefix = "eval" if checkpoint_name is None else f"{checkpoint_name}_eval"
+                best_metric_key = f"{_metric_prefix}/{cfg.eval_num_tries}/{cfg.best_metric}"
                 last_metric = eval_rollout_metrics[best_metric_key]
                 if is_better(last_metric, self.best_metric, cfg.best_metric):
                     self.best_metric = last_metric
@@ -244,13 +263,18 @@ class ActPrmTrainer(RLTrainer):
                         loop_state={"batch": batch_idx},
                         kind="state",
                     )
-                    self.best_sampling_client_path = path_dict["sampler_path"]
+                    best_sampling_client_path = path_dict["sampler_path"]
                     logger.info("Saved best replay buffer to %s", self.best_replay_buffer_path)
-                    logger.info("Saved best sampling client to %s", self.best_sampling_client_path)
+                    logger.info("Saved best sampling client to %s", best_sampling_client_path)
                     logger.info(
                         "Updated best %s to %f at batch %d",
                         cfg.best_metric, self.best_metric, batch_idx,
                     )
+                    metrics.update({
+                        f"{_metric_prefix}/best_batch": batch_idx,
+                        f"{_metric_prefix}/best_metric": self.best_metric,
+                        f"{_metric_prefix}/best_sampling_client_path": best_sampling_client_path,
+                    })
 
             # 1. Sample rollouts for training
             self.env.split = "train"
@@ -262,6 +286,7 @@ class ActPrmTrainer(RLTrainer):
                 env=self.env,
                 cfg=cfg,
                 batch_id=batch_idx,
+                checkpoint_name=checkpoint_name,
                 split="train",
                 num_tries=cfg.num_tries,
                 start_idx=batch_idx * cfg.batch_size,
@@ -288,9 +313,12 @@ class ActPrmTrainer(RLTrainer):
                 data_D=data_D,
                 prepare_minibatch_metrics=prepare_minibatch_metrics,
                 loss_fn="importance_sampling",
+                checkpoint_name=checkpoint_name,
             )
 
             # Log metrics
             metrics.update(update_metrics)
             metrics["time/total"] = time.time() - t_start
             self.ml_logger.log_metrics(metrics, step=batch_idx)
+
+        return best_sampling_client_path

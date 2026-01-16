@@ -84,7 +84,7 @@ class RLTrainer(BaseTrainer):
         eval_env: Environment | None = None,
         generator_constructor: Callable[..., TinkerGenerator] | None = None,
         checkpoint_name: str | None = None,
-    ) -> None:
+    ) -> str:
         """
         Implement fully synchronous on-policy training with Tinker
 
@@ -92,11 +92,15 @@ class RLTrainer(BaseTrainer):
         1. Loads the most recent checkpoint and determines how we generate rollouts
         2. Generates rollouts (optionally running on the evaluation environment)
         3. Performs a policy update
+
+        Returns the path to the best sampling path
         """
         cfg = cfg or self.cfg
-        generator_constructor = generator_constructor or self.generator_constructor
         env = env or self.env
         eval_env = eval_env or self.eval_env
+        generator_constructor = generator_constructor or self.generator_constructor
+
+        best_sampling_client_path = ""  # Path to the best sampling client
 
         # Initial sampling client
         sampling_client, _ = await save_checkpoint_and_get_sampling_client(
@@ -136,6 +140,7 @@ class RLTrainer(BaseTrainer):
                         env=eval_env,
                         cfg=cfg,
                         batch_id=batch_idx,
+                        checkpoint_name=checkpoint_name,
                         split="eval",
                         num_tries=cfg.eval_num_tries,
                         # Just use all eval tasks
@@ -145,7 +150,8 @@ class RLTrainer(BaseTrainer):
                     metrics.update(eval_rollout_metrics)
 
                 # Save best checkpoints
-                best_metric_key = f"eval/{cfg.eval_num_tries}/{cfg.best_metric}"
+                _metric_prefix = "eval" if checkpoint_name is None else f"{checkpoint_name}_eval"
+                best_metric_key = f"{_metric_prefix}/{cfg.eval_num_tries}/{cfg.best_metric}"
                 last_metric = eval_rollout_metrics[best_metric_key]
                 best_ckpt_name = "best" if checkpoint_name is None else f"{checkpoint_name}_best"
                 if is_better(last_metric, self.best_metric, cfg.best_metric):
@@ -158,13 +164,18 @@ class RLTrainer(BaseTrainer):
                         loop_state={"batch": batch_idx},
                         kind="state",
                     )
-                    self.best_sampling_client_path = path_dict["sampler_path"]
+                    best_sampling_client_path = path_dict["sampler_path"]
                     logger.info("Saved best replay buffer to %s", self.best_replay_buffer_path)
-                    logger.info("Saved best sampling client to %s", self.best_sampling_client_path)
+                    logger.info("Saved best sampling client to %s", best_sampling_client_path)
                     logger.info(
                         "Updated best %s to %f at batch %d",
                         cfg.best_metric, self.best_metric, batch_idx,
                     )
+                    metrics.update({
+                        f"{_metric_prefix}/best_batch": batch_idx,
+                        f"{_metric_prefix}/best_metric": self.best_metric,
+                        f"{_metric_prefix}/best_sampling_client_path": best_sampling_client_path,
+                    })
 
             # 1. Sample rollouts for training
             env.split = "train"
@@ -176,6 +187,7 @@ class RLTrainer(BaseTrainer):
                 env=env,
                 cfg=cfg,
                 batch_id=batch_idx,
+                checkpoint_name=checkpoint_name,
                 split="train",
                 num_tries=cfg.num_tries,
                 start_idx=batch_idx * cfg.batch_size,
@@ -209,6 +221,8 @@ class RLTrainer(BaseTrainer):
             metrics.update(update_metrics)
             metrics["time/total"] = time.time() - t_start
             self.ml_logger.log_metrics(metrics, step=batch_idx)
+        
+        return best_sampling_client_path
 
     async def prepare_minibatch(self, **kwargs: Any) -> tuple[list[tinker.Datum], dict[str, Any]]:
         """

@@ -31,7 +31,7 @@ from act_prm.environments import get_env
 from act_prm.generator import get_generator_constructor
 from act_prm.replay_buffer import get_replay_buffer
 from act_prm.setup import get_args, print_config, seed_everything
-from act_prm.trainer.train import do_sync_training
+from act_prm.trainer import get_trainer
 
 
 logger = logging.getLogger(__name__)
@@ -126,18 +126,19 @@ async def main() -> None:
 
     # Training loop
     num_batches = cfg.num_batches  # number of training steps
-    await do_sync_training(
-        start_batch=start_batch,
-        end_batch=num_batches,
-        cfg=cfg,
-        training_client=training_client,
-        service_client=service_client,
-        generator_constructor=generator_ctor,
-        replay_buffer=replay_buffer,
-        env=env,
-        eval_env=eval_env,
-        ml_logger=ml_logger,
+
+    trainer = get_trainer(
+        cfg.trainer_name,
+        training_client,
+        service_client,
+        generator_cfg,
+        replay_buffer,
+        env,
+        eval_env,
+        ml_logger,
+        hf_tokenizer,
     )
+    await trainer.train(start_batch=start_batch, end_batch=num_batches)
 
     # Save final checkpoint
     if start_batch < num_batches:

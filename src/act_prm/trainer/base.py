@@ -49,7 +49,7 @@ class BaseTrainer(ABC):
         self.hf_tokenizer = hf_tokenizer
 
         self.best_metric = 1e8 if "loss" in cfg.best_metric else -1e8
-        self.best_sampling_client_path = ""
+        # self.best_sampling_client_path = ""
 
     @abstractmethod
     async def train(
@@ -61,7 +61,7 @@ class BaseTrainer(ABC):
         eval_env: Environment | None = None,
         generator_constructor: Callable[..., TinkerGenerator] | None = None,
         checkpoint_name: str | None = None,
-    ) -> None:
+    ) -> str:
         """
         Implement synchronous training with Tinker
         """

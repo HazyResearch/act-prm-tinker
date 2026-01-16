@@ -199,6 +199,7 @@ async def run_rollouts(
     env: Environment,
     cfg: DictConfig,
     batch_id: int,
+    checkpoint_name: str | None = None,
     split: str = "train",
     num_tries: int = 1,
     start_idx: int = 0,
@@ -257,6 +258,7 @@ async def run_rollouts(
         )
         # Save metrics and samples
         trajectory_keys = all_trajectory_groups[0].keys()
+        _metric_prefix = f"{checkpoint_name}_{split}" if checkpoint_name is not None else split
 
         for _key in trajectory_keys:
             for trajectory_groups in all_trajectory_groups:     # list of list of trajectory groups
@@ -265,7 +267,7 @@ async def run_rollouts(
                         if _key == "policy":
                             # Only store metrics for the default "policy" trajectory group
                             for metric_key in eval_metric_keys:
-                                _metric_key = f"{split}/{try_idx}/{metric_key}"
+                                _metric_key = f"{_metric_prefix}/{try_idx}/{metric_key}"
                                 if metric_key == "correct":
                                     keys_for_correct.append(_metric_key)
                                 if _metric_key not in all_eval_metrics:
