@@ -8,6 +8,7 @@ Implements similar functions to the following Tinker Cookbook methods:
 """
 
 import asyncio
+import logging
 import sys
 from copy import copy
 from typing import Any
@@ -26,6 +27,8 @@ from ..replay_buffer.types import (
 )
 
 from .utils_display import display_state_action_next_obs
+
+logger = logging.getLogger(__name__)
 
 
 class TinkerGenerator:
@@ -140,11 +143,19 @@ class TinkerGenerator:
             )
             tinker_input: ModelInput = ModelInput.from_ints(input_ids)
             # 1. Generate model responses (thoughts + actions)
-            response: TokensWithLogprobsAndText = await llm.generate(
+            response: TokensWithLogprobsAndText | None = await llm.generate(
                 tinker_input,
                 max_tokens=max_tokens,
                 temperature=temperature,
             )
+            if response is None:
+                logger.warning("No valid response, ending rollout")
+                done = True
+                truncated = True
+                # exit while loop
+                break
+
+
             # print(hf_tokenizer.decode(input_ids))
             # breakpoint()
             model_messages = [{"role": "assistant", "content": response.text}]

@@ -7,6 +7,7 @@ Maybe this permalink?
 https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/completers.py
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Any, TypeAlias
 
@@ -19,6 +20,8 @@ from .types import ActionFromLLM
 
 # Interfaces
 StopCondition: TypeAlias = list[str] | list[int]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -81,7 +84,7 @@ class TinkerCompleter:
     async def __call__(
         self,
         **kwargs: Any,
-    ) -> TokensWithLogprobs:
+    ) -> TokensWithLogprobs | None:
         """
         Generate tokens (see self.generate for class-specific implementation)
         """
@@ -93,7 +96,7 @@ class TinkerCompleter:
         max_tokens: int | None = None,
         temperature: float | None = None,
         stop: StopCondition | None = None,
-    ) -> TokensWithLogprobs:
+    ) -> TokensWithLogprobs | None:
         """
         Generate tokens from model input
         """
@@ -103,26 +106,30 @@ class TinkerCompleter:
             temperature=temperature or self.temperature,
             stop=stop or self.stop_condition,
         )
-        response = await self.sampling_client.sample_async(
-            model_input,
-            num_samples=1,
-            sampling_params=sampling_params,
-        )
-
-        # Extract tokens and logprobs from the first (and only) sample
-        sampled_tokens = response.sequences[0].tokens
-        sampled_logprobs = response.sequences[0].logprobs
-        assert sampled_logprobs is not None
-        # Decode the response
-        parsed_message, is_complete = self.renderer.parse_response(sampled_tokens)
-        text_content = get_text_content(parsed_message)
-
-        return TokensWithLogprobsAndText(
-            tokens=sampled_tokens,
-            maybe_logprobs=sampled_logprobs,
-            text=text_content,
-            is_complete=is_complete
-        )
+        try:
+            response = await self.sampling_client.sample_async(
+                model_input,
+                num_samples=1,
+                sampling_params=sampling_params,
+            )
+            # Extract tokens and logprobs from the first (and only) sample
+            sampled_tokens = response.sequences[0].tokens
+            sampled_logprobs = response.sequences[0].logprobs
+            assert sampled_logprobs is not None
+            # Decode the response
+            parsed_message, is_complete = self.renderer.parse_response(sampled_tokens)
+            text_content = get_text_content(parsed_message)
+            
+            return TokensWithLogprobsAndText(
+                tokens=sampled_tokens,
+                maybe_logprobs=sampled_logprobs,
+                text=text_content,
+                is_complete=is_complete
+            )
+        except tinker.BadRequestError as e:
+            logger.error(f"[red]Tinker BadRequestError: {e}[/red]")
+            return None
+        
 
     async def get_actions(self, response: list[dict[str, Any]]) -> list[ActionFromLLM]:
         """

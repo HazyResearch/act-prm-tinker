@@ -247,6 +247,17 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                     temperature=temperature
                 ) for _ in range(num_return_sequences)
             ])
+            valid_response_indices = [
+                i for i, response in enumerate(responses_in_group) if response is not None
+            ]
+            responses_in_group = [responses_in_group[i] for i in valid_response_indices]
+
+            if len(responses_in_group) == 0:
+                logger.warning("No valid responses in group, skipping")
+                done = True
+                truncated = True
+                break
+            
             # Parse thoughts from responses
             thoughts_in_group: list[str] = [  # demonstrations may have <thought>...</thought>
                 self._parse_thoughts(response.text) for response in responses_in_group
@@ -317,7 +328,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 state_action_tokens_in_group=group_metrics["state_thought_action_tokens"],
                 old_logprobs_in_group=group_metrics["action_logprobs"],
                 rewards_in_group=rewards_in_group,
-                generation_ids_in_group=range(num_return_sequences),
+                generation_ids_in_group=valid_response_indices,
                 **shared_kwargs,
             )
             if self.keep_top_k is not None:
@@ -327,7 +338,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             # Save action-prompted (state, action, thought) steps            
             # 1. Get state-action-thought artifacts for RL training
             state_action_thought_messages_G = [
-                deepcopy(act_prompt_state_messages) for _ in range(num_return_sequences)
+                deepcopy(act_prompt_state_messages) for _ in range(len(responses_in_group))
             ]
             state_action_thought_tokens_G = []
             for i, response in enumerate(responses_in_group):
@@ -343,7 +354,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 )
             action_token_lens_G = [
                 len(state_action_thought_tokens_G[i]) - len(input_ids)
-                for i in range(num_return_sequences)
+                for i in range(len(responses_in_group))
             ]
             state_action_thought_tinker_input_G = [
                 ModelInput.from_ints(_tokens) for _tokens in state_action_thought_tokens_G
@@ -354,8 +365,8 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             ])
             logprobs_G = [logprobs[-action_token_lens_G[i]:] for i, logprobs in enumerate(logprobs_G)]
             actions_in_group = [
-                {"role": "assistant", "content": responses_in_group[i].text}
-                for i in range(num_return_sequences)
+                {"role": "assistant", "content": response.text}
+                for response in responses_in_group
             ]
             # for _ix, _msg in enumerate(act_prompt_state_messages):
             #     print(f"act_prompt_state_messages[{_ix}]: {_msg}")
@@ -374,7 +385,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 state_action_tokens_in_group=state_action_thought_tokens_G,
                 old_logprobs_in_group=logprobs_G,
                 rewards_in_group=rewards_in_group,
-                generation_ids_in_group=range(num_return_sequences),
+                generation_ids_in_group=valid_response_indices,
                 **shared_kwargs,
             )
             all_act_prompt_trajectory_groups.append(act_prompt_trajectory_group)

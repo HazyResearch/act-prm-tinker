@@ -11,7 +11,9 @@ import numpy as np
 import torch
 from omegaconf import DictConfig
 from rich import print as rich_print
+from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 from tqdm import tqdm
 
 import tinker
@@ -36,6 +38,7 @@ from .tinker.utils import save_checkpoint_and_get_sampling_client, split_list, t
 from .train import is_better, run_rollouts
 
 logger = logging.getLogger(__name__)
+console = Console()
 
 
 class ActPrmSftEvalTrainer(RLTrainer):
@@ -220,7 +223,7 @@ class ActPrmSftEvalTrainer(RLTrainer):
                         env=eval_env,
                         cfg=cfg,
                         batch_id=batch_id,
-                        checkpoint_name=f"sft_eval_{loop_id:06d}",  # prefix for metric keys
+                        checkpoint_name=f"sft_eval_{loop_id:03d}",  # prefix for metric keys
                         split="eval",
                         num_tries=inner_eval_num_tries,
                         start_idx=0,
@@ -235,15 +238,16 @@ class ActPrmSftEvalTrainer(RLTrainer):
                             all_eval_metrics[k] = []
                         all_eval_metrics[k].append(v)
                     # Display metrics
-                    panel_content = "\n".join([
-                        f"{k}: {v}" for k, v in eval_rollout_metrics.items()
-                    ])
-                    panel = Panel(
-                        panel_content,
+                    table = Table(
                         title=f"SFT Eval Loop {loop_id}, Eval {eval_idx}, Batch {batch_id}",
-                        style="bright_yellow"
+                        style="bright_yellow",
                     )
-                    rich_print(panel)
+                    table.add_column("Metric", justify="right")
+                    table.add_column("Last Value", justify="left")
+                    table.add_column("All Values", justify="left")
+                    for k, v in eval_rollout_metrics.items():
+                        table.add_row(k, str(v), str(all_eval_metrics[k]))
+                    console.print(table)
                     eval_idx += 1
 
             # Do one SFT update
@@ -265,7 +269,7 @@ class ActPrmSftEvalTrainer(RLTrainer):
             sampling_client = training_client.create_sampling_client(path_dict["sampler_path"])
             logger.info("Created new sampling client for SFT evaluation at path %s", path_dict["sampler_path"])
             # breakpoint()
-            pbar.set_postfix(**eval_rollout_metrics)
+            pbar.set_postfix(**{k.split("/")[-1]: v for k, v in eval_rollout_metrics.items()})
         
         # Get best evaluation metrics (over eval_idx)
         best_metric_keys = [k for k in all_eval_metrics.keys() if eval_best_metric in k]
@@ -275,7 +279,7 @@ class ActPrmSftEvalTrainer(RLTrainer):
         best_eval_idx = np.argmax([all_eval_metrics[k] for k in best_metric_keys])
         best_eval_metrics = {}
         for k, v in all_eval_metrics.items():
-            k = k.replace(f"sft_eval_{loop_id:06d}", "sft_eval_max")  # counts across eval_idx
+            k = k.replace(f"sft_eval_{loop_id:03d}", "sft_eval_max")  # counts across eval_idx
             best_eval_metrics[k] = v[best_eval_idx]
         # Keep track of best_eval_idx
         best_eval_metrics["sft_eval_max/best_eval_idx"] = best_eval_idx
