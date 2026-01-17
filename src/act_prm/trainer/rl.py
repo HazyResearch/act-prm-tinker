@@ -48,6 +48,7 @@ class RLTrainer(BaseTrainer):
         eval_env: Environment,  # could be the same as env, but update env.split
         ml_logger: ml_log.Logger,
         hf_tokenizer: PreTrainedTokenizerBase | None = None,
+        **kwargs: Any,
     ) -> None:
         super().__init__(
             cfg,
@@ -58,6 +59,7 @@ class RLTrainer(BaseTrainer):
             eval_env,
             ml_logger,
             hf_tokenizer,
+            **kwargs,
         )
         self.replay_buffer = replay_buffer
         self.best_replay_buffer_path = join(cfg.checkpoint_path, "replay_buffer_best")

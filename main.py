@@ -138,6 +138,7 @@ async def main() -> None:
         env=env,
         eval_env=eval_env,
         ml_logger=ml_logger,
+        run_name=args.run_name,
     )
     await trainer.train(start_batch=start_batch, end_batch=num_batches)
 

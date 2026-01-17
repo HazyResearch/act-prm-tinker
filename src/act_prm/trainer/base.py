@@ -40,6 +40,7 @@ class BaseTrainer(ABC):
         eval_env: Environment,  # could be the same as env, but update env.split
         ml_logger: ml_log.Logger,
         hf_tokenizer: PreTrainedTokenizerBase | None = None,
+        run_name: str | None = None,
         **kwargs: Any,
     ) -> None:
         self.cfg = cfg
@@ -57,6 +58,7 @@ class BaseTrainer(ABC):
 
         self.best_metric = 1e8 if "loss" in cfg.best_metric else -1e8
         # self.best_sampling_client_path = ""
+        self.run_name = run_name
 
     def get_generator_constructor(self, **kwargs: Any) -> Callable[..., TinkerGenerator]:
         """

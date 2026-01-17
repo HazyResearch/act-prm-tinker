@@ -47,6 +47,7 @@ class ActPrmTrainer(RLTrainer):
         eval_env: Environment,
         ml_logger: ml_log.Logger,
         hf_tokenizer: PreTrainedTokenizerBase | None = None,
+        **kwargs: Any,
     ) -> None:
         super().__init__(
             cfg,
@@ -58,6 +59,7 @@ class ActPrmTrainer(RLTrainer):
             eval_env,
             ml_logger,
             hf_tokenizer,
+            **kwargs,
         )
         # Evaluation generator does standard rollouts, see act_prm/generator/default.py
         self.eval_generator_constructor = self.get_generator_constructor(
@@ -209,6 +211,10 @@ class ActPrmTrainer(RLTrainer):
                     tasks_per_update=cfg.batch_size,
                 )
                 all_new_trajectories.extend(new_trajectories["thought_action_policy"])
+
+            # TODO: Save these thought-action rollouts to a HF Dataset and push to hub
+            # -> Then can evaluate by seeing how training another LLM from scratch performs
+            # Can also sample on just 100 or 500 tasks, and see if it can perform well?
 
             # Train new policy LLM with the thought-action rollouts
             self.training_client = await self.service_client.create_lora_training_client_async(

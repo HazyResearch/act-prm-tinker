@@ -267,45 +267,13 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 rewards_in_group=group_metrics["target_action_probs"],
                 split=split,
             )
-            if self.reward_method == "em" and split == "train":
-                # Expectation-maximization tells us to normalize by the sum of action_probs
-                sum_p = sum(rewards_in_group)
-                rewards_in_group = [p / sum_p for p in rewards_in_group]
-                # ^But only do for train split as eval num_return_sequences is 1
-            
             thought_action_messages = group_metrics["thought_action_messages"]
-            # Visualize generated thoughts
-            if self.verbose:
-                for i in range(min(self.samples_to_display, num_return_sequences)):
-                    header_text = (
-                        f"Batch {batch_id}, Split {split}, Try {try_step}, "
-                        f"Sample {unique_data_sample_id}, Generation {i}, "
-                        f"Step {state.timestep} / {max_turns - 1}, "
-                        f"Reward {rewards_in_group[i]:.4f}"
-                    )
-                    rewards_str = ", ".join([f"{r:.4f}" for r in sorted(rewards_in_group)[::-1]])
-                    panel_content = "\n".join([
-                        f"Rewards: [bright_green][{rewards_str}][/bright_green]",
-                        f"Run url: [cyan]{self.run_url}[/cyan]",
-                        f"Run cmd: [bright_blue]{self.cmd_str}[/bright_blue]",
-                    ])
-                    self.display_state_action_next_obs(
-                        state_messages=standard_chat,
-                        action_messages=thought_action_messages[i],
-                        next_obs_messages=[],
-                        hf_tokenizer=hf_tokenizer,
-                        tools=state.tools,
-                        header_text=header_text,
-                        panel_content=panel_content,
-                        generation_id=i,
-                    )
 
             # Pick the highest-reward thought to continue for the next step
             best_thought_idx = np.argmax(rewards_in_group)
             best_thought = thoughts_in_group[best_thought_idx]
             model_messages = [{"role": "assistant", "content": best_thought}]
             parsed_actions: list[ActionFromLLM] = get_actions(model_messages)
-
             try:
                 _action = parsed_actions[0]
             except IndexError as e:
@@ -414,6 +382,42 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             
             # Transition to next state
             state = next_state
+
+            # Visualize generated thoughts
+            if self.verbose:
+                i = best_thought_idx
+                header_text = (
+                    f"Batch {batch_id}, Split {split}, Try {try_step}, "
+                    f"Sample {unique_data_sample_id}, Generation {i}, "
+                    f"Step {state.timestep} / {max_turns - 1}, "
+                    f"Reward {rewards_in_group[i]:.4f}"
+                )
+                rewards_str = ", ".join([f"{r:.4f}" for r in sorted(rewards_in_group)[::-1]])
+                panel_content = "\n".join([
+                    f"Rewards: [bright_green][{rewards_str}][/bright_green]",
+                    f"Run url: [cyan]{self.run_url}[/cyan]",
+                    f"Run cmd: [bright_blue]{self.cmd_str}[/bright_blue]",
+                ])
+                self.display_state_action_next_obs(
+                    state_messages=standard_chat,
+                    action_messages=thought_action_messages[i],
+                    next_obs_messages=[],
+                    hf_tokenizer=hf_tokenizer,
+                    tools=state.tools,
+                    header_text=f"SFT trajectory:\n{header_text}",
+                    panel_content=panel_content,
+                    generation_id=i,
+                )
+                self.display_state_action_next_obs(
+                    state_messages=act_prompt_state_messages,
+                    action_messages=model_messages,
+                    next_obs_messages=[],
+                    hf_tokenizer=hf_tokenizer,
+                    tools=state.tools,
+                    header_text=f"Action-prompt Completion:\n{header_text}",
+                    panel_content=panel_content,
+                    generation_id=i,
+                )
 
         return {
             "policy": all_act_prompt_trajectory_groups, 

@@ -31,6 +31,10 @@ def get_generator_constructor(name: str, **kwargs: Any) -> Callable[..., TinkerG
         from .tinker_act_prompt_aprm import TinkerActionPromptActPrmGenerator
         return partial(TinkerActionPromptActPrmGenerator, **kwargs)
 
+    elif name == "action_prompt_act_prm_nobandit":
+        from .tinker_act_prompt_aprm_nobandit import TinkerActionPromptNoBanditActPrmGenerator
+        return partial(TinkerActionPromptNoBanditActPrmGenerator, **kwargs)
+
     else:
         raise NotImplementedError(f"Sorry, generator {name} is not implemented yet.")
 

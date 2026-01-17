@@ -4,6 +4,7 @@ Tinker trainers
 from typing import Any
 
 from .act_prm import ActPrmTrainer
+from .act_prm_sft_eval import ActPrmSftEvalTrainer
 from .rl import RLTrainer
 from .sft import SFTTrainer
 
@@ -14,6 +15,9 @@ def get_trainer(name: str, **kwargs: Any) -> ActPrmTrainer | RLTrainer | SFTTrai
     """
     if name == "act_prm":
         return ActPrmTrainer(**kwargs)
+
+    elif name == "act_prm_sft_eval":
+        return ActPrmSftEvalTrainer(**kwargs)
 
     elif name == "rl":
         return RLTrainer(**kwargs)
@@ -28,6 +32,7 @@ def get_trainer(name: str, **kwargs: Any) -> ActPrmTrainer | RLTrainer | SFTTrai
 __all__ = [
     "get_trainer",
     "ActPrmTrainer",
+    "ActPrmSftEvalTrainer",
     "RLTrainer",
     "SFTTrainer",
 ]
