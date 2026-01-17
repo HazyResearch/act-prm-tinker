@@ -382,7 +382,8 @@ class ActPrmSftEvalTrainer(RLTrainer):
                     target_tokens = sa_input_ids[1:]
                     target_state_len = episode_step.state_len - 1
                     target_action_len = len(target_tokens) - target_state_len
-                    weights = [0.0] * target_state_len + [1.0] * target_action_len
+                    weight = getattr(episode_step, "advantage", 1.0)
+                    weights = [0.0] * target_state_len + [weight] * target_action_len
                     data_D.append(
                         tinker.Datum(
                             model_input=tinker.ModelInput.from_ints(input_tokens),
