@@ -4,10 +4,9 @@ Tinker Generator with Action Process Reward Models
 
 import asyncio
 import logging
-from copy import copy, deepcopy
+from copy import deepcopy
 from typing import Any
 
-import numpy as np
 from tinker.types import ModelInput
 from transformers import PreTrainedTokenizerBase
 
@@ -147,14 +146,15 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
             )[0]
             thought_action_messages = group_metrics["thought_action_messages"][0]
             state_action_tokens = group_metrics["state_thought_action_tokens"][0]
-            old_logprobs = group_metrics["action_logprobs"][0]
+            thought_action_logps = group_metrics["action_logprobs"][0]
+            thought_action_state_len = group_metrics["state_len"][0]
 
             episode_step = EpisodeStep(
-                state=state_messages,  # state,
+                state=standard_chat,  # messages without last action
                 action=thought_action_messages[0],  # dict[str, str]
                 state_action_tokens=state_action_tokens,
-                state_len=len(input_ids),
-                old_logprobs=old_logprobs,
+                state_len=thought_action_state_len,
+                old_logprobs=thought_action_logps,
                 **shared_kwargs,
             )
             episode_steps.append(episode_step)
@@ -171,8 +171,8 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
             )
             action_token_len = len(state_action_thought_tokens) - len(input_ids)
             state_action_thought_tinker_input = ModelInput.from_ints(state_action_thought_tokens)
-            logprobs = await llm.compute_logprobs_async(state_action_thought_tinker_input)
-            logprobs = logprobs[-action_token_len:]
+            act_thought_logps = await llm.compute_logprobs_async(state_action_thought_tinker_input)
+            act_thought_logps = act_thought_logps[-action_token_len:]
             action_msgs = [{"role": "assistant", "content": response.text}]
 
             action_prompt_episode_step = EpisodeStep(
@@ -180,7 +180,7 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
                 action=action_msgs[0],  # dict[str, str]
                 state_action_tokens=state_action_thought_tokens,
                 state_len=len(input_ids),
-                old_logprobs=logprobs,
+                old_logprobs=act_thought_logps,
                 **shared_kwargs,
             )
             action_prompt_episode_steps.append(action_prompt_episode_step)

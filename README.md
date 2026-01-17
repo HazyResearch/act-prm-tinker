@@ -86,6 +86,56 @@ uv run python main.py \
 --lora_rank 32 \
 --seed 42 --replicate 0 --verbose
 
+# Evaluate by SFT'ing another LLM with action-prompted rollouts
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm0
+# [h3] 0:srun*
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_250 \
+--eval_env_config hotpotqa_mc/fewshot2 \
+--generator_config aprm_qwen3_ap \
+--trainer_config qwen3_4b_aprm_sft_eval \
+--reward_method em \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+
+# Evaluate by SFT'ing another LLM with action-prompted rollouts, proper returns
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t arpm1
+# [h3] 0:srun*
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_250 \
+--eval_env_config hotpotqa_mc/fewshot2 \
+--generator_config aprm_qwen3_ap_nobandit \
+--trainer_config qwen3_4b_aprm_sft_eval \
+--reward_method action_probs \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+
+# SFT on actions only
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm1
+# [h1] 0:srun*
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_250 \
+--eval_env_config hotpotqa_mc/default \
+--generator_config default \
+--trainer_config qwen3_4b_sft \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+
 # Immediately sample action-prompted rollouts
 CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \

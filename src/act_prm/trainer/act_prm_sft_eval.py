@@ -10,6 +10,8 @@ from typing import Any, Callable
 import numpy as np
 import torch
 from omegaconf import DictConfig
+from rich import print as rich_print
+from rich.panel import Panel
 from tqdm import tqdm
 
 import tinker
@@ -158,14 +160,17 @@ class ActPrmSftEvalTrainer(RLTrainer):
         data_D: list[tinker.Datum],
         eval_env: Environment,
         cfg: DictConfig | None = None,
+        loop_id: int = 0,
         mini_batch_size: int | None = None,
         num_epochs: int | None = None,
         num_substeps: int | None = None,
         num_substeps_per_epoch: int | None = None,
-        eval_every: int = 10,
+        inner_eval_every: int = 10,
+        inner_eval_num_tries: int = 1,
+        eval_best_metric: str = "accuracy",
         metrics: dict[str, Any] | None = None,
         **run_rollouts_kwargs: Any,
-    ) -> dict[str, list[Any]]:
+    ) -> tuple[dict[str, list[Any]], dict[str, Any]]:
         """
         SFT a new policy LLM with the thought-action rollouts, periodically evaluating the LLM
         """
@@ -186,17 +191,24 @@ class ActPrmSftEvalTrainer(RLTrainer):
             num_substeps,
             num_substeps_per_epoch,
         )
+        logger.info("Got SFT dataset of size %d from %d datums", len(train_data_D), len(data_D))
+        # breakpoint()
+
         # Split into batches and train
         batches = split_list(train_data_D, min(num_substeps, len(train_data_D)))
+
+        logger.info("Split SFT dataset into %d batches", len(batches))
+        # breakpoint()
         pbar = tqdm(
             enumerate(batches), 
             desc="Training with SFT (do_sft_and_eval_loop)", 
             leave=False, 
             colour="blue",
         )
+        eval_idx = 0
         for batch_id, batch_data_D in pbar:
             if (
-                (batch_id % eval_every == 0 and sampling_client is not None)
+                (batch_id % inner_eval_every == 0 and sampling_client is not None)
                 or (batch_id == len(batches) - 1)
             ):
                 # Evaluate the LLM
@@ -208,9 +220,9 @@ class ActPrmSftEvalTrainer(RLTrainer):
                         env=eval_env,
                         cfg=cfg,
                         batch_id=batch_id,
-                        checkpoint_name=f"sft_eval_{batch_id:06d}",
+                        checkpoint_name=f"sft_eval_{loop_id:06d}",  # prefix for metric keys
                         split="eval",
-                        num_tries=cfg.eval_num_tries,
+                        num_tries=inner_eval_num_tries,
                         start_idx=0,
                         tasks_per_update=len(eval_env),
                         **run_rollouts_kwargs,
@@ -222,6 +234,17 @@ class ActPrmSftEvalTrainer(RLTrainer):
                         if k not in all_eval_metrics:
                             all_eval_metrics[k] = []
                         all_eval_metrics[k].append(v)
+                    # Display metrics
+                    panel_content = "\n".join([
+                        f"{k}: {v}" for k, v in eval_rollout_metrics.items()
+                    ])
+                    panel = Panel(
+                        panel_content,
+                        title=f"SFT Eval Loop {loop_id}, Eval {eval_idx}, Batch {batch_id}",
+                        style="bright_yellow"
+                    )
+                    rich_print(panel)
+                    eval_idx += 1
 
             # Do one SFT update
             with timed("sft_update", metrics):
@@ -240,20 +263,36 @@ class ActPrmSftEvalTrainer(RLTrainer):
                 kind="both",
             )
             sampling_client = training_client.create_sampling_client(path_dict["sampler_path"])
+            logger.info("Created new sampling client for SFT evaluation at path %s", path_dict["sampler_path"])
+            # breakpoint()
             pbar.set_postfix(**eval_rollout_metrics)
-        return all_eval_metrics
+        
+        # Get best evaluation metrics (over eval_idx)
+        best_metric_keys = [k for k in all_eval_metrics.keys() if eval_best_metric in k]
+        assert len(best_metric_keys) > 0, (
+            f"Best metric key {eval_best_metric} not found in {all_eval_metrics.keys()}"
+        )
+        best_eval_idx = np.argmax([all_eval_metrics[k] for k in best_metric_keys])
+        best_eval_metrics = {}
+        for k, v in all_eval_metrics.items():
+            k = k.replace(f"sft_eval_{loop_id:06d}", "sft_eval_max")  # counts across eval_idx
+            best_eval_metrics[k] = v[best_eval_idx]
+        # Keep track of best_eval_idx
+        best_eval_metrics["sft_eval_max/best_eval_idx"] = best_eval_idx
+        return all_eval_metrics, best_eval_metrics
 
     async def do_eval_loop(
         self,
         sampling_client: tinker.SamplingClient,
         batch_id: int,
+        loop_id: int,
         env: Environment,
         eval_env: Environment,
         cfg: DictConfig | None = None,
         num_tasks: int | None = None,
         renderer: renderers.Renderer | None = None,
         hf_tokenizer: PreTrainedTokenizerBase | None = None,
-    ) -> dict[str, list[Any]]:
+    ) -> tuple[dict[str, list[Any]], dict[str, Any]]:
         """
         Evaluate the sampling client by generating a new dataset of thoguht-action trajectories,
         and training another LLM via SFT on this data
@@ -285,29 +324,41 @@ class ActPrmSftEvalTrainer(RLTrainer):
         for delim in ["-enco=", "-geco=", "-se=", "-re="]:
             _ds_name.append(self.run_name.split(delim)[-1].split("-")[0])
         _ds_name = "_".join(_ds_name)
-        await self._save_trajectories_to_hf_dataset(
-            trajectories=all_new_trajectories,
-            dataset_name=f"mzio/aprm_sft-{_ds_name}-{batch_id:04d}",  # hardcoded hack for now
-        )
+        try:
+            self._save_trajectories_to_hf_dataset(
+                trajectories=all_new_trajectories,
+                dataset_name=f"mzio/aprm_sft-{_ds_name}-{batch_id:04d}",  # hardcoded hack for now
+            )
+            logger.info("Saved thought-action rollouts to HF Dataset: %s", f"mzio/aprm_sft-{_ds_name}-{batch_id:04d}")
+        except Exception as e:
+            logger.error("Failed to save thought-action rollouts to HF Dataset: %s", e)
+        
         # Create Tinker datums
         data_D, _ = await self.prepare_sft_minibatch(
             new_trajectories=all_new_trajectories,
         )
+        logger.info("Create SFT dataset of size %d from %d thought-action rollouts", len(data_D), len(all_new_trajectories))
+
         # Initialize a new policy LLM for evaluating the Act-PRM model's generation quality
         sft_training_client = await self.service_client.create_lora_training_client_async(
             cfg.model_name, rank=cfg.lora_rank
         )
+        logger.info("Created new SFT training client")
+
         # Evaluate the current sampling_client LLM based on the data it generated
-        all_eval_metrics = await self.do_sft_and_eval_loop(
+        all_eval_metrics, best_eval_metrics = await self.do_sft_and_eval_loop(
             training_client=sft_training_client,
             data_D=data_D,
             eval_env=eval_env,
             cfg=cfg,
+            loop_id=loop_id,
+            # for run_rollouts
             renderer=renderer,
             hf_tokenizer=hf_tokenizer,
+            # for sft_and_eval_loop SFT training + eval metrics
             **cfg.sft_eval_kwargs,
         )
-        return all_eval_metrics
+        return all_eval_metrics, best_eval_metrics
 
     async def prepare_sft_minibatch(
         self,
@@ -409,6 +460,7 @@ class ActPrmSftEvalTrainer(RLTrainer):
         # -------- Act-PRM training (generate thoughts from action-prompted states) --------
         logger.info("Starting Act-PRM model training")
         num_batches = end_batch - start_batch
+        sft_eval_loop_id = 0
         for batch_idx in range(start_batch, end_batch):
             metrics = {
                 "progress/batch": batch_idx,
@@ -441,24 +493,28 @@ class ActPrmSftEvalTrainer(RLTrainer):
             # Run SFT'ing another LLM evaluations
             if cfg.sft_eval_every > 0 and batch_idx % cfg.sft_eval_every == 0 and batch_idx > 0:
                 with timed("run_evals_act_probs", metrics):
-                    all_eval_metrics = await self.do_eval_loop(
+                    sft_eval_metrics, best_sft_eval_metrics = await self.do_eval_loop(
                         sampling_client=sampling_client,
                         batch_id=batch_idx,
                         env=self.env,
                         eval_env=self.eval_env,
                         cfg=cfg,
-                        # **cfg.sft_eval_kwargs,
+                        loop_id=sft_eval_loop_id,
+                        # for run_rollouts in do_sft_and_eval_loop
                         renderer=renderer,
                         hf_tokenizer=hf_tokenizer,
                     )
-                    best_metric_idx = np.argmax(all_eval_metrics[cfg.sft_eval_best_metric])
-                    best_metrics = {f"{k}_max": v[best_metric_idx] for k, v in all_eval_metrics.items()} 
-                    metrics.update(best_metrics)
+                    metrics.update(sft_eval_metrics)
+                    metrics.update(best_sft_eval_metrics)
 
-                # Save best checkpoints
-                _metric_prefix = "eval" if checkpoint_name is None else f"{checkpoint_name}_eval"
-                best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
-                last_metric = eval_rollout_metrics[best_metric_key]
+                # Save best ActPRM LLM checkpoints
+                best_metric_keys = [
+                    k for k in best_sft_eval_metrics.keys() if cfg.best_metric in k
+                ]
+                assert len(best_metric_keys) > 0, (
+                    f"Best metric key {cfg.best_metric} not in {best_sft_eval_metrics.keys()}"
+                )
+                last_metric = best_sft_eval_metrics[best_metric_keys[0]]
                 best_ckpt_name = (
                     f"{batch_idx:06d}_best"
                     if checkpoint_name is None
@@ -479,6 +535,7 @@ class ActPrmSftEvalTrainer(RLTrainer):
                         "Updated best %s to %f at batch %d",
                         cfg.best_metric, self.best_metric, batch_idx,
                     )
+                    _metric_prefix = best_metric_keys[0].split("/")[0]  # "sft_eval_max"
                     metrics.update({
                         f"{_metric_prefix}/best_batch": batch_idx,
                         f"{_metric_prefix}/best_metric": self.best_metric,
@@ -492,6 +549,7 @@ class ActPrmSftEvalTrainer(RLTrainer):
                             "Failed to save best replay buffer to %s\nIs replay buffer empty?",
                             self.best_replay_buffer_path
                         )
+                sft_eval_loop_id += 1
 
             # 1. Sample rollouts for training
             self.env.split = "train"

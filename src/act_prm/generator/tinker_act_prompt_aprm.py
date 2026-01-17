@@ -385,39 +385,39 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
 
             # Visualize generated thoughts
             if self.verbose:
-                i = best_thought_idx
-                header_text = (
-                    f"Batch {batch_id}, Split {split}, Try {try_step}, "
-                    f"Sample {unique_data_sample_id}, Generation {i}, "
-                    f"Step {state.timestep} / {max_turns - 1}, "
-                    f"Reward {rewards_in_group[i]:.4f}"
-                )
-                rewards_str = ", ".join([f"{r:.4f}" for r in sorted(rewards_in_group)[::-1]])
-                panel_content = "\n".join([
-                    f"Rewards: [bright_green][{rewards_str}][/bright_green]",
-                    f"Run url: [cyan]{self.run_url}[/cyan]",
-                    f"Run cmd: [bright_blue]{self.cmd_str}[/bright_blue]",
-                ])
-                self.display_state_action_next_obs(
-                    state_messages=standard_chat,
-                    action_messages=thought_action_messages[i],
-                    next_obs_messages=[],
-                    hf_tokenizer=hf_tokenizer,
-                    tools=state.tools,
-                    header_text=f"SFT trajectory:\n{header_text}",
-                    panel_content=panel_content,
-                    generation_id=i,
-                )
-                self.display_state_action_next_obs(
-                    state_messages=act_prompt_state_messages,
-                    action_messages=model_messages,
-                    next_obs_messages=[],
-                    hf_tokenizer=hf_tokenizer,
-                    tools=state.tools,
-                    header_text=f"Action-prompt Completion:\n{header_text}",
-                    panel_content=panel_content,
-                    generation_id=i,
-                )
+                for i in [best_thought_idx]:  # or range(num_return_sequences), but this is a lot
+                    header_text = (
+                        f"Batch {batch_id}, Split {split}, Try {try_step}, "
+                        f"Sample {unique_data_sample_id}, Generation {i}, "
+                        f"Step {state.timestep} / {max_turns - 1}, "
+                        f"Reward {rewards_in_group[i]:.4f}"
+                    )
+                    rewards_str = ", ".join([f"{r:.4f}" for r in sorted(rewards_in_group)[::-1]])
+                    panel_content = "\n".join([
+                        f"Rewards: [bright_green][{rewards_str}][/bright_green]",
+                        f"Run url: [cyan]{self.run_url}[/cyan]",
+                        f"Run cmd: [bright_blue]{self.cmd_str}[/bright_blue]",
+                    ])
+                    self.display_state_action_next_obs(
+                        state_messages=standard_chat,
+                        action_messages=thought_action_messages[i],
+                        next_obs_messages=[],
+                        hf_tokenizer=hf_tokenizer,
+                        tools=state.tools,
+                        header_text=f"SFT trajectory:\n{header_text}",
+                        panel_content=panel_content,
+                        generation_id=i,
+                    )
+                    self.display_state_action_next_obs(
+                        state_messages=act_prompt_state_messages,
+                        action_messages=model_messages,
+                        next_obs_messages=[],
+                        hf_tokenizer=hf_tokenizer,
+                        tools=state.tools,
+                        header_text=f"Action-prompt Completion:\n{header_text}",
+                        panel_content=panel_content,
+                        generation_id=i,
+                    )
 
         return {
             "policy": all_act_prompt_trajectory_groups, 

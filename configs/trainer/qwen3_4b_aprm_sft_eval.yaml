@@ -1,15 +1,14 @@
 # Qwen3-4B Act-PRM training config
 trainer_name: act_prm_sft_eval
-sft_eval_every: 10
-sft_eval_best_metric: "accuracy"
 
+sft_eval_every: 10
 sft_eval_kwargs:
   mini_batch_size: 32
   num_substeps: null
   num_epochs: 3
   num_substeps_per_epoch: null
-  eval_every: 10
-  eval_num_tries: 1
+  inner_eval_every: 10
+  inner_eval_num_tries: 1
   eval_best_metric: "accuracy"
 
 model_name: "Qwen/Qwen3-4B-Instruct-2507"
@@ -47,7 +46,7 @@ kl_discount_factor: 0.0
 # Checkpointing
 eval_every: 4
 save_every: 20
-best_metric: "final_reward"
+best_metric: "accuracy"
 
 # Other miscellaneous
 base_url: null

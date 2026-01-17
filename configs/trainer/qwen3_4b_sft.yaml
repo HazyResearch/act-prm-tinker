@@ -24,9 +24,9 @@ eval_group_size: 1
 
 # Training (Policy Updates)
 learning_rate: 4e-5
-discount_factor: 0.9
-loss_fn: "importance_sampling"
-num_substeps: 1
+discount_factor: 1.0
+loss_fn: "cross_entropy"
+num_substeps: 4
 mini_batch_size: null
 
 compute_post_kl: false
@@ -34,7 +34,7 @@ kl_penalty_coef: 0.0
 kl_discount_factor: 0.0
 
 # Checkpointing
-eval_every: 20
+eval_every: 10
 save_every: 20
 best_metric: "final_reward"
 
