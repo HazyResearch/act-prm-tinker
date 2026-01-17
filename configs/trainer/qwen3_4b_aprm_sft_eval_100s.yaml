@@ -7,7 +7,7 @@ sft_eval_kwargs:
   num_substeps: 100
   num_epochs: null
   num_substeps_per_epoch: null
-  inner_eval_every: 25
+  inner_eval_every: 20
   inner_eval_num_tries: 1
   eval_best_metric: "accuracy"
 

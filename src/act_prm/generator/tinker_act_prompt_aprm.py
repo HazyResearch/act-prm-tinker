@@ -281,7 +281,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             thought_action_messages = group_metrics["thought_action_messages"]
 
             # Pick the highest-reward thought to continue for the next step
-            best_thought_idx = np.argmax(rewards_in_group)
+            best_thought_idx = np.argmax(rewards_in_group).item()
             best_thought = thoughts_in_group[best_thought_idx]
             model_messages = [{"role": "assistant", "content": best_thought}]
             parsed_actions: list[ActionFromLLM] = get_actions(model_messages)

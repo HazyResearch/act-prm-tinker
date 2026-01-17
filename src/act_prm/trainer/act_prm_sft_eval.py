@@ -276,7 +276,7 @@ class ActPrmSftEvalTrainer(RLTrainer):
         assert len(best_metric_keys) > 0, (
             f"Best metric key {eval_best_metric} not found in {all_eval_metrics.keys()}"
         )
-        best_eval_idx = np.argmax([all_eval_metrics[k] for k in best_metric_keys])
+        best_eval_idx = np.argmax([all_eval_metrics[k] for k in best_metric_keys]).item()
         best_eval_metrics = {}
         for k, v in all_eval_metrics.items():
             k = k.replace(f"sft_eval_{loop_id:03d}", "sft_eval_max")  # counts across eval_idx
