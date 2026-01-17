@@ -139,6 +139,7 @@ async def compute_group_thought_action_metrics(
         desc="Computing thought-action metrics, p(action | state, thought)",
         colour="green",
         leave=False,
+        position=1,
     )
     for sample_ix in range(len(metrics_in_group)):
         full_logprobs = metrics_in_group[sample_ix]["state_thought_action_logprobs"]

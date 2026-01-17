@@ -281,9 +281,13 @@ class ActPrmSftEvalTrainer(RLTrainer):
         all_new_trajectories = new_trajectories["thought_action_policy"]
 
         # Create a new HF dataset from the thought-action rollouts
+        _ds_name = []
+        for delim in ["-enco=", "-geco=", "-se=", "-re="]:
+            _ds_name.append(self.run_name.split(delim)[-1].split("-")[0])
+        _ds_name = "_".join(_ds_name)
         await self._save_trajectories_to_hf_dataset(
             trajectories=all_new_trajectories,
-            dataset_name=f"mzio/aprm_sft-{self.run_name}-{batch_id:04d}",  # hardcoded hack for now
+            dataset_name=f"mzio/aprm_sft-{_ds_name}-{batch_id:04d}",  # hardcoded hack for now
         )
         # Create Tinker datums
         data_D, _ = await self.prepare_sft_minibatch(
