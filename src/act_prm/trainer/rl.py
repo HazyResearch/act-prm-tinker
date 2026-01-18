@@ -75,6 +75,7 @@ class RLTrainer(BaseTrainer):
         eval_env: Environment | None = None,
         generator_constructor: Callable[..., TinkerGenerator] | None = None,
         checkpoint_name: str | None = None,
+        name_or_identifier: str | None = None,
     ) -> str:
         """
         Implement fully synchronous on-policy training with Tinker
@@ -137,6 +138,7 @@ class RLTrainer(BaseTrainer):
                         # Just use all eval tasks
                         start_idx=0,  
                         tasks_per_update=len(eval_env),
+                        name_or_identifier=name_or_identifier,
                     )
                     metrics.update(eval_rollout_metrics)
 
@@ -193,6 +195,7 @@ class RLTrainer(BaseTrainer):
                 num_tries=cfg.num_tries,
                 start_idx=batch_idx * cfg.batch_size,
                 tasks_per_update=cfg.batch_size,
+                name_or_identifier=name_or_identifier,
             )
             metrics.update(train_rollout_metrics)
 

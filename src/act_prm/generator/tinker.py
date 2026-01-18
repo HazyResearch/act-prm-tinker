@@ -44,6 +44,7 @@ class TinkerGenerator:
         mean_center: bool = False,
         verbose: bool = False,
         ml_logger: ml_log.Logger | None = None,
+        name_or_identifier: str | None = None,
     ) -> None:
         self.llm = llm
         self.env = env
@@ -54,6 +55,7 @@ class TinkerGenerator:
         self.verbose = verbose
         self.run_url = ml_logger.get_logger_url() if ml_logger is not None else None
         self.cmd_str = f"uv run python main.py {" ".join(sys.argv[1:])}"
+        self.name_or_identifier = name_or_identifier
 
     def _get_trajectory_group(self, **kwargs: Any) -> TrajectoryGroup:
         """
@@ -223,11 +225,16 @@ class TinkerGenerator:
                     f"Sample {unique_data_sample_id}, Generation {generation_id}, "
                     f"Step {state.timestep} (Max {env.max_turns - 1})"
                 )
-                panel_content = "\n".join([
-                    # f"Rewards: [bright_green][{rewards_str}][/bright_green]"
-                    f"Run url: [cyan]{self.run_url}[/cyan]",
-                    f"Run cmd: [bright_blue]{self.cmd_str}[/bright_blue]",
-                ])
+                panel_content = [
+                    # f"Rewards: [bright_green][{rewards_str}][/bright_green]",
+                    f"Run url:  [cyan]{self.run_url}[/cyan]",
+                    f"Run cmd:  [bright_blue]{self.cmd_str}[/bright_blue]",
+                ]
+                if self.name_or_identifier:
+                    panel_content.append(
+                        f"Name/ID: [bright_yellow]{self.name_or_identifier}[/bright_yellow]"
+                    )
+                panel_content = "\n".join(panel_content)
                 self.display_state_action_next_obs(  # slightly coded for Qwen models for now
                     state_messages=state_messages,
                     action_messages=model_messages,

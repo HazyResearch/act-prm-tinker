@@ -240,7 +240,7 @@ class ActPrmTrainer(RLTrainer):
                     cfg.action_prompt_num_epochs, cfg.action_prompt_mini_batch_size, num_substeps
                 )
             else:
-                num_substeps = cfg.get("action_prompt_num_substeps", None)
+                num_substeps = cfg.get("action_prompt_num_substeps", 1)
                 logger.info("Using %d substeps for SFT training", num_substeps)
 
             sampling_client, update_metrics = await self.do_train_step_and_get_sampling_client(

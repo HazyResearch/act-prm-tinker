@@ -200,11 +200,16 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
                     f"Sample {unique_data_sample_id}, Generation {generation_id}, "
                     f"Step {state.timestep} (Max {max_turns - 1})"
                 )
-                panel_content = "\n".join([
-                    f"Rewards: [bright_green][{reward:.4f}][/bright_green]",
-                    f"Run url: [cyan]{self.run_url}[/cyan]",
-                    f"Run cmd: [bright_blue]{self.cmd_str}[/bright_blue]",
-                ])
+                panel_content = [
+                    f"Rewards:  [bright_green][{reward:.4f}][/bright_green]",
+                    f"Run url:  [cyan]{self.run_url}[/cyan]",
+                    f"Run cmd:  [bright_blue]{self.cmd_str}[/bright_blue]",
+                ]
+                if self.name_or_identifier:
+                    panel_content.append(
+                        f"Name/ID: [bright_yellow]{self.name_or_identifier}[/bright_yellow]"
+                    )
+                panel_content = "\n".join(panel_content)
                 self.display_state_action_next_obs(  # slightly coded for Qwen models for now
                     state_messages=standard_chat,
                     action_messages=thought_action_messages,

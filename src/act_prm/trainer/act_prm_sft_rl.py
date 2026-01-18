@@ -110,6 +110,7 @@ class ActPrmSftRlTrainer(RLTrainer):
         eval_env: Environment | None = None,
         generator_constructor: Callable[..., TinkerGenerator] | None = None,
         checkpoint_name: str | None = None,
+        name_or_identifier: str | None = None,
     ) -> str:
         """
         Run an RL training loop for a given generator (TinkerActPrmGenerator or TinkerActionPromptActPrmGenerator)
@@ -122,6 +123,7 @@ class ActPrmSftRlTrainer(RLTrainer):
             eval_env=eval_env,
             generator_constructor=generator_constructor,
             checkpoint_name=checkpoint_name,
+            name_or_identifier=name_or_identifier,
         )
 
     async def prepare_sft_minibatch(
@@ -217,6 +219,7 @@ class ActPrmSftRlTrainer(RLTrainer):
                     eval_env=self.env,  # Evaluate thought-generation
                     generator_constructor=self.action_prompt_generator_constructor,
                     checkpoint_name="action_prompts",
+                    name_or_identifier="Stage 1: RL Action-Prompted Rollouts",
                 )
                 # Get best action-prompted sampling client
                 # sampling_client = self.service_client.create_sampling_client(
@@ -224,12 +227,20 @@ class ActPrmSftRlTrainer(RLTrainer):
                     model_path=best_action_prompt_sampling_client_path,
                 )
             # Generate thought-action rollouts for all tasks in the ActPrmEnv
-            logger.info("Generating thought-action rollouts for all tasks in the Act-PRM env")
             num_sft_gen_batches = len(self.env) // cfg.batch_size
+            logger.info(
+                "Generating thought-action rollouts for all %d tasks in the Act-PRM env"
+                "%d batches for %d tasks per batch",
+                len(self.env), num_sft_gen_batches, cfg.batch_size,
+            )
             all_trajectories_per_group: list[list[Trajectory]] = []
             for sft_gen_batch_idx in range(0, num_sft_gen_batches):
                 # 1. Sample rollouts for training
                 self.env.split = "train"
+                _name_or_identifier = (
+                    "Stage 2: SFT Generation with Act-PRM LLM, "
+                    f"Batch {sft_gen_batch_idx} / {num_sft_gen_batches - 1}"
+                )
                 _, new_trajectories = await run_rollouts(
                     sampling_client=sampling_client,
                     renderer=renderer,
@@ -243,27 +254,26 @@ class ActPrmSftRlTrainer(RLTrainer):
                     num_tries=cfg.num_tries,
                     start_idx=sft_gen_batch_idx * cfg.batch_size,
                     tasks_per_update=cfg.batch_size,
+                    name_or_identifier=_name_or_identifier,
                 )
                 # all_new_trajectories.extend(new_trajectories["thought_action_policy"])
                 all_trajectories_per_group.append(new_trajectories["thought_action_policy"])
 
-            # Save these thought-action rollouts to a HF Dataset and push to hub
-            # -> Then can evaluate by seeing how training another LLM from scratch performs
-            # Can also sample on just 100 or 500 tasks, and see if it can perform well?
-            _ds_name = []
-            for delim in ["-enco=", "-geco=", "-se=", "-re="]:
-                _ds_name.append(self.run_name.split(delim)[-1].split("-")[0])
-            _ds_name = "_".join(_ds_name)
-            _ds_prefix = "mzio/aprm_sft_thought_action_rollouts"
-            dataset_name = f"{_ds_prefix}-{_ds_name}-ap_rl{cfg.num_batches_action_prompts:04d}"
-            try:
-                _save_trajectories_to_hf_dataset(
-                    trajectories=[traj for group in all_trajectories_per_group for traj in group],
-                    dataset_name=dataset_name,
-                )
-                logger.info("Saved thought-action rollouts to HF Dataset: %s", dataset_name)
-            except Exception as e:
-                logger.error("Failed to save thought-action rollouts to HF Dataset: %s", e)
+                # Save thought-action rollouts so far to a HF Dataset and push to hub
+                # -> Then can evaluate by seeing how training another LLM from scratch performs
+                # -> Will overwrite existing dataset if it already exists (e.g., to hit total samples)
+                _ds_name = []
+                for delim in ["-enco=", "-geco=", "-se=", "-re="]:
+                    _ds_name.append(self.run_name.split(delim)[-1].split("-")[0])
+                _ds_name = "_".join(_ds_name)
+                _ds_prefix = "mzio/aprm_sft_thought_action_rollouts"
+                dataset_name = f"{_ds_prefix}-{_ds_name}-ap_rl{cfg.num_batches_action_prompts:04d}"
+                try:
+                    _traj_so_far = [traj for group in all_trajectories_per_group for traj in group]
+                    _save_trajectories_to_hf_dataset(_traj_so_far, dataset_name)
+                    logger.info("Saved thought-action rollouts to HF Dataset: %s", dataset_name)
+                except Exception as e:
+                    logger.error("Failed to save thought-action rollouts to HF Dataset: %s", e)
 
             # ------------------------------------------------------------------------------
             # Second stage of training (SFT new policy LLM with the thought-action rollouts)
@@ -285,6 +295,10 @@ class ActPrmSftRlTrainer(RLTrainer):
                 if cfg.sft_eval_every > 0 and sft_batch_idx % cfg.sft_eval_every == 0:
                     with timed("run_evals", metrics):
                         self.eval_env.split = "eval"
+                        _name_or_identifier = (
+                            "Stage 2: SFT Evaluation, "
+                            f"Batch {sft_batch_idx} / {cfg.sft_num_batches - 1}"
+                        )
                         eval_rollout_metrics, _ = await run_rollouts(
                             sampling_client=sampling_client,
                             renderer=renderer,
@@ -298,6 +312,7 @@ class ActPrmSftRlTrainer(RLTrainer):
                             num_tries=cfg.eval_num_tries,
                             start_idx=0,
                             tasks_per_update=len(self.eval_env),
+                            name_or_identifier=_name_or_identifier,
                         )
                         metrics.update(eval_rollout_metrics)
                     
@@ -385,6 +400,9 @@ class ActPrmSftRlTrainer(RLTrainer):
             if cfg.eval_every > 0 and batch_idx % cfg.eval_every == 0:
                 with timed("run_evals", metrics):
                     self.eval_env.split = "eval"
+                    _name_or_identifier = (
+                        f"Stage 3: RL Evaluation, Batch {batch_idx} / {num_batches - 1}"
+                    )
                     eval_rollout_metrics, _ = await run_rollouts(
                         sampling_client=sampling_client,
                         renderer=renderer,
@@ -399,6 +417,7 @@ class ActPrmSftRlTrainer(RLTrainer):
                         # Just use all eval tasks
                         start_idx=0,  
                         tasks_per_update=len(self.eval_env),
+                        name_or_identifier=_name_or_identifier,
                     )
                     metrics.update(eval_rollout_metrics)
 
@@ -442,6 +461,9 @@ class ActPrmSftRlTrainer(RLTrainer):
 
             # 1. Sample rollouts for training
             self.eval_env.split = "train"
+            _name_or_identifier = (
+                f"Stage 3: RL Training, Batch {batch_idx} / {num_batches - 1}"
+            )
             train_rollout_metrics, new_trajectories = await run_rollouts(
                 sampling_client=sampling_client,
                 renderer=renderer,
@@ -455,6 +477,7 @@ class ActPrmSftRlTrainer(RLTrainer):
                 num_tries=cfg.num_tries,
                 start_idx=batch_idx * cfg.batch_size,
                 tasks_per_update=cfg.batch_size,
+                name_or_identifier=_name_or_identifier,
             )
             metrics.update(train_rollout_metrics)
 

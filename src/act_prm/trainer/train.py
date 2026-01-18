@@ -204,6 +204,7 @@ async def run_rollouts(
     num_tries: int = 1,
     start_idx: int = 0,
     tasks_per_update: int | None = None,  # i.e., batch_size
+    name_or_identifier: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, list[Trajectory]]]:
     """
     Run rollouts for a single batch, e.g., by generating rollouts and grading them
@@ -228,6 +229,7 @@ async def run_rollouts(
         llm=tinker_completer,
         env=env,
         hf_tokenizer=hf_tokenizer,
+        name_or_identifier=name_or_identifier,
     )
 
     batch_size = tasks_per_update or len(env)  # len(env) is the number of tasks or problems

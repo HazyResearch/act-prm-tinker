@@ -95,6 +95,20 @@ uv run python main.py \
 --lora_rank 32 \
 --seed 42 --replicate 0 --verbose
 
+# Act-PRM with hidden past observations, 10 action-prompted batches, 20 SFT batches
+# (base) mzhang@hazy1:~$ tmux attach -t aprm0
+uv run python main.py \
+--is_async \
+--env_config act_prm/browsecomp_100_hide_obs \
+--eval_env_config browsecomp_plus/search_hide_obs \
+--generator_config aprm_qwen3_ap \
+--trainer_config qwen3_4b_aprm10_sft20_rl \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+
 # Just SFT, 1 fewshot prompt
 # (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm0
 # [h2] 0:srun*

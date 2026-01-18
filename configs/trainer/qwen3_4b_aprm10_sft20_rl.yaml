@@ -1,7 +1,7 @@
 # Qwen3-4B Act-PRM training config
 trainer_name: act_prm_sft_rl
 action_prompts: true
-num_batches_action_prompts: 20
+num_batches_action_prompts: 10
 sft_num_batches: 20
 sft_eval_every: 5
 
@@ -38,7 +38,7 @@ kl_penalty_coef: 0.0
 kl_discount_factor: 0.0
 
 # Checkpointing
-eval_every: 10
+eval_every: 2
 save_every: 20
 best_metric: "final_reward"
 
