@@ -35,6 +35,7 @@ class AsyncBrowseCompPlusSearchEnv(BrowseCompPlusSearchEnv):
         split: str = "train",
         system_prompt: str = "You are a helpful assistant that can answer questions and call tools.",
         next_obs_feedback: bool = False,
+        num_fewshot_prompts: int = 0,
         **kwargs: Any,
     ) -> None:
         # Initialize base class attributes, as direct parent (BrowseCompPlusSearchEnv)
@@ -59,6 +60,11 @@ class AsyncBrowseCompPlusSearchEnv(BrowseCompPlusSearchEnv):
         self.max_preview_tokens = max_preview_tokens
         self.doc_chunk_size = doc_chunk_size
 
+        # Initialize default context (fewshot prompts) for all samples
+        self.num_fewshot_prompts = num_fewshot_prompts
+        self.default_context = self.get_default_context()
+
+        # Environment config
         self.num_train_samples = num_train_samples
         self.num_val_samples = num_val_samples
         self.num_test_samples = num_test_samples

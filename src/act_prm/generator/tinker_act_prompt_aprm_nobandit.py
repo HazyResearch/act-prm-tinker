@@ -87,8 +87,16 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
             # Singletons so we can reuse functions in ./tinker_act_prompt_aprm.py
             thoughts_in_group: list[str] = [self._parse_thoughts(response.text)]
             # Compute per-step rewards for each thought
-            # -> Get current state without last action
-            standard_chat = process_state_messages_for_metrics(state_messages, state.system_prompt)
+            # # -> Get current state without last action
+            # standard_chat = process_state_messages_for_metrics(state_messages, state.system_prompt)
+            # -> Get current state without last action, remove few-shot prompts
+            first_msg_to_show = getattr(state, "first_obs_to_show", 0) - 3
+            # ^-1 ActPRM environment previously counts system prompt as first message,
+            # but we apply after system_prompt in process_state_messages_for_metrics
+            standard_chat = process_state_messages_for_metrics(
+                state_messages, state.system_prompt,
+                first_msg_to_show=max(first_msg_to_show, 0)
+            )
             group_metrics = await compute_group_thought_action_metrics(
                 state_messages=standard_chat,
                 generated_thoughts=thoughts_in_group,

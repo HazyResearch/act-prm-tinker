@@ -50,6 +50,37 @@ uv run python main.py \
 --lora_rank 32 \
 --seed 42 --replicate 0 --verbose
 
+# Act-PRM with hidden past observations, 20 action-prompted batches, 20 SFT batches, mean-centered returns
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t 1
+# [h0] 0:srun*
+uv run python main.py \
+--is_async \
+--env_config act_prm/browsecomp_100_hide_obs \
+--eval_env_config browsecomp_plus/search_hide_obs \
+--generator_config aprm_qwen3_ap \
+--trainer_config qwen3_4b_aprm20_sft20_rl \
+--mean_center \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+
+# Act-PRM with hidden past observations, 20 action-prompted batches, 20 SFT batches, full returns
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t 0
+# [h0] 0:srun*
+uv run python main.py \
+--is_async \
+--env_config act_prm/browsecomp_100_hide_obs \
+--eval_env_config browsecomp_plus/search_hide_obs \
+--generator_config aprm_qwen3_ap_nobandit \
+--trainer_config qwen3_4b_aprm20_sft20_rl \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+
 # Act-PRM with hidden past observations, 20 action-prompted batches, 100 SFT batches
 # (base) mzhang@hazy1:~$ tmux attach -t aprm1
 uv run python main.py \
@@ -58,6 +89,21 @@ uv run python main.py \
 --eval_env_config browsecomp_plus/search_hide_obs \
 --generator_config aprm_qwen3_ap \
 --trainer_config qwen3_4b_aprm20_sft100_rl \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+
+# Just SFT, 1 fewshot prompt
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm0
+# [h2] 0:srun*
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config browsecomp_plus/search_hide_obs_fs1 \
+--generator_config default \
+--trainer_config qwen3_4b_pg \
 --replay_buffer_config default \
 --log_path ./logs \
 --model_name Qwen/Qwen3-4B-Instruct-2507 \
