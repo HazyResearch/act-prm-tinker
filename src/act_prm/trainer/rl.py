@@ -121,7 +121,7 @@ class RLTrainer(BaseTrainer):
             t_start = time.time()
 
             # Run evaluations
-            if cfg.eval_every > 0 and batch_idx % cfg.eval_every == 0:
+            if (cfg.eval_every > 0 and batch_idx % cfg.eval_every == 0) or batch_idx == end_batch - 1:
                 with timed("run_evals", metrics):
                     eval_env.split = "eval"
                     eval_rollout_metrics, _ = await run_rollouts(

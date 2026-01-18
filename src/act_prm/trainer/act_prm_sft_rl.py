@@ -30,7 +30,8 @@ from tinker_cookbook import model_info, renderers
 from tinker_cookbook.checkpoint_utils import save_checkpoint_async
 from tinker_cookbook.utils import ml_log
 
-from datasets.arrow_writer import Dataset, SchemaInferenceError
+from datasets import Dataset
+from datasets.arrow_writer import SchemaInferenceError
 from transformers import PreTrainedTokenizerBase
 
 from ..environments import Environment
@@ -46,16 +47,49 @@ from .train import is_better, run_rollouts
 logger = logging.getLogger(__name__)
 
 
-def _save_trajectories_to_hf_dataset(trajectories: list[Trajectory], dataset_name: str) -> None:
+def _save_trajectories_to_hf_dataset(
+    trajectories: list[Trajectory],
+    dataset_name: str,
+    exclude_keys: list[str] | None = None,
+) -> None:
     """
     Save a list of trajectories to a HF Dataset
     """
+    exclude_keys = exclude_keys or ["state_action_tokens", "old_logprobs"]
     ds_samples = [
-        {k: v for k, v in vars(step).items()}
+        {k: v for k, v in vars(step).items() if k not in exclude_keys}
         for trajectory in trajectories
         for step in trajectory.episode_steps
     ]  # Flatten to get dicts from list of EpisodeSteps in each Trajectory
     Dataset.from_list(ds_samples).push_to_hub(dataset_name, private=False)
+
+
+def maybe_hide_observations(
+    messages: list[dict[str, str]],
+    hide_observations: bool = False,
+    hidden_obs_content: str = "...",
+    first_obs_to_show: int = 2,  # e.g., to keep prompt
+    last_obs_to_show: int = 1,   # e.g., to keep last observation
+) -> list[dict[str, str]]:
+    """
+    Hide past observations from messages
+    """
+    if not hide_observations:
+        return messages
+
+    user_indices = [
+        idx for idx, message in enumerate(messages) if message["role"] in ["user", "tool"]
+    ]
+    last_message_idx = user_indices[-last_obs_to_show] if last_obs_to_show > 0 else len(messages)
+    return [
+        {"role": message["role"], "content": hidden_obs_content}
+        if (
+            message["role"] in ["user", "tool"]
+            and (idx >= first_obs_to_show and idx < last_message_idx)
+        )
+        else message
+        for idx, message in enumerate(messages)
+    ]
 
 
 class ActPrmSftRlTrainer(RLTrainer):
@@ -227,10 +261,11 @@ class ActPrmSftRlTrainer(RLTrainer):
                     model_path=best_action_prompt_sampling_client_path,
                 )
             # Generate thought-action rollouts for all tasks in the ActPrmEnv
+            self.env.split = "train"
             num_sft_gen_batches = len(self.env) // cfg.batch_size
             logger.info(
-                "Generating thought-action rollouts for all %d tasks in the Act-PRM env"
-                "%d batches for %d tasks per batch",
+                "Generating thought-action rollouts for all %d tasks in the Act-PRM env, "
+                "(%d batches for %d tasks per batch)",
                 len(self.env), num_sft_gen_batches, cfg.batch_size,
             )
             all_trajectories_per_group: list[list[Trajectory]] = []

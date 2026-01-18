@@ -140,9 +140,10 @@ class TinkerGenerator:
 
             input_ids: list[int] = hf_tokenizer.apply_chat_template(
                 state_messages,
-                add_generation_prompt=True,
-                tokenize=True,
                 tools=state.tools,
+                add_generation_prompt=True,
+                enable_thinking=False,
+                tokenize=True,
             )
             tinker_input: ModelInput = ModelInput.from_ints(input_ids)
             # 1. Generate model responses (thoughts + actions)
@@ -227,8 +228,8 @@ class TinkerGenerator:
                 )
                 panel_content = [
                     # f"Rewards: [bright_green][{rewards_str}][/bright_green]",
-                    f"Run url:  [cyan]{self.run_url}[/cyan]",
-                    f"Run cmd:  [bright_blue]{self.cmd_str}[/bright_blue]",
+                    f"Run url: [cyan]{self.run_url}[/cyan]",
+                    f"Run cmd: [bright_blue]{self.cmd_str}[/bright_blue]",
                 ]
                 if self.name_or_identifier:
                     panel_content.append(

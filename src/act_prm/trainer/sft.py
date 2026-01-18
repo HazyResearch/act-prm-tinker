@@ -82,7 +82,7 @@ class SFTTrainer(BaseTrainer):
         (See replay_buffer.types)
         """
         episode_steps: list[StateActionSample] = []
-        _tokenize_kwargs = {"tokenize": True, "tools": tools}
+        _tokenize_kwargs = {"tokenize": True, "tools": tools, "enable_thinking": False}
 
         # Add system prompt to messages
         if messages[0]["role"] != "system":

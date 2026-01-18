@@ -201,9 +201,9 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
                     f"Step {state.timestep} (Max {max_turns - 1})"
                 )
                 panel_content = [
-                    f"Rewards:  [bright_green][{reward:.4f}][/bright_green]",
-                    f"Run url:  [cyan]{self.run_url}[/cyan]",
-                    f"Run cmd:  [bright_blue]{self.cmd_str}[/bright_blue]",
+                    f"Rewards: [bright_green][{reward:.4f}][/bright_green]",
+                    f"Run url: [cyan]{self.run_url}[/cyan]",
+                    f"Run cmd: [bright_blue]{self.cmd_str}[/bright_blue]",
                 ]
                 if self.name_or_identifier:
                     panel_content.append(

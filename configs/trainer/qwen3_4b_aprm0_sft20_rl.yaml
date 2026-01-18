@@ -1,7 +1,7 @@
 # Qwen3-4B Act-PRM training config
 trainer_name: act_prm_sft_rl
 action_prompts: true
-num_batches_action_prompts: 10
+num_batches_action_prompts: 0
 sft_num_batches: 20
 sft_num_substeps: 1  # Updates per batch
 sft_eval_every: 5

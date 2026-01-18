@@ -70,6 +70,7 @@ async def compute_single_thought_action_metrics(
     """
     _tokenize_kwargs = {
         "add_generation_prompt": False,
+        "enable_thinking": False,
         "tokenize": True,
         "tools": tools,
     }
@@ -126,9 +127,10 @@ async def compute_group_thought_action_metrics(
     state_len = len(
         hf_tokenizer.apply_chat_template(
             state_messages,
-            add_generation_prompt=True,
-            tokenize=True,
             tools=tools,
+            add_generation_prompt=True,
+            enable_thinking=False,
+            tokenize=True,
         )
     )
     metrics_in_group: list[dict[str, Any]] = await gather_with_progress(
@@ -209,9 +211,9 @@ class TinkerActPrmGenerator(TinkerGenerator):
         state_messages = deepcopy(state_messages)[:-1]
         input_ids: list[int] = hf_tokenizer.apply_chat_template(
             state_messages,
+            tools=tools,
             add_generation_prompt=True,
             tokenize=True,
-            tools=tools,
         )
         return state_messages, input_ids
 
@@ -356,9 +358,9 @@ class TinkerActPrmGenerator(TinkerGenerator):
                     )
                     rewards_str = ", ".join([f"{r:.4f}" for r in sorted(rewards_in_group)[::-1]])
                     panel_content = [
-                        f"Rewards:  [bright_green][{rewards_str}][/bright_green]",
-                        f"Run url:  [cyan]{self.run_url}[/cyan]",
-                        f"Run cmd:  [bright_blue]{self.cmd_str}[/bright_blue]",
+                        f"Rewards: [bright_green][{rewards_str}][/bright_green]",
+                        f"Run url: [cyan]{self.run_url}[/cyan]",
+                        f"Run cmd: [bright_blue]{self.cmd_str}[/bright_blue]",
                     ]
                     if self.name_or_identifier:
                         panel_content.append(
