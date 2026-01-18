@@ -213,7 +213,7 @@ class ActPrmEnv(Environment):
             try_step=try_step,
             timestep=0,
             # Past observations to show (account for default context, system prompt)
-            first_obs_to_show=len(self.default_context) + 1,
+            first_obs_to_show=len(new_messages) + 1, # system + default context + user message
         )
 
     def step(

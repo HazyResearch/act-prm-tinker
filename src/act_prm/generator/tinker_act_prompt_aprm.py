@@ -264,7 +264,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             ]
             # Compute per-step rewards for each thought
             # -> Get current state without last action, remove few-shot prompts
-            first_msg_to_show = getattr(state, "first_obs_to_show", 0) - 1
+            first_msg_to_show = getattr(state, "first_obs_to_show", 0) - 3
             # ^-1 ActPRM environment previously counts system prompt as first message,
             # but we apply after system_prompt in process_state_messages_for_metrics
             standard_chat = process_state_messages_for_metrics(
@@ -405,7 +405,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                     header_text = (
                         f"Batch {batch_id}, Split {split}, Try {try_step}, "
                         f"Sample {unique_data_sample_id}, Generation {i}, "
-                        f"Step {state.timestep} / {max_turns - 1}, "
+                        f"Step {state.timestep - 1} / {max_turns - 1}, "  # -1 bc just took a step
                         f"Reward {rewards_in_group[i]:.4f}"
                     )
                     rewards_str = ", ".join([f"{r:.4f}" for r in sorted(rewards_in_group)[::-1]])
