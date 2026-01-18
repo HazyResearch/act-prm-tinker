@@ -263,8 +263,14 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 self._parse_thoughts(response.text) for response in responses_in_group
             ]
             # Compute per-step rewards for each thought
-            # -> Get current state without last action
-            standard_chat = process_state_messages_for_metrics(state_messages, state.system_prompt)
+            # -> Get current state without last action, remove few-shot prompts
+            first_msg_to_show = getattr(state, "first_obs_to_show", 0) - 1
+            # ^-1 ActPRM environment previously counts system prompt as first message,
+            # but we apply after system_prompt in process_state_messages_for_metrics
+            standard_chat = process_state_messages_for_metrics(
+                state_messages, state.system_prompt,
+                first_msg_to_show=max(first_msg_to_show, 0)
+            )
             group_metrics = await compute_group_thought_action_metrics(
                 state_messages=standard_chat,
                 generated_thoughts=thoughts_in_group,
@@ -346,7 +352,6 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 state_action_thought_tokens_G.append(
                     hf_tokenizer.apply_chat_template(
                         state_action_thought_messages_G[i],
-                        # continue_final_message=True,  # don't add eos_token to final message
                         add_generation_prompt=False,
                         tokenize=True,
                         # tools=state.tools, # no tools for action-prompted generation

@@ -42,6 +42,7 @@ def get_args() -> argparse.Namespace:
             "(but we use different splits for evaluation, i.e., from the 'eval' split)"
         )
     )
+    parser.add_argument( "--rl_env_config", type=str, help="RL environment config; ditto")
     parser.add_argument(
         "--best_metric",
         type=str,

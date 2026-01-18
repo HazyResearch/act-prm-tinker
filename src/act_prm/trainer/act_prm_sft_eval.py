@@ -91,7 +91,16 @@ class ActPrmSftEvalTrainer(RLTrainer):
         Save a list of trajectories to a HF Dataset
         """
         ds_samples = [
-            {"state": step.state, "action": step.action, "tools": step.tools, "reward": step.reward}
+            # {
+            #     "state": step.state,
+            #     "action": step.action,
+            #     "tools": step.tools,
+            #     "reward": step.reward,
+            #     "return_": step.return_,
+            #     "advantage": step.advantage,
+            #     "done": step.done,
+            # }
+            {k: v for k, v in vars(step).items()}
             for trajectory in trajectories
             for step in trajectory.episode_steps
         ]

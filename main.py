@@ -28,7 +28,6 @@ from tinker_cookbook import checkpoint_utils
 from tinker_cookbook.utils import ml_log
 
 from act_prm.environments import get_env
-from act_prm.generator import get_generator_constructor
 from act_prm.replay_buffer import get_replay_buffer
 from act_prm.setup import get_args, print_config, seed_everything
 from act_prm.trainer import get_trainer
@@ -69,15 +68,20 @@ async def main() -> None:
     else:
         eval_env_cfg = env_cfg
 
+    if args.rl_env_config is not None:
+        rl_env_cfg = OmegaConf.load(f"./configs/environments/{args.rl_env_config}.yaml")
+    else:
+        rl_env_cfg = env_cfg
+
     # Update configs from args
     updated_cfgs = update_configs(
-        args, env_cfg, eval_env_cfg, generator_cfg, trainer_cfg, replay_buffer_cfg,
+        args, env_cfg, eval_env_cfg, rl_env_cfg, generator_cfg, trainer_cfg, replay_buffer_cfg,
     )
     if args.verbose:
-        cfg_names = ["env", "eval_env", "generator", "trainer", "replay_buffer"]
+        cfg_names = ["env", "eval_env", "rl_env", "generator", "trainer", "replay_buffer"]
         for cfg, cfg_name in zip(updated_cfgs, cfg_names):
             print_config(cfg, cfg_name.upper())
-    env_cfg, eval_env_cfg, generator_cfg, trainer_cfg, replay_buffer_cfg = updated_cfgs
+    env_cfg, eval_env_cfg, rl_env_cfg, generator_cfg, trainer_cfg, replay_buffer_cfg = updated_cfgs
     cfg = trainer_cfg  # Main config to reference (has all Tinker training attributes)
 
     # Setup logging to WandB
@@ -121,6 +125,7 @@ async def main() -> None:
     env = get_env(**env_cfg)
     # Reuse env if eval_env not specified; we always specify the split for loading new tasks
     eval_env = get_env(**eval_env_cfg) if args.eval_env_config else env
+    rl_env = get_env(**rl_env_cfg) if args.rl_env_config else env
     replay_buffer = get_replay_buffer(**replay_buffer_cfg)
     # # Get constructor for LLM policy, determines how we generate rollouts
     # generator_ctor = get_generator_constructor(**generator_cfg, ml_logger=ml_logger)
@@ -137,6 +142,7 @@ async def main() -> None:
         replay_buffer=replay_buffer,
         env=env,
         eval_env=eval_env,
+        rl_env=rl_env,
         ml_logger=ml_logger,
         run_name=args.run_name,
     )

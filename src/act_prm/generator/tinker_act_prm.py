@@ -28,15 +28,21 @@ from .tinker import TinkerGenerator
 def process_state_messages_for_metrics(
     state_messages: list[dict[str, str]],
     system_prompt: str,
+    first_msg_to_show: int = 0,
 ) -> list[dict[str, str]]:
     """
-    Ensure state messages have 1 system prompt and no last assistant message
+    Ensure state messages have 1 system prompt, no last assistant message,
+    and optionally no few-shot prompts
     """
     state_messages = deepcopy(state_messages)
+    # Remove system prompt if present
     if state_messages[0]["role"] == "system":
         state_messages = state_messages[1:]
+    # Remove last assistant message if present
     if state_messages[-1]["role"] == "assistant":
         state_messages = state_messages[:-1]
+    # Remove messages before first_msg_to_show, e.g., to remove few-shot prompts
+    state_messages = state_messages[first_msg_to_show:]
     return [{"role": "system", "content": system_prompt}] + state_messages
 
 

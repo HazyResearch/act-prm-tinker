@@ -1,10 +1,24 @@
 """
 Tinker Trainers for fully synchronous Act-PRM training
+
+```bash
+uv run python main.py \
+--is_async \
+--env_config act_prm/browsecomp_100_hide_obs \
+--eval_env_config browsecomp_plus/search_hide_obs \
+--generator_config aprm_qwen3_ap \
+--trainer_config qwen3_4b_aprm50_sft50_rl100 \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+```
 """
 
 import logging
+import random
 import time
-from os.path import join
 from typing import Any, Callable
 
 import torch
@@ -16,7 +30,7 @@ from tinker_cookbook import model_info, renderers
 from tinker_cookbook.checkpoint_utils import save_checkpoint_async
 from tinker_cookbook.utils import ml_log
 
-from datasets.arrow_writer import SchemaInferenceError
+from datasets.arrow_writer import Dataset, SchemaInferenceError
 from transformers import PreTrainedTokenizerBase
 
 from ..environments import Environment
@@ -32,7 +46,19 @@ from .train import is_better, run_rollouts
 logger = logging.getLogger(__name__)
 
 
-class ActPrmTrainer(RLTrainer):
+def _save_trajectories_to_hf_dataset(trajectories: list[Trajectory], dataset_name: str) -> None:
+    """
+    Save a list of trajectories to a HF Dataset
+    """
+    ds_samples = [
+        {k: v for k, v in vars(step).items()}
+        for trajectory in trajectories
+        for step in trajectory.episode_steps
+    ]  # Flatten to get dicts from list of EpisodeSteps in each Trajectory
+    Dataset.from_list(ds_samples).push_to_hub(dataset_name, private=False)
+
+
+class ActPrmSftRlTrainer(RLTrainer):
     """
     Trainer for fully synchronous Act-PRM training
     """
@@ -66,10 +92,13 @@ class ActPrmTrainer(RLTrainer):
             name="default",
             verbose=generator_cfg.verbose,
         )
+        # self.action_prompt_generator_constructor = self.get_generator_constructor(
+        #     name="action_prompt_act_prm",
+        #     keep_top_k=cfg.get("action_prompt_keep_top_k", None),
+        #     **{k: v for k, v in generator_cfg.items() if k != "name"}
+        # )
         self.action_prompt_generator_constructor = self.get_generator_constructor(
-            name="action_prompt_act_prm",
-            keep_top_k=cfg.get("action_prompt_keep_top_k", None),
-            **{k: v for k, v in generator_cfg.items() if k != "name"}
+            **generator_cfg,
         )
 
     async def do_rl_loop(
@@ -152,7 +181,8 @@ class ActPrmTrainer(RLTrainer):
 
         # Paths to the best sampling clients
         best_action_prompt_sampling_client_path = ""
-        best_sampling_client_path = ""
+        best_sft_sampling_client_path = ""
+        best_rl_sampling_client_path = ""
 
         # Initial sampling client
         sampling_client, _ = await save_checkpoint_and_get_sampling_client(
@@ -173,9 +203,12 @@ class ActPrmTrainer(RLTrainer):
         # ---------- First stage of training (include actions in prompts) ----------
         # if cfg.action_first_prompts is True, we first train with action-first prompts
         # via TinkerActionPromptActPrmGenerator (via self.action_prompt_generator_constructor)
+        sft_batch_idx = 0
+        best_sft_sampling_client_path = ""
+        
         if cfg.action_prompts:
             if cfg.num_batches_action_prompts > 0:
-                logger.info("Starting first stage of training (include actions in prompts)")
+                logger.info("Stage 1: Training RL action-prompted rollouts")
                 best_action_prompt_sampling_client_path = await self.do_rl_loop(
                     start_batch=0,
                     end_batch=cfg.num_batches_action_prompts,
@@ -192,9 +225,9 @@ class ActPrmTrainer(RLTrainer):
                 )
             # Generate thought-action rollouts for all tasks in the ActPrmEnv
             logger.info("Generating thought-action rollouts for all tasks in the Act-PRM env")
-            _end_batch = len(self.env) // cfg.batch_size
-            all_new_trajectories: list[Trajectory] = []
-            for batch_idx in range(0, _end_batch):
+            num_sft_gen_batches = len(self.env) // cfg.batch_size
+            all_trajectories_per_group: list[list[Trajectory]] = []
+            for sft_gen_batch_idx in range(0, num_sft_gen_batches):
                 # 1. Sample rollouts for training
                 self.env.split = "train"
                 _, new_trajectories = await run_rollouts(
@@ -204,60 +237,142 @@ class ActPrmTrainer(RLTrainer):
                     generator_constructor=self.action_prompt_generator_constructor,
                     env=self.env,
                     cfg=cfg,
-                    batch_id=batch_idx,
-                    checkpoint_name="action_prompts",
+                    batch_id=sft_gen_batch_idx,
+                    checkpoint_name="sft_gen",
                     split="train",
                     num_tries=cfg.num_tries,
-                    start_idx=batch_idx * cfg.batch_size,
+                    start_idx=sft_gen_batch_idx * cfg.batch_size,
                     tasks_per_update=cfg.batch_size,
                 )
-                all_new_trajectories.extend(new_trajectories["thought_action_policy"])
+                # all_new_trajectories.extend(new_trajectories["thought_action_policy"])
+                all_trajectories_per_group.append(new_trajectories["thought_action_policy"])
 
-            # TODO: Save these thought-action rollouts to a HF Dataset and push to hub
+            # Save these thought-action rollouts to a HF Dataset and push to hub
             # -> Then can evaluate by seeing how training another LLM from scratch performs
             # Can also sample on just 100 or 500 tasks, and see if it can perform well?
+            _ds_name = []
+            for delim in ["-enco=", "-geco=", "-se=", "-re="]:
+                _ds_name.append(self.run_name.split(delim)[-1].split("-")[0])
+            _ds_name = "_".join(_ds_name)
+            _ds_prefix = "mzio/aprm_sft_thought_action_rollouts"
+            dataset_name = f"{_ds_prefix}-{_ds_name}-ap_rl{cfg.num_batches_action_prompts:04d}"
+            try:
+                _save_trajectories_to_hf_dataset(
+                    trajectories=[traj for group in all_trajectories_per_group for traj in group],
+                    dataset_name=dataset_name,
+                )
+                logger.info("Saved thought-action rollouts to HF Dataset: %s", dataset_name)
+            except Exception as e:
+                logger.error("Failed to save thought-action rollouts to HF Dataset: %s", e)
 
-            # Train new policy LLM with the thought-action rollouts
+            # ------------------------------------------------------------------------------
+            # Second stage of training (SFT new policy LLM with the thought-action rollouts)
+            # ------------------------------------------------------------------------------
             self.training_client = await self.service_client.create_lora_training_client_async(
                 cfg.model_name, rank=cfg.lora_rank
             )
-            data_D, prepare_minibatch_metrics = await self.prepare_sft_minibatch(
-                new_trajectories=all_new_trajectories,
-            )
-            logger.info(
-                "Training new policy LLM with %d thought-action rollouts, %d total samples",
-                len(all_new_trajectories),
-                len(data_D),
-            )
-            # New sampling client from SFT training
-            if cfg.get("action_prompt_num_epochs", None) is not None:
-                assert cfg.action_prompt_mini_batch_size is not None
-                num_substeps = (
-                    len(data_D) // cfg.action_prompt_mini_batch_size
-                ) * cfg.action_prompt_num_epochs
-                logger.info(
-                    "Using %d epochs, batch size %d, %d total substeps for SFT training",
-                    cfg.action_prompt_num_epochs, cfg.action_prompt_mini_batch_size, num_substeps
-                )
-            else:
-                num_substeps = cfg.get("action_prompt_num_substeps", None)
-                logger.info("Using %d substeps for SFT training", num_substeps)
+            logger.info("Stage 2: Training new policy LLM with %d SFT batches", cfg.sft_num_batches)
+            sft_best_metric = -float("inf")
+            for sft_batch_idx in range(cfg.sft_num_batches):
+                metrics = {
+                    "progress/batch": sft_batch_idx,
+                    "optim/lr": cfg.learning_rate,
+                    "progress/done_frac": (sft_batch_idx + 1) / cfg.sft_num_batches,
+                }
+                t_start = time.time()
+                
+                # Run evaluations
+                if cfg.sft_eval_every > 0 and sft_batch_idx % cfg.sft_eval_every == 0:
+                    with timed("run_evals", metrics):
+                        self.eval_env.split = "eval"
+                        eval_rollout_metrics, _ = await run_rollouts(
+                            sampling_client=sampling_client,
+                            renderer=renderer,
+                            hf_tokenizer=hf_tokenizer,
+                            generator_constructor=self.eval_generator_constructor,
+                            env=self.eval_env,
+                            cfg=cfg,
+                            batch_id=sft_batch_idx,
+                            checkpoint_name="act_prm_sft",
+                            split="eval",
+                            num_tries=cfg.eval_num_tries,
+                            start_idx=0,
+                            tasks_per_update=len(self.eval_env),
+                        )
+                        metrics.update(eval_rollout_metrics)
+                    
+                    # Save best checkpoints
+                    _metric_prefix = "act_prm_sft_eval"
+                    best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
+                    last_metric = eval_rollout_metrics[best_metric_key]
+                    best_ckpt_name = f"{_metric_prefix}_{sft_batch_idx:06d}_best"
+                    if is_better(last_metric, sft_best_metric, cfg.best_metric):
+                        sft_best_metric = last_metric
+                        path_dict = await save_checkpoint_async(
+                            training_client=self.training_client,
+                            name=best_ckpt_name,
+                            log_path=cfg.log_path,
+                            loop_state={"batch": sft_batch_idx},
+                            kind="both",
+                        )
+                        best_sft_sampling_client_path = path_dict["sampler_path"]
+                        logger.info("Saved best sampling client to %s", path_dict["sampler_path"])
+                        logger.info(
+                            "Updated best %s to %f at batch %d",
+                            cfg.best_metric, sft_best_metric, sft_batch_idx,
+                        )
+                        metrics.update({
+                            f"{_metric_prefix}/best_batch": sft_batch_idx,
+                            f"{_metric_prefix}/best_metric": sft_best_metric,
+                            f"{_metric_prefix}/best_sampling_client_path": path_dict["sampler_path"],
+                        })
+                
+                # Training updates
+                if sft_batch_idx + 1 == num_sft_gen_batches:
+                    random.shuffle(all_trajectories_per_group)
+                adjusted_idx = sft_batch_idx % num_sft_gen_batches
+                new_trajectories = all_trajectories_per_group[adjusted_idx]
 
-            sampling_client, update_metrics = await self.do_train_step_and_get_sampling_client(
-                batch_idx=0,
-                training_client=self.training_client,
-                data_D=data_D,
-                prepare_minibatch_metrics=prepare_minibatch_metrics,
-                loss_fn="cross_entropy",
-                checkpoint_name="action_prompts",
-                mini_batch_size=cfg.action_prompt_mini_batch_size,
-                num_substeps=num_substeps,
-            )
-            logger.info("Updated sampling client from SFT training")
+                data_D, prepare_minibatch_metrics = await self.prepare_sft_minibatch(
+                    new_trajectories=new_trajectories,
+                )
+                sampling_client, update_metrics = await self.do_train_step_and_get_sampling_client(
+                    batch_idx=sft_batch_idx,
+                    training_client=self.training_client,
+                    data_D=data_D,
+                    prepare_minibatch_metrics=prepare_minibatch_metrics,
+                    loss_fn="cross_entropy",
+                    checkpoint_name="act_prm_sft",
+                    num_substeps=cfg.sft_num_substeps,
+                )
+                logger.info("Updated sampling client from SFT training, batch %d", sft_batch_idx)
+                # Log metrics
+                metrics.update(update_metrics)
+                metrics["time/total"] = time.time() - t_start
+                self.ml_logger.log_metrics(metrics, step=sft_batch_idx)
         
-        # ---------- Second stage of training (generate thoughts from states only) ----------
-        logger.info("Starting second stage of training (generate thoughts from states only)")
+        # ---------- Third stage of training (generate thoughts from states only) ----------
+        logger.info("Stage 3 training RL")
+        best_rl_metric = -float("inf")
+
+        start_batch = sft_batch_idx
+        end_batch = sft_batch_idx + end_batch
         num_batches = end_batch - start_batch
+
+        if best_sft_sampling_client_path != "":
+            self.training_client = await self.service_client.create_training_client_from_state_async(
+                best_sft_sampling_client_path
+            )
+            logger.info("Loaded RL weights from %s", best_sft_sampling_client_path)
+            # Initial new sampling client
+            sampling_client, _ = await save_checkpoint_and_get_sampling_client(
+                training_client=self.training_client,
+                i_batch=start_batch,
+                log_path=cfg.log_path,
+                save_every=cfg.save_every,
+                start_batch=start_batch,
+            )
+        
         for batch_idx in range(start_batch, end_batch):
             metrics = {
                 "progress/batch": batch_idx,
@@ -296,8 +411,8 @@ class ActPrmTrainer(RLTrainer):
                     if checkpoint_name is None
                     else f"{checkpoint_name}_{batch_idx:06d}_best"
                 )
-                if is_better(last_metric, self.best_metric, cfg.best_metric):
-                    self.best_metric = last_metric
+                if is_better(last_metric, best_rl_metric, cfg.best_metric):
+                    best_rl_metric = last_metric
                     path_dict = await save_checkpoint_async(
                         training_client=self.training_client,
                         name=best_ckpt_name,
@@ -305,16 +420,16 @@ class ActPrmTrainer(RLTrainer):
                         loop_state={"batch": batch_idx},
                         kind="both",
                     )
-                    best_sampling_client_path = path_dict["sampler_path"]
-                    logger.info("Saved best sampling client to %s", best_sampling_client_path)
+                    best_rl_sampling_client_path = path_dict["sampler_path"]
+                    logger.info("Saved best sampling client to %s", best_rl_sampling_client_path)
                     logger.info(
                         "Updated best %s to %f at batch %d",
-                        cfg.best_metric, self.best_metric, batch_idx,
+                        cfg.best_metric, best_rl_metric, batch_idx,
                     )
                     metrics.update({
                         f"{_metric_prefix}/best_batch": batch_idx,
-                        f"{_metric_prefix}/best_metric": self.best_metric,
-                        f"{_metric_prefix}/best_sampling_client_path": best_sampling_client_path,
+                        f"{_metric_prefix}/best_metric": best_rl_metric,
+                        f"{_metric_prefix}/best_sampling_client_path": best_rl_sampling_client_path,
                     })
                     try:  # Saving replay buffer
                         self.replay_buffer.save_to_hf_dataset(self.best_replay_buffer_path)
@@ -326,13 +441,13 @@ class ActPrmTrainer(RLTrainer):
                         )
 
             # 1. Sample rollouts for training
-            self.env.split = "train"
+            self.eval_env.split = "train"
             train_rollout_metrics, new_trajectories = await run_rollouts(
                 sampling_client=sampling_client,
                 renderer=renderer,
                 hf_tokenizer=hf_tokenizer,
                 generator_constructor=self.generator_constructor,
-                env=self.env,
+                env=self.eval_env,
                 cfg=cfg,
                 batch_id=batch_idx,
                 checkpoint_name=checkpoint_name,
@@ -370,4 +485,4 @@ class ActPrmTrainer(RLTrainer):
             metrics["time/total"] = time.time() - t_start
             self.ml_logger.log_metrics(metrics, step=batch_idx)
 
-        return best_sampling_client_path
+        return best_rl_sampling_client_path

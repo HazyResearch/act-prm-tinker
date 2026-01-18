@@ -190,6 +190,8 @@ class ActPrmEnv(Environment):
         assistant_indices = [
             i for i, msg in enumerate(action_trajectory) if msg["role"] == "assistant"
         ]
+        # MZ 1/18/26: Note that we add default context here
+        # -> but we may want to filter it out for thought-action SFT trajectories
         new_messages = self.default_context + messages
         
         return ActionProcessRewardState(
@@ -210,8 +212,8 @@ class ActPrmEnv(Environment):
             batch_id=batch_idx,
             try_step=try_step,
             timestep=0,
-            # Past observations to show (account for default context)
-            first_obs_to_show=len(new_messages) + 1,
+            # Past observations to show (account for default context, system prompt)
+            first_obs_to_show=len(self.default_context) + 1,
         )
 
     def step(

@@ -36,6 +36,34 @@ If you haven't already, add this `.env` file to your `.gitignore` file to avoid 
 ### BrowseComp-Plus Search
 
 ```bash
+# Act-PRM with hidden past observations, 20 action-prompted batches, 20 SFT batches
+# (base) mzhang@hazy1:~$ tmux attach -t aprm0
+uv run python main.py \
+--is_async \
+--env_config act_prm/browsecomp_100_hide_obs \
+--eval_env_config browsecomp_plus/search_hide_obs \
+--generator_config aprm_qwen3_ap \
+--trainer_config qwen3_4b_aprm20_sft20_rl \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+
+# Act-PRM with hidden past observations, 20 action-prompted batches, 100 SFT batches
+# (base) mzhang@hazy1:~$ tmux attach -t aprm1
+uv run python main.py \
+--is_async \
+--env_config act_prm/browsecomp_100_hide_obs \
+--eval_env_config browsecomp_plus/search_hide_obs \
+--generator_config aprm_qwen3_ap \
+--trainer_config qwen3_4b_aprm20_sft100_rl \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+
 # Evaluate by SFT'ing another LLM with action-prompted rollouts
 # (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm1
 # [h2] 0:srun*

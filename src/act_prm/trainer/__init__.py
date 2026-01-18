@@ -19,6 +19,10 @@ def get_trainer(name: str, **kwargs: Any) -> ActPrmTrainer | RLTrainer | SFTTrai
     elif name == "act_prm_sft_eval":
         return ActPrmSftEvalTrainer(**kwargs)
 
+    elif name == "act_prm_sft_rl":
+        from .act_prm_sft_rl import ActPrmSftRlTrainer
+        return ActPrmSftRlTrainer(**kwargs)
+
     elif name == "rl":
         return RLTrainer(**kwargs)
 
