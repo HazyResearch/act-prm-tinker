@@ -135,6 +135,7 @@ class TinkerGenerator:
         while not done:
             # Generate model responses and step through the environment
             state_messages: list[dict[str, Any]] = self._get_messages_from_state(state)
+
             input_ids: list[int] = hf_tokenizer.apply_chat_template(
                 state_messages,
                 add_generation_prompt=True,
@@ -178,7 +179,7 @@ class TinkerGenerator:
                 parsed_actions=parsed_actions,
                 model_response=model_messages,
                 current_state=state,
-                # Set next_state.prior_messages to all messages
+                # Sets next_state.prior_messages to current state_messages
                 current_messages=state_messages,
             )
             next_state = env_step_result.state
@@ -288,7 +289,7 @@ class TinkerGenerator:
         # Rich colors
         system_color: str = "bold bright_yellow",
         tool_call_color: str = "bold bright_blue",
-        tool_response_color: str = "bright_green",
+        tool_response_color: str = "bold",
         **other_rich_colors: Any,
     ) -> None:
         """

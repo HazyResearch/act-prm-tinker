@@ -149,9 +149,11 @@ class ActPrmSftEvalTrainer(RLTrainer):
             else:
                 while len(train_data_D) < total_samples:
                     train_data_D.extend(random.sample(data_D, k=len(data_D)))
-                train_data_D.extend(  # fill in the rest
-                    random.sample(train_data_D, k=total_samples - len(train_data_D))
-                )
+
+                if len(train_data_D) >= total_samples:
+                    train_data_D = train_data_D[:total_samples]
+                else:  # Fill in the rest
+                    train_data_D.extend(random.sample(data_D, k=total_samples - len(train_data_D)))
         else:
             raise ValueError("Either num_epochs or num_substeps must be specified")
 
@@ -242,7 +244,7 @@ class ActPrmSftEvalTrainer(RLTrainer):
                         title=f"SFT Eval Loop {loop_id}, Eval {eval_idx}, Batch {batch_id}",
                         style="bright_yellow",
                     )
-                    table.add_column("Metric", justify="right")
+                    table.add_column("Metric", justify="left")
                     table.add_column("Last Value", justify="left")
                     table.add_column("All Values", justify="left")
                     for k, v in eval_rollout_metrics.items():

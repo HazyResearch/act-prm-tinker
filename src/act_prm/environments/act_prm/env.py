@@ -191,6 +191,7 @@ class ActPrmEnv(Environment):
             i for i, msg in enumerate(action_trajectory) if msg["role"] == "assistant"
         ]
         new_messages = self.default_context + messages
+        
         return ActionProcessRewardState(
             system_prompt=self.system_prompt,
             new_messages=new_messages,
@@ -209,6 +210,8 @@ class ActPrmEnv(Environment):
             batch_id=batch_idx,
             try_step=try_step,
             timestep=0,
+            # Past observations to show (account for default context)
+            first_obs_to_show=len(new_messages) + 1,
         )
 
     def step(
@@ -293,6 +296,13 @@ class ActPrmEnv(Environment):
             if chat_step_idx > len(action_trajectory):
                 done = True
 
+            # Handle past observations to show
+            current_messages = self.maybe_hide_observations(
+                current_messages or [],
+                first_obs_to_show=current_state.first_obs_to_show,
+                last_obs_to_show=current_state.last_obs_to_show,
+            )
+
             # Create environment response
             new_state = ActionProcessRewardState(
                 system_prompt=self.system_prompt,
@@ -311,6 +321,9 @@ class ActPrmEnv(Environment):
                 batch_id=batch_id,
                 try_step=try_step,
                 timestep=timestep,
+                # Past observations to show (account for default context)
+                first_obs_to_show=current_state.first_obs_to_show,
+                last_obs_to_show=current_state.last_obs_to_show,
             )
 
         else:

@@ -62,6 +62,21 @@ uv run python main.py \
 CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
+--env_config act_prm/hotpotqa_mc_250_hide_obs \
+--eval_env_config hotpotqa_mc/fewshot2_hide_obs \
+--generator_config aprm_qwen3_ap \
+--trainer_config qwen3_4b_aprm_sft_eval_100s \
+--reward_method action_probs \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+
+
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
 --env_config act_prm/hotpotqa_mc_1k \
 --eval_env_config hotpotqa_mc/fewshot2_gen \
 --generator_config aprm_qwen3 \
@@ -118,6 +133,20 @@ uv run python main.py \
 --generator_config aprm_qwen3_ap \
 --trainer_config qwen3_4b_aprm_sft_eval \
 --reward_method em \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_250 \
+--eval_env_config hotpotqa_mc/fewshot2 \
+--generator_config aprm_qwen3_ap \
+--trainer_config qwen3_4b_aprm_sft_eval_100s \
+--reward_method action_probs \
 --replay_buffer_config default \
 --log_path ./logs \
 --model_name Qwen/Qwen3-4B-Instruct-2507 \
@@ -368,6 +397,35 @@ CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
 --env_config hotpotqa_mc/fewshot2 \
+--generator_config default \
+--trainer_config qwen3_4b_pg \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+
+# PG but hiding prior observations
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm1
+# [h1] 0:srun*
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config hotpotqa_mc/fewshot2_hide_obs \
+--generator_config default \
+--trainer_config qwen3_4b_pg \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 0 --verbose
+
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm0
+# [h2] 0:srun*
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config browsecomp_plus/search_hide_obs \
 --generator_config default \
 --trainer_config qwen3_4b_pg \
 --replay_buffer_config default \

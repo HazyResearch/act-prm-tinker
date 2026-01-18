@@ -8,7 +8,6 @@ from typing import Any
 import numpy as np
 from datasets import Dataset,DatasetDict, load_dataset
 from pydantic import InstanceOf
-from rich import print as rich_print
 
 from ...graders.qa import LLMGraderForQA
 from ...llm_handlers import ActionFromLLM
@@ -202,6 +201,8 @@ class HotpotQAMultipleChoiceEnv(Environment):
             timestep=0,
             # Track for accuracy eval
             metadata={"correct": 0, "total": 1},
+            # Past observations to show (account for default context)
+            first_obs_to_show=len(messages) + 1,  # system + default context + user message
         )
 
     def step(
@@ -318,14 +319,19 @@ class HotpotQAMultipleChoiceEnv(Environment):
                 "content": "No tool calls or final answers were parsed. Please try again",
             })
 
-        metadata.update(
-            {"reward": reward, "done": done, "truncated": truncated},
+        # Handle past observations to show
+        current_messages = self.maybe_hide_observations(
+            current_messages or [],
+            first_obs_to_show=current_state.first_obs_to_show,
+            last_obs_to_show=current_state.last_obs_to_show,
         )
+
+        metadata.update({"reward": reward, "done": done, "truncated": truncated})
         new_state = HotpotQAMultipleChoiceState(
             system_prompt=current_state.system_prompt,
             new_messages=env_messages,
             model_response=model_response,
-            prior_messages=current_messages or [],
+            prior_messages=current_messages,
             tool_registry=current_state.tool_registry,
             tools=available_tools,
             # HotpotQA-specific fields
@@ -340,6 +346,9 @@ class HotpotQAMultipleChoiceEnv(Environment):
             timestep=timestep,
             # Track for accuracy eval
             metadata=metadata,
+            # Past observations to show
+            first_obs_to_show=current_state.first_obs_to_show,
+            last_obs_to_show=current_state.last_obs_to_show,
         )
         return HotpotQAMultipleChoiceStepResult(
             state=new_state,

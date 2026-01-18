@@ -35,6 +35,9 @@ class EnvironmentState(BaseModel):
     timestep: int = 0
     try_step: int = 0
     metadata: dict[str, Any] | None = None
+    # Number of past observations to show
+    first_obs_to_show: int | None = None
+    last_obs_to_show: int | None = None
 
 
 class EnvironmentStateWithAnswer(EnvironmentState):

@@ -179,9 +179,7 @@ class LongBenchEnvironment(Environment):
             "scroll_up": ScrollUpTool(),
         }
         tools = [tool.get_tool_desc() for tool in tool_registry.values()]
-        messages = [
-            {"role": "user", "content": prompt},
-        ]
+        messages = [{"role": "user", "content": prompt}]
 
         return LongBenchState(
             system_prompt=self.system_prompt,
@@ -204,6 +202,8 @@ class LongBenchEnvironment(Environment):
             timestep=0,
             # Track for accuracy eval
             metadata={"correct": 0, "total": 1},
+            # Past observations to show
+            first_obs_to_show=len(messages) + 1,  # system + default context + user message
         )
 
     def step(self, **kwargs: Any) -> LongBenchStepResult:
@@ -330,6 +330,13 @@ class LongBenchEnvironment(Environment):
             if new_doc_dict is None:
                 new_doc_dict = copy(current_state.doc_dict)
 
+            # Handle past observations to show
+            current_messages = self.maybe_hide_observations(
+                current_messages or [],
+                first_obs_to_show=current_state.first_obs_to_show,
+                last_obs_to_show=current_state.last_obs_to_show,
+            )
+
             metadata.update(
                 {"reward": reward, "done": done, "truncated": truncated},
             )
@@ -337,7 +344,7 @@ class LongBenchEnvironment(Environment):
                 system_prompt=current_state.system_prompt,
                 new_messages=env_messages,
                 model_response=model_response,
-                prior_messages=current_messages or [],
+                prior_messages=current_messages,
                 tool_registry=current_state.tool_registry,
                 tools=current_state.tools,
                 # LongBench-specific fields
@@ -354,6 +361,9 @@ class LongBenchEnvironment(Environment):
                 timestep=timestep,
                 # Track for accuracy eval
                 metadata=metadata,
+                # Past observations to show
+                first_obs_to_show=current_state.first_obs_to_show,
+                last_obs_to_show=current_state.last_obs_to_show,
             )
             return LongBenchStepResult(
                 state=new_state,

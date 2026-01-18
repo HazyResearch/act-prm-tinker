@@ -34,6 +34,10 @@ class Environment(ABC):
         seed: int = 0,
         verbose: bool = False,
         pretrained_model_config: dict[str, Any] | None = None,
+        hide_observations: bool = False,
+        hidden_obs_content: str = "...",     # or "<output omitted for brevity>"
+        first_obs_to_show: int = 1,  # e.g, to keep prompt
+        last_obs_to_show: int = 0,   # >= 2 to keep more than the last observation
         **kwargs: Any,
     ) -> None:
         super().__init__()
@@ -46,6 +50,12 @@ class Environment(ABC):
         self.verbose = verbose
         self.pretrained_model_config = pretrained_model_config
         self.tokenizer = self._init_tokenizer()
+
+        # Optionally hide prior observations in current state
+        self.hide_observations = hide_observations
+        self.hidden_obs_content = hidden_obs_content
+        self.first_obs_to_show = first_obs_to_show
+        self.last_obs_to_show = last_obs_to_show
 
     def __len__(self) -> int:
         """
@@ -115,6 +125,34 @@ class Environment(ABC):
         indices = np.arange(len(self.datasets[self.split]))
         np.random.shuffle(indices)
         self.datasets[self.split] = self.datasets[self.split][indices]
+
+    def maybe_hide_observations(
+        self,
+        messages: list[dict[str, str]],
+        hidden_obs_content: str | None = None,
+        first_obs_to_show: int | None = None,  # e.g., to keep prompt
+        last_obs_to_show: int | None = None,   # e.g., to keep last observation
+    ) -> list[dict[str, str]]:
+        """
+        Hide observations from messages
+        """
+        num_messages = len(messages)
+        if num_messages == 0 or not self.hide_observations:
+            return messages
+
+        hidden_obs_content = hidden_obs_content or self.hidden_obs_content
+        first_obs_to_show = first_obs_to_show or self.first_obs_to_show
+        last_obs_to_show = last_obs_to_show or self.last_obs_to_show
+        
+        return [
+            {"role": message["role"], "content": hidden_obs_content}
+            if (
+                message["role"] in ["user", "tool"]
+                and (idx >= first_obs_to_show and idx < num_messages - last_obs_to_show)
+            )
+            else message
+            for idx, message in enumerate(messages)
+        ]
 
 
 class BaseTool(ABC):

@@ -6,6 +6,7 @@ import asyncio
 import logging
 import random
 import time
+from functools import partial
 from typing import Any, Callable
 
 import torch
@@ -29,10 +30,46 @@ from .train import is_better, run_rollouts
 logger = logging.getLogger(__name__)
 
 
+def maybe_hide_observations(
+    messages: list[dict[str, str]],
+    hide_observations: bool = False,
+    hidden_obs_content: str = "...",
+    first_obs_to_show: int = 2,  # e.g., to keep prompt
+    last_obs_to_show: int = 1,   # e.g., to keep last observation
+) -> list[dict[str, str]]:
+    """
+    Hide past observations from messages
+    """
+    if not hide_observations:
+        return messages
+
+    user_indices = [
+        idx for idx, message in enumerate(messages) if message["role"] in ["user", "tool"]
+    ]
+    last_message_idx = user_indices[-last_obs_to_show] if last_obs_to_show > 0 else len(messages)
+    return [
+        {"role": message["role"], "content": hidden_obs_content}
+        if (
+            message["role"] in ["user", "tool"]
+            and (idx >= first_obs_to_show and idx < last_message_idx)
+        )
+        else message
+        for idx, message in enumerate(messages)
+    ]
+
+
 class SFTTrainer(BaseTrainer):
     """
     Trainer for supervised fine-tuning (SFT) with Tinker
     """
+    def __init__(self, hide_observations: bool = False, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.hide_observations = hide_observations
+        self.maybe_hide_observations = partial(
+            maybe_hide_observations,
+            hide_observations=hide_observations,
+        )
+
     def _get_trajectory_from_messages(
         self,
         messages: list[dict[str, str]],
@@ -57,12 +94,12 @@ class SFTTrainer(BaseTrainer):
         last_message_idx = 3  # messages[:3] includes system_prompt, user_message, first assistant_message
         while last_message_idx < len(messages):
             state_action_input_ids = hf_tokenizer.apply_chat_template(
-                messages[:last_message_idx],
+                self.maybe_hide_observations(messages[:last_message_idx]),
                 add_generation_prompt=False,
                 **_tokenize_kwargs,
             )
             state_len = len(hf_tokenizer.apply_chat_template(
-                messages[:last_message_idx - 1],
+                self.maybe_hide_observations(messages[:last_message_idx - 1]),
                 add_generation_prompt=True,
                 **_tokenize_kwargs,
             ))
