@@ -1,9 +1,9 @@
 # Qwen3-4B Act-PRM training config
 # -> 
 trainer_name: act_prm_sft_rl
-advantage_threshold: 0.8  # e.g., 0 if mean_center, high probability if not
+advantage_threshold: null  # e.g., 0 if mean_center, high probability if not
 action_prompts: true
-num_batches_action_prompts: 50
+num_batches_action_prompts: 40
 sft_num_batches: 100
 sft_num_substeps: 1  # Updates per batch
 sft_eval_every: 20
