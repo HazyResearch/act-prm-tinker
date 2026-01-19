@@ -3,7 +3,7 @@ name: "act_prm"
 is_async: false
 # Source of successful demonstrations
 dataset_config:
-  path: "mzio/hotpotqa_mc-llama3_2_3b_inst-full_obs-tools-v1082"
+  path: "mzio/hotpotqa_mc-llama3_2_3b_inst-full_obs-tools-v546"
   cache_dir: "/scr/mzhang/data/act_prm_data"
   split: "train"
 

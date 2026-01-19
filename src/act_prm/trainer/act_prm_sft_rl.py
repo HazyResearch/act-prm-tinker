@@ -223,7 +223,8 @@ class ActPrmSftRlTrainer(RLTrainer):
             # To match amount of data to take num_substeps over, account for only having
             # 1 rollout per task
             sft_group_size = cfg.group_size * cfg.batch_size
-            # print(hf_tokenizer.decode(all_trajectories_per_env[0][0].episode_steps[2].state_action_tokens))
+            # long_trajs = [traj for group in all_trajectories_per_env for traj in group if len(traj.episode_steps) > 2]
+            # rich_print(hf_tokenizer.decode(long_trajs[0].episode_steps[-1].state_action_tokens))
             # breakpoint()
 
         # ------------------------------------------------------------------------------
@@ -273,7 +274,7 @@ class ActPrmSftRlTrainer(RLTrainer):
             if (
                 cfg.sft_eval_every > 0 
                 and (
-                    sft_batch_idx % cfg.sft_eval_every == 0 or
+                    (sft_batch_idx + 1) % cfg.sft_eval_every == 0 or
                     sft_batch_idx + 1 == cfg.sft_num_batches
                 )
             ):

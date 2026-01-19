@@ -45,7 +45,7 @@ uv run python main.py \
 --env_config act_prm/hotpotqa_mc_llama_full \
 --eval_env_config hotpotqa_mc/default \
 --generator_config default \
---trainer_config qwen3_4b_sft1000_rl \
+--trainer_config qwen3_4b_sft100_rl \
 --replay_buffer_config default \
 --log_path ./logs \
 --model_name Qwen/Qwen3-4B-Instruct-2507 \
@@ -60,7 +60,7 @@ uv run python main.py \
 --env_config act_prm/hotpotqa_mc_llama_full \
 --eval_env_config hotpotqa_mc/default \
 --generator_config default \
---trainer_config qwen3_4b_sft1000_rl \
+--trainer_config qwen3_4b_sft100_rl \
 --replay_buffer_config default \
 --log_path ./logs \
 --model_name Qwen/Qwen3-4B-Instruct-2507 \
@@ -76,7 +76,7 @@ uv run python main.py \
 --env_config act_prm/hotpotqa_mc_llama_full \
 --eval_env_config hotpotqa_mc/default \
 --generator_config default \
---trainer_config qwen3_4b_sft1000_rl \
+--trainer_config qwen3_4b_sft100_rl \
 --replay_buffer_config default \
 --log_path ./logs \
 --model_name Qwen/Qwen3-4B-Instruct-2507 \
@@ -93,7 +93,7 @@ uv run python main.py \
 --env_config act_prm/hotpotqa_mc_llama_full \
 --eval_env_config hotpotqa_mc/default \
 --generator_config default \
---trainer_config qwen3_4b_sft1000_rl \
+--trainer_config qwen3_4b_sft100_rl \
 --replay_buffer_config default \
 --log_path ./logs \
 --model_name Qwen/Qwen3-4B-Instruct-2507 \

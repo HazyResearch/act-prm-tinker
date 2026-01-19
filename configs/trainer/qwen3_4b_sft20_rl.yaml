@@ -8,7 +8,7 @@ sft_num_batches: 20
 sft_num_substeps: 1  # Updates per batch
 sft_eval_every: 5
 
-hide_observations: true
+hide_observations: false
 hidden_obs_content: "..."
 first_obs_to_show: 2
 last_obs_to_show: 1

@@ -4,11 +4,11 @@ trainer_name: act_prm_sft_rl
 advantage_threshold: null  # e.g., 0 if mean_center, high probability if not
 action_prompts: false
 num_batches_action_prompts: 0
-sft_num_batches: 1000
+sft_num_batches: 100
 sft_num_substeps: 1  # Updates per batch
 sft_eval_every: 20
 
-hide_observations: true
+hide_observations: false
 hidden_obs_content: "..."
 first_obs_to_show: 2
 last_obs_to_show: 1
