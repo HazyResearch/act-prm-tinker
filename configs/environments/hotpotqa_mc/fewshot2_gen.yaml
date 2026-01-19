@@ -10,6 +10,11 @@ ambiguous_titles: false
 next_obs_feedback: false
 num_fewshot_prompts: 2
 
+hide_observations: false
+hidden_obs_content: "..."  # or "<output omitted for brevity>"
+first_obs_to_show: 1       # e.g, to keep prompt
+last_obs_to_show: 0        # >= 2 to keep more than the last observation
+
 num_train_samples: 1000
 num_val_samples: 64
 num_test_samples: 100
