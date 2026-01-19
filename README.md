@@ -117,10 +117,44 @@ uv run python main.py \
 --lora_rank 32 \
 --seed 42 --replicate 3 --verbose \
 --actions_only --hide_observations
+
+# Act-PRM with actions-only and hidden observations
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm2
+# [h1] 0:srun*
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_250_hide_obs \
+--eval_env_config hotpotqa_mc/default \
+--generator_config aprm_qwen3_ap \
+--trainer_config qwen3_4b_aprm40_sft100_rl \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 3 --verbose \
+--actions_only --hide_observations
 ```
 
 
 ### BrowseComp-Plus Search
+
+```bash
+# Yolo run
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t 0
+# [h0] 0:srun*
+uv run python main.py \
+--is_async \
+--env_config act_prm/browsecomp_100_hide_obs \
+--eval_env_config browsecomp_plus/search_hide_obs \
+--generator_config aprm_qwen3_ap \
+--trainer_config qwen3_4b_aprm40_sft100_rl \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 3 --verbose
+```
 
 ```bash
 # Act-PRM with hidden past observations, 20 action-prompted batches, 20 SFT batches

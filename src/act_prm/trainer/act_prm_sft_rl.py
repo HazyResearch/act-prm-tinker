@@ -153,7 +153,7 @@ class ActPrmSftRlTrainer(RLTrainer):
         sft_batch_idx = 0
         if cfg.action_prompts:
             if cfg.num_batches_action_prompts > 0:
-                logger.info("Stage 1: Training RL action-prompted rollouts")
+                logger.info("** Stage 1: Training RL action-prompted rollouts **")
                 best_action_prompt_sampling_client_path = await self.do_rl_loop(
                     start_batch=0,
                     end_batch=cfg.num_batches_action_prompts,
@@ -199,7 +199,7 @@ class ActPrmSftRlTrainer(RLTrainer):
             sft_batch_idx += cfg.num_batches_action_prompts  # so WandB logs correctly
 
         else:
-            logger.info("Stage 1: No action-prompted rollouts -> Using saved trajectories for SFT")
+            logger.info("** Stage 1: No action-prompted rollouts -> Using saved trajectories for SFT **")
             env.split = "train"
             # "Sample rollouts" from env samples
             # num_sft_gen_batches = min(len(env) // cfg.batch_size, 1)
@@ -233,7 +233,7 @@ class ActPrmSftRlTrainer(RLTrainer):
         self.training_client = await self.service_client.create_lora_training_client_async(
             cfg.model_name, rank=cfg.lora_rank
         )
-        logger.info("Stage 2: Training new policy LLM with %d SFT batches", cfg.sft_num_batches)
+        logger.info("** Stage 2: Training new policy LLM with %d SFT batches **", cfg.sft_num_batches)
         sft_best_metric = -float("inf")
 
         # Shuffle training data
@@ -406,7 +406,7 @@ class ActPrmSftRlTrainer(RLTrainer):
                 with timed("run_evals", metrics):
                     eval_env.split = "eval"
                     _name_or_identifier = (
-                        f"Stage 3: RL Evaluation, Train Step {batch_idx} / {num_batches - 1}"
+                        f"** Stage 3: RL Evaluation, Train Step {batch_idx} / {num_batches - 1} **"
                     )
                     eval_rollout_metrics, _ = await run_rollouts(
                         sampling_client=sampling_client,
