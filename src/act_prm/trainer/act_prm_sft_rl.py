@@ -335,7 +335,6 @@ class ActPrmSftRlTrainer(RLTrainer):
             )
 
             if sft_batch_idx % 100 == 0:
-                pass  # display a sample of the data
                 _input_tokens = data_D[0].model_input.to_ints()
                 rich_print(hf_tokenizer.decode(_input_tokens))
 

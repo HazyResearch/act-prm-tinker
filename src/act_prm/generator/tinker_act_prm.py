@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import Any, Literal
 
 import numpy as np
+from rich import print as rich_print
 from tinker import SamplingClient
 from tinker.types import ModelInput
 from transformers import PreTrainedTokenizerBase
@@ -43,6 +44,10 @@ def process_state_messages_for_metrics(
         state_messages = state_messages[:-1]
     # Remove messages before first_msg_to_show, e.g., to remove few-shot prompts
     state_messages = state_messages[first_msg_to_show:]
+    # if len(state_messages) > 4:  # MZ 1/19/26: Debugging check
+    #     for _idx, _msg in enumerate(state_messages):
+    #         rich_print(f"[blue]{_idx}[/blue]: {str(_msg)[:100]}")
+    #     breakpoint()
     return [{"role": "system", "content": system_prompt}] + state_messages
 
 

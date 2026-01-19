@@ -33,6 +33,112 @@ If you haven't already, add this `.env` file to your `.gitignore` file to avoid 
 
 ## Example Commands
 
+### Motivating Example: HotpotQA Generated
+
+```bash
+# SFT on thoughts, actions, and observations
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm0
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_gpt5l_full \
+--eval_env_config hotpotqa_mc/gpt5_gen4s \
+--generator_config default \
+--trainer_config qwen3_4b_sft200_rl200 \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 5 --verbose
+
+# SFT on actions-only and observations
+# (base) mzhang@hazy1:~$ tmux attach -t aprm0
+# [h3] 0:srun*
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_gpt5l_full \
+--eval_env_config hotpotqa_mc/gpt5_gen4s \
+--generator_config default \
+--trainer_config qwen3_4b_sft200_rl200 \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 3 --verbose \
+--actions_only
+
+# SFT on thoughts and actions
+# (base) mzhang@hazy1:~$ tmux attach -t aprm1
+# [h3] 0:srun*
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_gpt5l_full \
+--eval_env_config hotpotqa_mc/gpt5_gen4s \
+--generator_config default \
+--trainer_config qwen3_4b_sft200_rl200 \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 3 --verbose \
+--hide_observations
+
+# SFT on actions-only
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm1
+# [h2] 0:srun*
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_gpt5l_full \
+--eval_env_config hotpotqa_mc/gpt5_gen4s \
+--generator_config default \
+--trainer_config qwen3_4b_sft200_rl200 \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 3 --verbose \
+--actions_only --hide_observations
+
+# Act-PRM with actions-only and hidden observations
+# (base) mzhang@hazy1:~$ tmux attach -t 0
+# [h1] 0:srun*
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_gpt5l_full \
+--eval_env_config hotpotqa_mc/gpt5_gen4s \
+--generator_config aprm_qwen3_ap \
+--trainer_config qwen3_4b_aprm20_sft200_rl200 \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 4 --verbose \
+--actions_only --hide_observations
+
+# Act-PRM with actions-only and hidden observations
+# (base) mzhang@hazy1:~$ tmux attach -t 1
+# [h1] 0:srun*
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_gpt5l_full \
+--eval_env_config hotpotqa_mc/gpt5_gen4s \
+--generator_config aprm_qwen3_ap_nobandit \
+--trainer_config qwen3_4b_aprm20_sft200_rl200 \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 4 --verbose \
+--actions_only --hide_observations
+```
+
+
+
 ### Motivating Example: HotpotQA 
 
 ```bash
@@ -115,7 +221,7 @@ uv run python main.py \
 --log_path ./logs \
 --model_name Qwen/Qwen3-4B-Instruct-2507 \
 --lora_rank 32 \
---seed 42 --replicate 3 --verbose \
+--seed 42 --replicate 4 --verbose \
 --actions_only --hide_observations
 
 # Act-PRM with actions-only and hidden observations
@@ -132,7 +238,7 @@ uv run python main.py \
 --log_path ./logs \
 --model_name Qwen/Qwen3-4B-Instruct-2507 \
 --lora_rank 32 \
---seed 42 --replicate 3 --verbose \
+--seed 42 --replicate 4 --verbose \
 --actions_only --hide_observations
 ```
 
@@ -148,12 +254,12 @@ uv run python main.py \
 --env_config act_prm/browsecomp_100_hide_obs \
 --eval_env_config browsecomp_plus/search_hide_obs \
 --generator_config aprm_qwen3_ap \
---trainer_config qwen3_4b_aprm40_sft100_rl \
+--trainer_config qwen3_4b_aprm20_sft200_rl200 \
 --replay_buffer_config default \
 --log_path ./logs \
 --model_name Qwen/Qwen3-4B-Instruct-2507 \
 --lora_rank 32 \
---seed 42 --replicate 3 --verbose
+--seed 42 --replicate 5 --verbose
 ```
 
 ```bash

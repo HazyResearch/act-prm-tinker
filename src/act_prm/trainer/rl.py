@@ -367,24 +367,27 @@ class RLTrainer(BaseTrainer):
         num_sft_gen_batches = len(env) // batch_size
         
         logger.info("Generating trajectories for all %d tasks in the environment", len(env))
-        all_trajectories_per_group: list[list[Trajectory]] = await asyncio.gather(*[
-            run_rollouts(
-                sampling_client=sampling_client,
-                renderer=renderer,
-                hf_tokenizer=hf_tokenizer,
-                generator_constructor=save_generator_constructor,
-                env=env,
-                cfg=cfg,
-                batch_id=sft_gen_batch_idx,
-                checkpoint_name="sft_gen",
-                split="train",
-                num_tries=cfg.num_tries,
-                start_idx=sft_gen_batch_idx * batch_size,
-                tasks_per_update=batch_size,
-                name_or_identifier=save_name_or_identifier,
-            )
-            for sft_gen_batch_idx in range(num_sft_gen_batches)
-        ])
+        all_trajectories_per_group: list[tuple[Any, dict[str, list[Trajectory]]]] = await (
+            asyncio.gather(*[
+                run_rollouts(
+                    sampling_client=sampling_client,
+                    renderer=renderer,
+                    hf_tokenizer=hf_tokenizer,
+                    generator_constructor=save_generator_constructor,
+                    env=env,
+                    cfg=cfg,
+                    batch_id=sft_gen_batch_idx,
+                    checkpoint_name="sft_gen",
+                    split="train",
+                    num_tries=cfg.num_tries,
+                    start_idx=sft_gen_batch_idx * batch_size,
+                    tasks_per_update=batch_size,
+                    name_or_identifier=save_name_or_identifier,
+                )
+                for sft_gen_batch_idx in range(num_sft_gen_batches)
+            ])
+        )
+        all_trajectories_per_group = [group[1][trajectory_key] for group in all_trajectories_per_group]
         # Save thought-action rollouts so far to a HF Dataset and push to hub
         # -> Then can evaluate by seeing how training another LLM from scratch performs
         # -> Will overwrite existing dataset if it already exists (e.g., to hit total samples)
