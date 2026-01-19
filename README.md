@@ -100,6 +100,23 @@ uv run python main.py \
 --lora_rank 32 \
 --seed 42 --replicate 3 --verbose \
 --actions_only --hide_observations
+
+# Act-PRM with actions-only and hidden observations
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm0
+# [h1] 0:srun*
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_llama_full \
+--eval_env_config hotpotqa_mc/default \
+--generator_config aprm_qwen3_ap \
+--trainer_config qwen3_4b_aprm40_sft100_rl \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 3 --verbose \
+--actions_only --hide_observations
 ```
 
 
