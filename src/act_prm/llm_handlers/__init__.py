@@ -11,7 +11,7 @@ from .openai import (
     AsyncOpenAIResponsesLLM,
     Response,
 )
-from .tinker import TinkerCompleter
+from .tinker import TinkerCompleter, TinkerLLM
 from .types import ActionFromLLM
 
 
@@ -33,6 +33,9 @@ def load_llm(
         else:
             return OpenAIResponsesLLM(**model_config)
 
+    if name == "tinker":
+        return TinkerLLM(model_config=model_config, **kwargs)
+
     raise ValueError(f"Invalid model name: {name}")
 
 
@@ -45,4 +48,5 @@ __all__ = [
     "AsyncOpenAIResponsesLLM",
     "HuggingFaceLLM",
     "TinkerCompleter",
+    "TinkerLLM",
 ]
