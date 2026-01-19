@@ -2,12 +2,15 @@
 Helper functions for processing Act-PRM samples
 """
 
+import logging
 from copy import copy
 from functools import partial
 from typing import Any
 
 from datasets import Dataset
 from tqdm import tqdm
+
+logger = logging.getLogger(__name__)
 
 
 def get_thought_and_actions(
@@ -164,7 +167,8 @@ def get_full_trajectories_from_dataset(
     Get full action-only trajectories from Dataset, 
     where each trajectory is a tuple of (list of messages, list of tools)
     """
-    full_trajectory_samples = ds.filter(lambda x: x["reward"] != 0)  # only last step reward != 0
+    # full_trajectory_samples = ds.filter(lambda x: x["reward"] != 0)  # only last step reward != 0
+    full_trajectory_samples = ds.filter(lambda x: x["done"])
     
     all_trajectories = []
     for last_step_sample in tqdm(full_trajectory_samples):

@@ -33,6 +33,20 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--model_name", type=str)
     parser.add_argument("--lora_rank", type=int)
 
+    ## Environment
+    parser.add_argument(
+        "--actions_only",
+        action="store_true",
+        default=None,
+        help="If True, remove thoughts / reasoning traces from observed assistant messages",
+    )
+    parser.add_argument(
+        "--hide_observations",
+        action="store_true",
+        default=None,
+        help="If True, hide observations prior to the last one, e.g., for more 'human-like' context",
+    )
+
     ## Evaluation / Eval Environment
     parser.add_argument(
         "--eval_env_config",
@@ -46,7 +60,6 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--best_metric",
         type=str,
-        default="correct",
         help="Metric to save best checkpoints on",
     )
 
@@ -130,6 +143,7 @@ def get_args() -> argparse.Namespace:
     )
 
     ## Training Updates
+    parser.add_argument("--advantage_threshold", type=float)
     parser.add_argument("--learning_rate", type=float)
     parser.add_argument("--kl_penalty_coef", type=float)
     parser.add_argument("--kl_discount_factor", type=float)

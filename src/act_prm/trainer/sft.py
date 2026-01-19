@@ -93,13 +93,14 @@ class SFTTrainer(BaseTrainer):
         
         last_message_idx = 3  # messages[:3] includes system_prompt, user_message, first assistant_message
         while last_message_idx < len(messages):
+            step_messages = self.maybe_hide_observations(messages[:last_message_idx])
             state_action_input_ids = hf_tokenizer.apply_chat_template(
-                self.maybe_hide_observations(messages[:last_message_idx]),
+                step_messages,
                 add_generation_prompt=False,
                 **_tokenize_kwargs,
             )
             state_len = len(hf_tokenizer.apply_chat_template(
-                self.maybe_hide_observations(messages[:last_message_idx - 1]),
+                step_messages[:-1],
                 add_generation_prompt=True,
                 **_tokenize_kwargs,
             ))

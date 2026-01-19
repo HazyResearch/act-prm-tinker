@@ -29,5 +29,6 @@ num_tries: 1
 seed: 0
 split: "train"
 system_prompt: "You are a helpful assistant that infers reasoning thoughts behind observed actions."
+original_system_prompt: "You are a helpful assistant."
 truncation_message: "Sorry, you have reached the maximum number of steps. Please try again."
 verbose: false

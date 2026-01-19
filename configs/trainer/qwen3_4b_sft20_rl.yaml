@@ -1,11 +1,17 @@
 # Qwen3-4B Act-PRM training config
+# -> 
 trainer_name: act_prm_sft_rl
 advantage_threshold: null  # e.g., 0 if mean_center, high probability if not
-action_prompts: true
-num_batches_action_prompts: 20
-sft_num_batches: 100
+action_prompts: false
+num_batches_action_prompts: 0
+sft_num_batches: 20
+sft_num_substeps: 1  # Updates per batch
 sft_eval_every: 5
-save_rollouts_every: 5
+
+hide_observations: true
+hidden_obs_content: "..."
+first_obs_to_show: 2
+last_obs_to_show: 1
 
 model_name: "Qwen/Qwen3-4B-Instruct-2507"
 renderer_name: null
@@ -40,7 +46,7 @@ kl_penalty_coef: 0.0
 kl_discount_factor: 0.0
 
 # Checkpointing
-eval_every: 10
+eval_every: 2
 save_every: 20
 best_metric: "final_reward"
 

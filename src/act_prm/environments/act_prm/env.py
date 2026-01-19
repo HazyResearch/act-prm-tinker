@@ -83,6 +83,7 @@ class ActPrmEnv(Environment):
         seed: int = 0,
         split: str = "train",
         system_prompt: str = SYSTEM_PROMPT["content"],
+        original_system_prompt: str | None = None,
         max_messages: int = 1000,  # a bit hacky, but truncate for long contexts
         **kwargs: Any,
     ) -> None:
@@ -113,6 +114,7 @@ class ActPrmEnv(Environment):
         self.split = split
 
         self.system_prompt = system_prompt
+        self.original_system_prompt = original_system_prompt
         self.datasets = self.init_data()
 
     def get_default_context(self) -> list[dict[str, str]]:

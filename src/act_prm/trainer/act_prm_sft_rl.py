@@ -1,6 +1,8 @@
 """
 Tinker Trainers for fully synchronous Act-PRM training
 
+Currently bloated logic that handles Act-PRM RL, SFT, and RL training
+
 ```bash
 uv run python main.py \
 --is_async \
@@ -23,6 +25,8 @@ from typing import Any, Callable
 
 import torch
 from omegaconf import DictConfig
+from rich import print as rich_print
+from tqdm import tqdm
 
 import tinker
 from tinker import TensorData
@@ -30,66 +34,25 @@ from tinker_cookbook import model_info, renderers
 from tinker_cookbook.checkpoint_utils import save_checkpoint_async
 from tinker_cookbook.utils import ml_log
 
-from datasets import Dataset
 from datasets.arrow_writer import SchemaInferenceError
 from transformers import PreTrainedTokenizerBase
 
-from ..environments import Environment
+from ..environments import Environment, EnvironmentState
 from ..environments.act_prm import ActPrmEnv
 from ..generator.tinker import TinkerGenerator
 from ..replay_buffer import ReplayBuffer
-from ..replay_buffer.types import Trajectory
+from ..replay_buffer.types import StateActionSample, Trajectory
 
 from .rl import RLTrainer
-from .tinker.utils import save_checkpoint_and_get_sampling_client, timed
+from .tinker.utils import (
+    gather_with_progress,
+    save_checkpoint_and_get_sampling_client,
+    split_list,
+    timed,
+)
 from .train import is_better, run_rollouts
 
 logger = logging.getLogger(__name__)
-
-
-def _save_trajectories_to_hf_dataset(
-    trajectories: list[Trajectory],
-    dataset_name: str,
-    exclude_keys: list[str] | None = None,
-) -> None:
-    """
-    Save a list of trajectories to a HF Dataset
-    """
-    exclude_keys = exclude_keys or ["state_action_tokens", "old_logprobs"]
-    ds_samples = [
-        {k: v for k, v in vars(step).items() if k not in exclude_keys}
-        for trajectory in trajectories
-        for step in trajectory.episode_steps
-    ]  # Flatten to get dicts from list of EpisodeSteps in each Trajectory
-    Dataset.from_list(ds_samples).push_to_hub(dataset_name, private=False)
-
-
-def maybe_hide_observations(
-    messages: list[dict[str, str]],
-    hide_observations: bool = False,
-    hidden_obs_content: str = "...",
-    first_obs_to_show: int = 2,  # e.g., to keep prompt
-    last_obs_to_show: int = 1,   # e.g., to keep last observation
-) -> list[dict[str, str]]:
-    """
-    Hide past observations from messages
-    """
-    if not hide_observations:
-        return messages
-
-    user_indices = [
-        idx for idx, message in enumerate(messages) if message["role"] in ["user", "tool"]
-    ]
-    last_message_idx = user_indices[-last_obs_to_show] if last_obs_to_show > 0 else len(messages)
-    return [
-        {"role": message["role"], "content": hidden_obs_content}
-        if (
-            message["role"] in ["user", "tool"]
-            and (idx >= first_obs_to_show and idx < last_message_idx)
-        )
-        else message
-        for idx, message in enumerate(messages)
-    ]
 
 
 class ActPrmSftRlTrainer(RLTrainer):
@@ -121,8 +84,8 @@ class ActPrmSftRlTrainer(RLTrainer):
             hf_tokenizer,
             **kwargs,
         )
-        # Evaluation generator does standard rollouts, see act_prm/generator/default.py
-        self.eval_generator_constructor = self.get_generator_constructor(
+        # RL / Evaluation generator: does standard rollouts, see act_prm/generator/default.py
+        self.rl_generator_constructor = self.get_generator_constructor(
             name="default",
             verbose=generator_cfg.verbose,
         )
@@ -135,61 +98,7 @@ class ActPrmSftRlTrainer(RLTrainer):
             **generator_cfg,
         )
 
-    async def do_rl_loop(
-        self,
-        start_batch: int,
-        end_batch: int,
-        cfg: DictConfig | None = None,
-        env: Environment | None = None,
-        eval_env: Environment | None = None,
-        generator_constructor: Callable[..., TinkerGenerator] | None = None,
-        checkpoint_name: str | None = None,
-        name_or_identifier: str | None = None,
-    ) -> str:
-        """
-        Run an RL training loop for a given generator (TinkerActPrmGenerator or TinkerActionPromptActPrmGenerator)
-        """
-        return await super().train(
-            start_batch=start_batch,
-            end_batch=end_batch,
-            cfg=cfg,
-            env=env,
-            eval_env=eval_env,
-            generator_constructor=generator_constructor,
-            checkpoint_name=checkpoint_name,
-            name_or_identifier=name_or_identifier,
-        )
-
-    async def prepare_sft_minibatch(
-        self,
-        new_trajectories: list[Trajectory],
-    ) -> tuple[list[tinker.Datum], dict[str, Any]]:
-        """
-        Prepare a minibatch of trajectories for SFT training
-        """
-        metrics = {}
-        # Assemble training data
-        with timed("assemble_training_data", metrics):
-            data_D: list[tinker.Datum] = []
-            for trajectory in new_trajectories:
-                for episode_step in trajectory.episode_steps:
-                    sa_input_ids = episode_step.state_action_tokens
-                    input_tokens = sa_input_ids[:-1]
-                    target_tokens = sa_input_ids[1:]
-                    target_state_len = episode_step.state_len - 1
-                    target_action_len = len(target_tokens) - target_state_len
-                    weight = getattr(episode_step, "advantage", 1.0)
-                    weights = [0.0] * target_state_len + [weight] * target_action_len
-                    data_D.append(
-                        tinker.Datum(
-                            model_input=tinker.ModelInput.from_ints(input_tokens),
-                            loss_fn_inputs={
-                                "target_tokens": TensorData.from_torch(torch.tensor(target_tokens)),
-                                "weights": TensorData.from_torch(torch.tensor(weights)),
-                            },
-                        )
-                    )
-        return data_D, metrics
+        self.advantage_threshold = cfg.get("advantage_threshold", None)
 
     # Modified from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L989
     async def train(
@@ -218,7 +127,9 @@ class ActPrmSftRlTrainer(RLTrainer):
         # Paths to the best sampling clients
         best_action_prompt_sampling_client_path = ""
         best_sft_sampling_client_path = ""
+        best_sft_state_path = ""
         best_rl_sampling_client_path = ""
+        best_rl_state_path = ""
 
         # Initial sampling client
         sampling_client, _ = await save_checkpoint_and_get_sampling_client(
@@ -240,8 +151,6 @@ class ActPrmSftRlTrainer(RLTrainer):
         # if cfg.action_first_prompts is True, we first train with action-first prompts
         # via TinkerActionPromptActPrmGenerator (via self.action_prompt_generator_constructor)
         sft_batch_idx = 0
-        best_sft_sampling_client_path = ""
-        
         if cfg.action_prompts:
             if cfg.num_batches_action_prompts > 0:
                 logger.info("Stage 1: Training RL action-prompted rollouts")
@@ -249,11 +158,20 @@ class ActPrmSftRlTrainer(RLTrainer):
                     start_batch=0,
                     end_batch=cfg.num_batches_action_prompts,
                     cfg=cfg,
-                    env=self.env,
-                    eval_env=self.env,  # Evaluate thought-generation
+                    env=env,
+                    eval_env=env,  # Evaluate thought-generation
                     generator_constructor=self.action_prompt_generator_constructor,
                     checkpoint_name="action_prompts",
                     name_or_identifier="Stage 1: RL Action-Prompted Rollouts",
+                    # Save rollouts to a HF dataset
+                    sampling_client=sampling_client,
+                    renderer=renderer,
+                    save_generator_constructor=self.action_prompt_generator_constructor,
+                    save_env=env,  # We save rollouts from training env
+                    save_name_or_identifier="Stage 1: SFT Generation with Act-PRM LLM",
+                    trajectory_key="thought_action_policy",
+                    dataset_prefix="mzio/aprm_sft_thought_action_rollouts",
+                    dataset_suffix="-ap1",
                 )
                 # Get best action-prompted sampling client
                 # sampling_client = self.service_client.create_sampling_client(
@@ -261,160 +179,205 @@ class ActPrmSftRlTrainer(RLTrainer):
                     model_path=best_action_prompt_sampling_client_path,
                 )
             # Generate thought-action rollouts for all tasks in the ActPrmEnv
-            self.env.split = "train"
-            num_sft_gen_batches = len(self.env) // cfg.batch_size
-            logger.info(
-                "Generating thought-action rollouts for all %d tasks in the Act-PRM env, "
-                "(%d batches for %d tasks per batch)",
-                len(self.env), num_sft_gen_batches, cfg.batch_size,
-            )
-            all_trajectories_per_group: list[list[Trajectory]] = []
-            for sft_gen_batch_idx in range(0, num_sft_gen_batches):
-                # 1. Sample rollouts for training
-                self.env.split = "train"
-                _name_or_identifier = (
-                    "Stage 2: SFT Generation with Act-PRM LLM, "
-                    f"Batch {sft_gen_batch_idx} / {num_sft_gen_batches - 1}"
-                )
-                _, new_trajectories = await run_rollouts(
+            # Will be size (len(env), group_size or sum([group_size * task_steps for task in env]))
+            all_trajectories_per_env: list[list[Trajectory]] = await (
+                # Inherited from trainer.rl.RLTrainer
+                self.generate_and_save_trajectories(
                     sampling_client=sampling_client,
                     renderer=renderer,
-                    hf_tokenizer=hf_tokenizer,
-                    generator_constructor=self.action_prompt_generator_constructor,
-                    env=self.env,
-                    cfg=cfg,
-                    batch_id=sft_gen_batch_idx,
-                    checkpoint_name="sft_gen",
-                    split="train",
-                    num_tries=cfg.num_tries,
-                    start_idx=sft_gen_batch_idx * cfg.batch_size,
-                    tasks_per_update=cfg.batch_size,
-                    name_or_identifier=_name_or_identifier,
+                    save_generator_constructor=self.action_prompt_generator_constructor,
+                    save_batch_idx=cfg.num_batches_action_prompts,
+                    save_env=env,
+                    save_name_or_identifier="Stage 1: SFT Generation with Act-PRM LLM",
+                    trajectory_key="thought_action_policy",
+                    dataset_prefix="mzio/aprm_sft_thought_action_rollouts",
+                    dataset_suffix="-ap1_best",
                 )
-                # all_new_trajectories.extend(new_trajectories["thought_action_policy"])
-                all_trajectories_per_group.append(new_trajectories["thought_action_policy"])
-
-                # Save thought-action rollouts so far to a HF Dataset and push to hub
-                # -> Then can evaluate by seeing how training another LLM from scratch performs
-                # -> Will overwrite existing dataset if it already exists (e.g., to hit total samples)
-                _ds_name = []
-                for delim in ["-enco=", "-geco=", "-se=", "-re="]:
-                    _ds_name.append(self.run_name.split(delim)[-1].split("-")[0])
-                _ds_name = "_".join(_ds_name)
-                _ds_prefix = "mzio/aprm_sft_thought_action_rollouts"
-                dataset_name = f"{_ds_prefix}-{_ds_name}-ap_rl{cfg.num_batches_action_prompts:04d}"
-                try:
-                    _traj_so_far = [traj for group in all_trajectories_per_group for traj in group]
-                    _save_trajectories_to_hf_dataset(_traj_so_far, dataset_name)
-                    logger.info("Saved thought-action rollouts to HF Dataset: %s", dataset_name)
-                except Exception as e:
-                    logger.error("Failed to save thought-action rollouts to HF Dataset: %s", e)
-
-            # ------------------------------------------------------------------------------
-            # Second stage of training (SFT new policy LLM with the thought-action rollouts)
-            # ------------------------------------------------------------------------------
-            self.training_client = await self.service_client.create_lora_training_client_async(
-                cfg.model_name, rank=cfg.lora_rank
             )
-            logger.info("Stage 2: Training new policy LLM with %d SFT batches", cfg.sft_num_batches)
-            sft_best_metric = -float("inf")
-            for sft_batch_idx in range(cfg.sft_num_batches):
-                metrics = {
-                    "progress/batch": sft_batch_idx,
-                    "optim/lr": cfg.learning_rate,
-                    "progress/done_frac": (sft_batch_idx + 1) / cfg.sft_num_batches,
-                }
-                t_start = time.time()
-                
-                # Run evaluations
-                if cfg.sft_eval_every > 0 and sft_batch_idx % cfg.sft_eval_every == 0:
-                    with timed("run_evals", metrics):
-                        self.eval_env.split = "eval"
-                        _name_or_identifier = (
-                            "Stage 2: SFT Evaluation, "
-                            f"Batch {sft_batch_idx} / {cfg.sft_num_batches - 1}"
-                        )
-                        eval_rollout_metrics, _ = await run_rollouts(
-                            sampling_client=sampling_client,
-                            renderer=renderer,
-                            hf_tokenizer=hf_tokenizer,
-                            generator_constructor=self.eval_generator_constructor,
-                            env=self.eval_env,
-                            cfg=cfg,
-                            batch_id=sft_batch_idx,
-                            checkpoint_name="act_prm_sft",
-                            split="eval",
-                            num_tries=cfg.eval_num_tries,
-                            start_idx=0,
-                            tasks_per_update=len(self.eval_env),
-                            name_or_identifier=_name_or_identifier,
-                        )
-                        metrics.update(eval_rollout_metrics)
-                    
-                    # Save best checkpoints
-                    _metric_prefix = "act_prm_sft_eval"
-                    best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
-                    last_metric = eval_rollout_metrics[best_metric_key]
-                    best_ckpt_name = f"{_metric_prefix}_{sft_batch_idx:06d}_best"
-                    if is_better(last_metric, sft_best_metric, cfg.best_metric):
-                        sft_best_metric = last_metric
-                        path_dict = await save_checkpoint_async(
-                            training_client=self.training_client,
-                            name=best_ckpt_name,
-                            log_path=cfg.log_path,
-                            loop_state={"batch": sft_batch_idx},
-                            kind="both",
-                        )
-                        best_sft_sampling_client_path = path_dict["sampler_path"]
-                        logger.info("Saved best sampling client to %s", path_dict["sampler_path"])
-                        logger.info(
-                            "Updated best %s to %f at batch %d",
-                            cfg.best_metric, sft_best_metric, sft_batch_idx,
-                        )
-                        metrics.update({
-                            f"{_metric_prefix}/best_batch": sft_batch_idx,
-                            f"{_metric_prefix}/best_metric": sft_best_metric,
-                            f"{_metric_prefix}/best_sampling_client_path": path_dict["sampler_path"],
-                        })
-                
-                # Training updates
-                if sft_batch_idx + 1 == num_sft_gen_batches:
-                    random.shuffle(all_trajectories_per_group)
-                adjusted_idx = sft_batch_idx % num_sft_gen_batches
-                new_trajectories = all_trajectories_per_group[adjusted_idx]
+            sft_group_size = cfg.group_size
 
-                data_D, prepare_minibatch_metrics = await self.prepare_sft_minibatch(
-                    new_trajectories=new_trajectories,
+            sft_batch_idx += cfg.num_batches_action_prompts  # so WandB logs correctly
+
+        else:
+            logger.info("Stage 1: No action-prompted rollouts -> Using saved trajectories for SFT")
+            env.split = "train"
+            # "Sample rollouts" from env samples
+            # num_sft_gen_batches = min(len(env) // cfg.batch_size, 1)
+            states: list[EnvironmentState] = await gather_with_progress(
+                [
+                    env.reset_async(sample_idx=idx, batch_idx=0)
+                    for idx in range(len(env))
+                ],
+                desc="Collecting SFT training data from observations",
+                colour="blue",
+            )
+            all_trajectories_per_env: list[list[Trajectory]] = [
+                self.get_trajectory_from_messages(
+                    messages=state.action_trajectory,
+                    hf_tokenizer=hf_tokenizer,
+                    system_prompt={"role": "system", "content": state.system_prompt},
+                    tools=state.tools,
                 )
-                sampling_client, update_metrics = await self.do_train_step_and_get_sampling_client(
-                    batch_idx=sft_batch_idx,
-                    training_client=self.training_client,
-                    data_D=data_D,
-                    prepare_minibatch_metrics=prepare_minibatch_metrics,
-                    loss_fn="cross_entropy",
-                    checkpoint_name="act_prm_sft",
-                    num_substeps=cfg.sft_num_substeps,
+                for state in states
+            ]
+            # To match amount of data to take num_substeps over, account for only having
+            # 1 rollout per task
+            sft_group_size = cfg.group_size * cfg.batch_size
+            # print(hf_tokenizer.decode(all_trajectories_per_env[0][0].episode_steps[2].state_action_tokens))
+            # breakpoint()
+
+        # ------------------------------------------------------------------------------
+        # Second stage of training (SFT new policy LLM with the thought-action rollouts)
+        # ------------------------------------------------------------------------------
+        self.training_client = await self.service_client.create_lora_training_client_async(
+            cfg.model_name, rank=cfg.lora_rank
+        )
+        logger.info("Stage 2: Training new policy LLM with %d SFT batches", cfg.sft_num_batches)
+        sft_best_metric = -float("inf")
+
+        # Shuffle training data
+        random.shuffle(all_trajectories_per_env)
+        # Split into batches
+        num_splits = max(len(all_trajectories_per_env) // sft_group_size, 1)
+        all_train_batches: list[list[list[Trajectory]]] = split_list(
+            all_trajectories_per_env, num_splits
+        )
+        sft_pbar = tqdm(
+            range(sft_batch_idx, sft_batch_idx + cfg.sft_num_batches),
+            desc="Training new policy LLM with SFT (act_prm_sft_rl.train)",
+            colour="blue",
+            position=1,
+        )
+        for sft_batch_idx, overall_batch_idx in enumerate(sft_pbar):
+            metrics = {
+                "progress/batch": sft_batch_idx,
+                "optim/lr": cfg.learning_rate,
+                "progress/done_frac": (sft_batch_idx + 1) / cfg.sft_num_batches,
+            }
+            t_start = time.time()
+
+            # Get training data
+            if sft_batch_idx + 1 == num_splits:
+                # Upon hitting our last available batch, shuffle and get new batches
+                random.shuffle(all_trajectories_per_env)
+                all_train_batches = split_list(all_trajectories_per_env, num_splits)
+            
+            adjusted_idx = sft_batch_idx % num_splits
+            # (batch_size, group_size or total_episode_steps)
+            trajectory_batches: list[list[Trajectory]] = all_train_batches[adjusted_idx]
+            new_trajectories: list[Trajectory] = [
+                trajectory for batch in trajectory_batches for trajectory in batch
+            ]
+            
+            # Run evaluations
+            if (
+                cfg.sft_eval_every > 0 
+                and (
+                    sft_batch_idx % cfg.sft_eval_every == 0 or
+                    sft_batch_idx + 1 == cfg.sft_num_batches
                 )
-                logger.info("Updated sampling client from SFT training, batch %d", sft_batch_idx)
-                # Log metrics
-                metrics.update(update_metrics)
-                metrics["time/total"] = time.time() - t_start
-                self.ml_logger.log_metrics(metrics, step=sft_batch_idx)
+            ):
+                with timed("run_evals", metrics):
+                    eval_env.split = "eval"
+                    _name_or_identifier = (
+                        "Stage 2: SFT Evaluation, "
+                        f"Train Step {sft_batch_idx} / {cfg.sft_num_batches - 1}"
+                    )
+                    eval_rollout_metrics, _ = await run_rollouts(
+                        sampling_client=sampling_client,
+                        renderer=renderer,
+                        hf_tokenizer=hf_tokenizer,
+                        generator_constructor=self.rl_generator_constructor,
+                        env=eval_env,
+                        cfg=cfg,
+                        batch_id=sft_batch_idx,
+                        checkpoint_name="act_prm_sft",
+                        split="eval",
+                        num_tries=cfg.eval_num_tries,
+                        start_idx=0,
+                        tasks_per_update=len(eval_env),
+                        name_or_identifier=_name_or_identifier,
+                    )
+                    metrics.update(eval_rollout_metrics)
+                
+                # Save best checkpoints
+                _metric_prefix = "act_prm_sft_eval"
+                best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
+                last_metric = eval_rollout_metrics[best_metric_key]
+                best_ckpt_name = f"{_metric_prefix}_{sft_batch_idx:06d}_best"
+                if is_better(last_metric, sft_best_metric, cfg.best_metric):
+                    sft_best_metric = last_metric
+                    path_dict = await save_checkpoint_async(
+                        training_client=self.training_client,
+                        name=best_ckpt_name,
+                        log_path=cfg.log_path,
+                        loop_state={"batch": sft_batch_idx},
+                        kind="both",
+                    )
+                    best_sft_sampling_client_path = path_dict["sampler_path"]
+                    best_sft_state_path = path_dict["state_path"]
+                    logger.info("Saved best sampling client to %s", best_sft_sampling_client_path)
+                    logger.info("Saved best state to %s", best_sft_state_path)
+                    logger.info(
+                        "Updated best %s to %f at batch %d",
+                        cfg.best_metric, sft_best_metric, sft_batch_idx,
+                    )
+                    metrics.update({
+                        f"{_metric_prefix}/best_batch": sft_batch_idx,
+                        f"{_metric_prefix}/best_metric": sft_best_metric,
+                        f"{_metric_prefix}/best_sampling_client_path": best_sft_sampling_client_path,
+                        f"{_metric_prefix}/best_state_path": best_sft_state_path,
+                    })
+
+            data_D, prepare_minibatch_metrics = self.prepare_sft_minibatch(
+                new_trajectories=new_trajectories,
+            )
+
+            if sft_batch_idx % 100 == 0:
+                pass  # display a sample of the data
+                _input_tokens = data_D[0].model_input.to_ints()
+                rich_print(hf_tokenizer.decode(_input_tokens))
+
+            sampling_client, update_metrics = await self.do_train_step_and_get_sampling_client(
+                batch_idx=sft_batch_idx,
+                training_client=self.training_client,
+                data_D=data_D,
+                prepare_minibatch_metrics=prepare_minibatch_metrics,
+                loss_fn="cross_entropy",
+                checkpoint_name="act_prm_sft",
+                num_substeps=cfg.sft_num_substeps,  # 1
+            )
+            logger.info("Updated sampling client from SFT training, batch %d", sft_batch_idx)
+            # Log metrics
+            metrics.update(update_metrics)
+            metrics["time/total"] = time.time() - t_start
+            self.ml_logger.log_metrics(metrics, step=overall_batch_idx)
+            sft_pbar.set_postfix(**{k.split("/")[-1]: v for k, v in metrics.items()})
         
         # ---------- Third stage of training (generate thoughts from states only) ----------
         logger.info("Stage 3 training RL")
         best_rl_metric = -float("inf")
 
-        start_batch = sft_batch_idx
-        end_batch = sft_batch_idx + end_batch
+        start_batch = overall_batch_idx
+        end_batch = overall_batch_idx + end_batch
         num_batches = end_batch - start_batch
 
-        if best_sft_sampling_client_path != "":
-            self.training_client = await self.service_client.create_training_client_from_state_async(
-                best_sft_sampling_client_path
+        if best_sft_state_path != "":
+            logger.info("Attempting to load weights for RL from %s", best_sft_state_path)
+            self.training_client = await (
+                self.service_client.create_training_client_from_state_async(best_sft_state_path)
             )
-            logger.info("Loaded RL weights from %s", best_sft_sampling_client_path)
-            # Initial new sampling client
+            # MZ 1/18/26: 3 Questions:
+            # 1. What's the advantage of `create_training_client_from_state_with_optimizer_async` instead?
+            # 2. What's the diff b/t the service_client method(s) and `training_client.load_state_*`?
+            # 3. This link suggests `training_client.load_state()` loads weights + optimizer:
+            #    https://tinker-docs.thinkingmachines.ai/save-load#example-saving-to-resume-training
+            #    But this link suggests it does not: 
+            #    https://tinker-docs.thinkingmachines.ai/save-load#example-saving-to-resume-training 
+            #    -> ¯\_(ツ)_/¯
+
+            logger.info("Loaded RL weights from %s", best_sft_state_path)
+            # Initialize new sampling client from best SFT state
             sampling_client, _ = await save_checkpoint_and_get_sampling_client(
                 training_client=self.training_client,
                 i_batch=start_batch,
@@ -423,7 +386,13 @@ class ActPrmSftRlTrainer(RLTrainer):
                 start_batch=start_batch,
             )
         
-        for batch_idx in range(start_batch, end_batch):
+        rl_pbar = tqdm(
+            range(start_batch, end_batch),
+            desc="Training RL (act_prm_sft_rl.train)",
+            colour="magenta",
+            position=1,
+        )
+        for batch_idx in rl_pbar:
             metrics = {
                 "progress/batch": batch_idx,
                 "optim/lr": cfg.learning_rate,
@@ -434,16 +403,16 @@ class ActPrmSftRlTrainer(RLTrainer):
             # Run evaluations
             if cfg.eval_every > 0 and batch_idx % cfg.eval_every == 0:
                 with timed("run_evals", metrics):
-                    self.eval_env.split = "eval"
+                    eval_env.split = "eval"
                     _name_or_identifier = (
-                        f"Stage 3: RL Evaluation, Batch {batch_idx} / {num_batches - 1}"
+                        f"Stage 3: RL Evaluation, Train Step {batch_idx} / {num_batches - 1}"
                     )
                     eval_rollout_metrics, _ = await run_rollouts(
                         sampling_client=sampling_client,
                         renderer=renderer,
                         hf_tokenizer=hf_tokenizer,
-                        generator_constructor=self.eval_generator_constructor,
-                        env=self.eval_env,
+                        generator_constructor=self.rl_generator_constructor,
+                        env=eval_env,
                         cfg=cfg,
                         batch_id=batch_idx,
                         checkpoint_name=checkpoint_name,
@@ -451,7 +420,7 @@ class ActPrmSftRlTrainer(RLTrainer):
                         num_tries=cfg.eval_num_tries,
                         # Just use all eval tasks
                         start_idx=0,  
-                        tasks_per_update=len(self.eval_env),
+                        tasks_per_update=len(eval_env),
                         name_or_identifier=_name_or_identifier,
                     )
                     metrics.update(eval_rollout_metrics)
@@ -475,6 +444,7 @@ class ActPrmSftRlTrainer(RLTrainer):
                         kind="both",
                     )
                     best_rl_sampling_client_path = path_dict["sampler_path"]
+                    best_rl_state_path = path_dict["state_path"]
                     logger.info("Saved best sampling client to %s", best_rl_sampling_client_path)
                     logger.info(
                         "Updated best %s to %f at batch %d",
@@ -484,6 +454,7 @@ class ActPrmSftRlTrainer(RLTrainer):
                         f"{_metric_prefix}/best_batch": batch_idx,
                         f"{_metric_prefix}/best_metric": best_rl_metric,
                         f"{_metric_prefix}/best_sampling_client_path": best_rl_sampling_client_path,
+                        f"{_metric_prefix}/best_state_path": best_rl_state_path,
                     })
                     try:  # Saving replay buffer
                         self.replay_buffer.save_to_hf_dataset(self.best_replay_buffer_path)
@@ -495,16 +466,16 @@ class ActPrmSftRlTrainer(RLTrainer):
                         )
 
             # 1. Sample rollouts for training
-            self.eval_env.split = "train"
+            eval_env.split = "train"
             _name_or_identifier = (
-                f"Stage 3: RL Training, Batch {batch_idx} / {num_batches - 1}"
+                f"Stage 3: RL Training, Train Step {batch_idx} / {num_batches - 1}"
             )
             train_rollout_metrics, new_trajectories = await run_rollouts(
                 sampling_client=sampling_client,
                 renderer=renderer,
                 hf_tokenizer=hf_tokenizer,
-                generator_constructor=self.generator_constructor,
-                env=self.eval_env,
+                generator_constructor=self.rl_generator_constructor,
+                env=eval_env,
                 cfg=cfg,
                 batch_id=batch_idx,
                 checkpoint_name=checkpoint_name,
@@ -542,5 +513,125 @@ class ActPrmSftRlTrainer(RLTrainer):
             metrics.update(update_metrics)
             metrics["time/total"] = time.time() - t_start
             self.ml_logger.log_metrics(metrics, step=batch_idx)
+            rl_pbar.set_postfix(**{k.split("/")[-1]: v for k, v in metrics.items()})
 
         return best_rl_sampling_client_path
+
+
+    async def do_rl_loop(
+        self,
+        start_batch: int,
+        end_batch: int,
+        cfg: DictConfig | None = None,
+        env: Environment | None = None,
+        eval_env: Environment | None = None,
+        generator_constructor: Callable[..., TinkerGenerator] | None = None,
+        checkpoint_name: str | None = None,
+        name_or_identifier: str | None = None,
+        **generate_and_save_trajectories_kwargs: Any,
+    ) -> str:
+        """
+        Run an RL training loop for a given generator (TinkerActPrmGenerator or TinkerActionPromptActPrmGenerator)
+        """
+        return await super().train(
+            start_batch=start_batch,
+            end_batch=end_batch,
+            cfg=cfg,
+            env=env,
+            eval_env=eval_env,
+            generator_constructor=generator_constructor,
+            checkpoint_name=checkpoint_name,
+            name_or_identifier=name_or_identifier,
+            **generate_and_save_trajectories_kwargs
+        )
+
+    def prepare_sft_minibatch(
+        self,
+        new_trajectories: list[Trajectory],
+    ) -> tuple[list[tinker.Datum], dict[str, Any]]:
+        """
+        Prepare a minibatch of trajectories for SFT training
+        """
+        metrics = {}
+        # Assemble training data
+        with timed("assemble_training_data", metrics):
+            data_D: list[tinker.Datum] = []
+            for trajectory in new_trajectories:
+                for episode_step in trajectory.episode_steps:
+                    sa_input_ids = episode_step.state_action_tokens
+                    input_tokens = sa_input_ids[:-1]
+                    target_tokens = sa_input_ids[1:]
+                    target_state_len = episode_step.state_len - 1
+                    target_action_len = len(target_tokens) - target_state_len
+                    weight = getattr(episode_step, "advantage", 1.0)
+                    if self.advantage_threshold is not None:
+                        # Only supervise if advantage > threshold
+                        weight = float(weight > self.advantage_threshold)
+                    weights = [0.0] * target_state_len + [weight] * target_action_len
+                    data_D.append(
+                        tinker.Datum(
+                            model_input=tinker.ModelInput.from_ints(input_tokens),
+                            loss_fn_inputs={
+                                "target_tokens": TensorData.from_torch(torch.tensor(target_tokens)),
+                                "weights": TensorData.from_torch(torch.tensor(weights)),
+                            },
+                        )
+                    )
+        return data_D, metrics
+
+    def get_trajectory_from_messages(
+        self,
+        messages: list[dict[str, str]],
+        hf_tokenizer: PreTrainedTokenizerBase | None = None,
+        system_prompt: dict[str, str] | None = None,
+        tools: list[dict[str, str]] | None = None,
+    ) -> list[Trajectory]:
+        """
+        Return singleton of a Trajectory where trajectory.episode_steps is a list 
+        of StateActionSample (See replay_buffer.types)
+
+        -> Assumes messages is a full chat dialogue of the form:
+           [system_prompt, user_message, assistant_message, user_message, assistant_message, ...]
+        -> But we hide prior observations (user_message) if self.hide_observations is True
+        """
+        hf_tokenizer = hf_tokenizer or self.hf_tokenizer
+
+        episode_steps: list[StateActionSample] = []
+        _tokenize_kwargs = {"enable_thinking": False, "tokenize": True, "tools": tools}
+
+        # Add system prompt to messages
+        if messages[0]["role"] != "system":
+            assert system_prompt is not None, (
+                "System prompt must be provided if first message is not a system prompt"
+            )
+            messages = [system_prompt] + messages
+        
+        last_message_idx = 3
+        # ^messages[:3] includes system_prompt, 1st user message, 1st assistant message
+        while last_message_idx < len(messages):
+            step_messages = self.maybe_hide_observations(messages[:last_message_idx])
+            state_action_input_ids = hf_tokenizer.apply_chat_template(
+                step_messages,
+                add_generation_prompt=False,
+                **_tokenize_kwargs,
+            )
+            state_len = len(hf_tokenizer.apply_chat_template(
+                step_messages[:-1],
+                add_generation_prompt=True,
+                **_tokenize_kwargs,
+            ))
+            episode_steps.append(
+                StateActionSample(  # simplified version of EpisodeStep
+                    state_action_tokens=state_action_input_ids,
+                    state_len=state_len,
+                )
+            )
+            last_message_idx += 2
+        
+        trajectory = Trajectory(
+            episode_steps=episode_steps,
+            try_step=0,           # below are dummy values for SFT
+            discount_factor=1.0,
+            final_reward=1.0,
+        )
+        return [trajectory]

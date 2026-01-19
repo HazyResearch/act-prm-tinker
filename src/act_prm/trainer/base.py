@@ -53,6 +53,14 @@ class BaseTrainer(ABC):
         self.hf_tokenizer = hf_tokenizer or training_client.get_tokenizer()
         # ^Same as tinker_cookbook.tokenizer_utils.get_tokenizer(cfg.model_name)?
 
+        # If True, we hide observations other than the last one to avoid context blow-up
+        # -> See the `maybe_hide_observations` method for more details
+        #    (e.g., we keep the first "observation" i.e., system prompt + first user message)
+        self.hide_observations = cfg.get("hide_observations", False)
+        self.hidden_obs_content = cfg.get("hidden_obs_content", "...")
+        # self.first_obs_to_show = cfg.first_obs_to_show
+        # self.last_obs_to_show = cfg.last_obs_to_show
+
         # Get constructor for LLM policy, determines how we generate rollouts
         self.generator_constructor = self.get_generator_constructor(**generator_cfg)
 
@@ -165,3 +173,31 @@ class BaseTrainer(ABC):
         metrics.update(full_batch_metrics)
 
         return sampling_client, metrics
+
+    def maybe_hide_observations(
+        self,
+        messages: list[dict[str, str]],
+        hidden_obs_content: str | None = None,
+        first_obs_to_show: int = 2,  # e.g., to keep prompt
+        last_obs_to_show: int = 1,   # e.g., to keep last observation
+    ) -> list[dict[str, str]]:
+        """
+        Maybe hide past observations from messages
+        """
+        if not self.hide_observations:
+            return messages
+
+        hidden_obs_content = hidden_obs_content or self.hidden_obs_content
+        user_indices = [
+            idx for idx, message in enumerate(messages) if message["role"] in ["user", "tool"]
+        ]
+        last_message_idx = user_indices[-last_obs_to_show] if last_obs_to_show > 0 else len(messages)
+        return [
+            {"role": message["role"], "content": hidden_obs_content}
+            if (
+                message["role"] in ["user", "tool"]
+                and (idx >= first_obs_to_show and idx < last_message_idx)
+            )
+            else message
+            for idx, message in enumerate(messages)
+        ]

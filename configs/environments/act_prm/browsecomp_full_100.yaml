@@ -8,7 +8,7 @@ dataset_config:
   split: "train"
 
 success_rollouts_only: true
-actions_only: true
+actions_only: false
 max_messages: 20
 
 num_fewshot_prompts: 1
@@ -16,8 +16,8 @@ action_bos: "<tool_call>"
 action_eos: "</tool_call>"
 final_answer_bos: "Final Answer: "
 
-num_train_samples: 250
-num_val_samples: 50
+num_train_samples: 100
+num_val_samples: 30
 num_test_samples: 10
 
 max_turns: 20

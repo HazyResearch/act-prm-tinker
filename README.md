@@ -33,6 +33,76 @@ If you haven't already, add this `.env` file to your `.gitignore` file to avoid 
 
 ## Example Commands
 
+### Motivating Example: HotpotQA 
+
+```bash
+# SFT on thoughts, actions, and observations
+# tmux attach -t h0
+# tmux attach -t 1
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_llama_full \
+--eval_env_config hotpotqa_mc/default \
+--generator_config default \
+--trainer_config qwen3_4b_sft1000_rl \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 3 --verbose
+
+# SFT on actions-only and observations
+# (base) mzhang@hazy1:~$ tmux attach -t aprm0
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_llama_full \
+--eval_env_config hotpotqa_mc/default \
+--generator_config default \
+--trainer_config qwen3_4b_sft1000_rl \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 3 --verbose \
+--actions_only
+
+# SFT on thoughts and actions
+# (base) mzhang@hazy1:~$ tmux attach -t aprm1
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_llama_full \
+--eval_env_config hotpotqa_mc/default \
+--generator_config default \
+--trainer_config qwen3_4b_sft1000_rl \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 3 --verbose \
+--hide_observations
+
+# SFT on actions-only
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm1
+# [h2] 0:srun*
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/hotpotqa_mc_llama_full \
+--eval_env_config hotpotqa_mc/default \
+--generator_config default \
+--trainer_config qwen3_4b_sft1000_rl \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 3 --verbose \
+--actions_only --hide_observations
+```
+
+
 ### BrowseComp-Plus Search
 
 ```bash
@@ -96,7 +166,8 @@ uv run python main.py \
 --seed 42 --replicate 0 --verbose
 
 # Act-PRM with hidden past observations, 10 action-prompted batches, 20 SFT batches
-# (base) mzhang@hazy1:~$ tmux attach -t aprm0
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm1
+# [h2] 0:srun*
 uv run python main.py \
 --is_async \
 --env_config act_prm/browsecomp_100_hide_obs \
@@ -107,9 +178,21 @@ uv run python main.py \
 --log_path ./logs \
 --model_name Qwen/Qwen3-4B-Instruct-2507 \
 --lora_rank 32 \
---seed 42 --replicate 0 --verbose
+--seed 42 --replicate 1 --verbose
 
-# Just SFT, 1 fewshot prompt
+uv run python main.py \
+--is_async \
+--env_config act_prm/browsecomp_100_hide_obs \
+--eval_env_config browsecomp_plus/search_hide_obs \
+--generator_config aprm_qwen3_ap \
+--trainer_config qwen3_4b_aprm10_sft20_rl \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-8B \
+--lora_rank 32 \
+--seed 42 --replicate 1 --verbose
+
+# Just PG, 1 fewshot prompt
 # (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm0
 # [h2] 0:srun*
 CUDA_VISIBLE_DEVICES=0 \
@@ -123,6 +206,36 @@ uv run python main.py \
 --model_name Qwen/Qwen3-4B-Instruct-2507 \
 --lora_rank 32 \
 --seed 42 --replicate 0 --verbose
+
+# SFT, hidden past observations, Qwen3-4B-Instruct-2507
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/browsecomp_100_hide_obs \
+--eval_env_config browsecomp_plus/search_hide_obs \
+--generator_config aprm_qwen3_ap \
+--trainer_config qwen3_4b_sft20_rl \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 2 --verbose \
+--hide_observations
+
+# SFT, hidden past observations, Qwen3-8B
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/browsecomp_100_hide_obs \
+--eval_env_config browsecomp_plus/search_hide_obs \
+--generator_config aprm_qwen3_ap \
+--trainer_config qwen3_4b_sft20_rl \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-8B \
+--lora_rank 32 \
+--seed 42 --replicate 2 --verbose \
+--hide_observations
 
 # Evaluate by SFT'ing another LLM with action-prompted rollouts
 # (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm1
