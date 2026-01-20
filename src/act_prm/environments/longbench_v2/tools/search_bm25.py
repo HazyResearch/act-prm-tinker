@@ -10,7 +10,7 @@ import numpy as np
 import bm25s
 from bm25s import BM25
 from Stemmer import Stemmer
-from transformers import PreTrainedTokenizerBase
+# from transformers import PreTrainedTokenizerBase
 
 from ...base import BaseTool
 
@@ -70,7 +70,7 @@ class SearchTool(BaseTool):
     def __init__(
         self,
         corpus: list[dict[str, Any]],
-        tokenizer: PreTrainedTokenizerBase,
+        # tokenizer: PreTrainedTokenizerBase,
         retriever_name: str = "bm25_index",
         use_stemmer: bool = True,
         top_k: int = 1,
@@ -85,7 +85,11 @@ class SearchTool(BaseTool):
         
         # self.tokenizer = tokenizer
         self.corpus = corpus
-        self.top_k = top_k
+        self.top_k = 1
+        if top_k != 1:
+            logger.warning(
+                f"top_k is {top_k} != 1, but for LongBench-v2 we only return the top result."
+            )
 
         if save_path is not None:
             save_path = join(save_path, f"{retriever_name}")
@@ -98,10 +102,7 @@ class SearchTool(BaseTool):
             save_path=save_path,
         )
 
-    def __call__(
-        self,
-        query: str,
-    ) -> tuple[None, list[dict[str, Any]] | str]:
+    def __call__(self, query: str, **kwargs: Any) -> tuple[dict[str, Any] | None, str]:
         """
         Search the corpus for top document based on the given query
 
@@ -112,40 +113,36 @@ class SearchTool(BaseTool):
             # Query the corpus
             bm25_query_tokens = bm25s.tokenize(query.lower(), self.stemmer)
             # results, scores = self.retriever.retrieve(bm25_query_tokens, k=self.top_k)
-            results = self.retriever.retrieve(bm25_query_tokens, k=self.top_k)[0]
+            results, _ = self.retriever.retrieve(bm25_query_tokens, k=self.top_k)
             # tokenizer_fn = cast(Callable[[str], dict[str, Any]], self.tokenizer)
             # llm_query_input_ids = tokenizer_fn(query)["input_ids"]
             topk_results: list[dict[str, Any]] = []
             topk_results_str: list[str] = []
             for i in range(results.shape[1]):
                 # doc_idx, score = results[0, i], scores[0, i]
-                doc_idx = results[0, i]
-                doc_dict = self.corpus[doc_idx]
-                if self.return_str:
-                    # Return string representation of the result
-                    scroll_msg = ""
-                    if doc_dict["next_chunk_idx"] is not None:
-                        scroll_msg += "\n- Scroll down for more..."
-                    if doc_dict["prev_chunk_idx"] is not None:
-                        scroll_msg += "\n- Scroll up for more..."
-                    topk_results_str.append(RESULT_TEMPLATE.format(
-                        document=doc_dict["text"],
-                        scroll_msg=scroll_msg,
-                    ))
-                    topk_results.append(doc_dict)
-                else:
-                    topk_results.append(doc_dict)
+                doc_id = results[0, i]["id"]
+                doc_dict = self.corpus[doc_id]
+                # Return string representation of the result
+                scroll_msg = ""
+                if doc_dict["next_chunk_idx"] is not None:
+                    scroll_msg += "\n- Scroll down for more..."
+                if doc_dict["prev_chunk_idx"] is not None:
+                    scroll_msg += "\n- Scroll up for more..."
+                topk_results_str.append(
+                    RESULT_TEMPLATE.format(document=doc_dict["text"], scroll_message=scroll_msg)
+                )
+                topk_results.append(doc_dict)
                 break
             new_doc_dict = topk_results[0]
             result_str = topk_results_str[0]
-            # result_str = json.dumps(topk_results, indent=2)
-            result_str = f"# Search Results:\n\n{result_str}"
+            result_str = f"# Search Result:\n\n{result_str}"
 
         except Exception as e:
-            result_str = f"error: {str(e)}"
-            new_doc_dict = {}
-            logger.error(f"Error in SearchTool: {e}")
-            breakpoint()
+            _error_class = type(e).__name__
+            logger.error(f"Error in SearchTool: {_error_class}: {e}")
+            new_doc_dict = None
+            result_str = f"{_error_class}: {e}"
+            # breakpoint()
 
         return new_doc_dict, result_str
 

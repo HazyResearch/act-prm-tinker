@@ -2,7 +2,6 @@
 LongBench environment
 """
 
-import logging
 from copy import copy
 from os.path import join
 from typing import Any
@@ -13,16 +12,12 @@ from pydantic import InstanceOf
 from rich import print as rich_print
 from transformers import AutoTokenizer
 
-# from act_prm.environments.browsecomp_plus.tools import SearchTool, ScrollUpTool, ScrollDownTool
-
 from ...llm_handlers import ActionFromLLM
 from ..base import BaseTool, Environment
 from ..types import EnvironmentStateWithAnswer, EnvironmentStepResult
 from .prompts import INITIAL_PROMPT_TEMPLATE
 from .tools import SearchTool, ScrollUpTool, ScrollDownTool
 from .utils import chunk_text_by_tokens, convert_text_chunks_to_dicts
-
-logger = logging.getLogger(__name__)
 
 
 RESULT_TEMPLATE = """## Document View:
@@ -39,7 +34,7 @@ class LongBenchState(EnvironmentStateWithAnswer):
     tools: list[dict[str, Any]]                     # tool descriptions
     doc_dict: dict[str, Any] | None
     all_doc_dicts: list[dict[str, Any]]
-    current_doc_id: int
+    doc_chunk_idx: int
 
 
 class LongBenchStepResult(EnvironmentStepResult):
@@ -57,94 +52,70 @@ class LongBenchEnvironment(Environment):
         self,
         dataset_config: dict[str, Any],
         search_tool_config: dict[str, Any],
-        hf_repo_id: str = "longbench_v2-search",
-        max_preview_tokens: int = 204,  # about 1024 tokens overall
-        doc_chunk_size: int = 1024,
-        doc_chunk_overlap: int = 128,
-        num_train_samples: int = 750,
-        num_val_samples: int = 30,
-        num_test_samples: int = 50,
+        # grader_model_config: dict[str, Any],  # or just match on exact match?
+        tokenizer_config: dict[str, Any],
+        doc_chunk_size: int = 2048,
+        doc_chunk_overlap: int = 256,
+        num_train_samples: int = 400,
+        num_val_samples: int = 16,
+        num_test_samples: int = 60,
         max_turns: int = 20,
         num_tries: int = 1,
         seed: int = 0,
         split: str = "train",
         system_prompt: str = "You are a helpful assistant that can answer questions and call tools.",
-        num_fewshot_prompts: int = 0,
         **kwargs: Any,
     ) -> None:
         super().__init__(max_turns=max_turns, num_tries=num_tries, seed=seed, **kwargs)
         self.dataset_config = dataset_config
-        self.hf_repo_id = hf_repo_id
-
-        # Search tool config
         self.search_tool_config = search_tool_config
+        self.tokenizer = AutoTokenizer.from_pretrained(**tokenizer_config)
 
         # Build environment
-        self.max_preview_tokens = max_preview_tokens
         self.doc_chunk_size = doc_chunk_size
         self.doc_chunk_overlap = doc_chunk_overlap
 
-        # Initialize default context (fewshot prompts) for all samples
-        self.num_fewshot_prompts = num_fewshot_prompts
-        self.default_context = self.get_default_context()
-        
         self.num_train_samples = num_train_samples
         self.num_val_samples = num_val_samples
         self.num_test_samples = num_test_samples
-        self.split = split
 
         self.max_turns = max_turns
         self.num_tries = num_tries
         self.seed = seed
         self.split = split
 
-        # Load data and tools
+        # Initialize data
         self.system_prompt = system_prompt
-        self.system_prompt_message = {"role": "system", "content": self.system_prompt}
         self.datasets = self.init_data()
 
         # # Initialize tools -> maybe should be done per reset call?
         # self.tool_registry = {
         #     "search": SearchTool(**search_tool_config),
         # }
-    
-        # From BrowseComp-Plus
-        # self.datasets, self.ds_corpus = self.init_data()
-        # # Build index based on doc_id for self.ds_corpus
-        # self.ds_corpus_index = {v: i for i, v in enumerate(self.ds_corpus["doc_id"])}
-        # # Initialize tools
-        # _tool_kwargs = {
-        #     "doc_dataset": self.ds_corpus,
-        #     "ds_corpus_index": self.ds_corpus_index,
-        # }
-        # self.tool_registry = {
-        #     "scroll_up": ScrollUpTool(**_tool_kwargs),
-        #     "scroll_down": ScrollDownTool(**_tool_kwargs),
-        #     "search": SearchTool(
-        #         corpus=self.ds_corpus,
-        #         tokenizer=self.tokenizer,  # Inherited; see _init_tokenizer(self) in ../base.py
-        #         max_preview_tokens=self.max_preview_tokens,
-        #         **self.search_tool_config,
-        #     ),
-        # }
-    
-    def get_default_context(self) -> list[dict[str, str]]:
+
+    def __len__(self) -> int:
         """
-        Build fewshot examples, i.e., default context, for all samples
+        Get number of samples in dataset
         """
-        return []  # MZ 1/19/2026: We can figure out if we need few-shot examples
+        return len(self.datasets[self.split])
 
     def init_data(self) -> DatasetDict:
         """
         Load raw data from HF dataset hub and split into train/val/test
         """
         ds = load_dataset(**self.dataset_config)
+        # Get splits
         trainval_test_dict = ds.train_test_split(
             test_size=self.num_test_samples, shuffle=True, seed=self.seed
         )
         train_val_dict = trainval_test_dict["train"].train_test_split(
             test_size=self.num_val_samples, shuffle=True, seed=self.seed
         )
+        # return DatasetDict(
+        #     train=train_val_dict["train"],
+        #     eval=train_val_dict["test"],
+        #     test=trainval_test_dict["test"],
+        # )
         return DatasetDict({
             "train": train_val_dict["train"],
             "eval": train_val_dict["test"],
@@ -200,13 +171,12 @@ class LongBenchEnvironment(Environment):
         )
         tool_registry = {
             "search": SearchTool(
+                **self.search_tool_config,
                 corpus=all_doc_dicts,
                 save_path=_search_save_path,
-                tokenizer=self.tokenizer,  # Inherited; see _init_tokenizer(self) in ../base.py
-                **self.search_tool_config,
             ),
-            "scroll_down": ScrollDownTool(doc_dict=doc_dict),
-            "scroll_up": ScrollUpTool(doc_dict=doc_dict),
+            "scroll_down": ScrollDownTool(),
+            "scroll_up": ScrollUpTool(),
         }
         tools = [tool.get_tool_desc() for tool in tool_registry.values()]
         messages = [{"role": "user", "content": prompt}]
@@ -223,7 +193,7 @@ class LongBenchEnvironment(Environment):
             answer=answer,
             doc_dict=doc_dict,
             all_doc_dicts=all_doc_dicts,
-            current_doc_id=current_chunk_id,
+            doc_chunk_idx=current_chunk_id,
             # Step-wise metadata
             sample_id=sample_idx,
             generation_id=generation_idx,
@@ -254,12 +224,7 @@ class LongBenchEnvironment(Environment):
         """
         question = str(current_state.question)
         answer   = str(current_state.answer)
-
-        scroll_tool_kwargs = {
-            "all_doc_dicts": current_state.all_doc_dicts,
-            "current_doc_id": current_state.current_doc_id,
-            "doc_dict": current_state.doc_dict,
-        }
+        # prior_messages = current_state.prior_messages
         
         done = False
         truncated = False
@@ -275,71 +240,45 @@ class LongBenchEnvironment(Environment):
 
         # Create environment response
         env_messages = []
-        # Keep track of next doc_id and doc
-        # -> Tool call should update, but by default will be same as current state
-        next_doc_id = copy(current_state.current_doc_id)
-        next_doc_dict = copy(current_state.doc_dict)
+        new_doc_dict = copy(current_state.doc_dict)
 
         # Parse actions (messages and tool calls)
-        made_tool_call = False
         for action_idx, action in enumerate(parsed_actions):
             if action.type == "function_call":  # handle tool call
                 fc_name = action.name
                 fc_args = action.arguments
+                try:  # Execute tool call
+                    tool = current_state.tool_registry[fc_name]
+                    if "scroll" in fc_name:
+                        fc_args.update({
+                            "current_doc_id": current_state.doc_chunk_idx,
+                            "all_doc_dicts": current_state.all_doc_dicts,
+                        })
+                    new_doc_dict, maybe_result_str = tool(**fc_args)
+                    # maybe_doc_result = result_str
+                except Exception as e:
+                    new_doc_dict = None
+                    maybe_result_str = str(e)
+                    raise e
+                    breakpoint()
 
-                if fc_name == "invalid_tool_call":
-                    stdout = f"Invalid tool call:\n\n{action.text}"
-
-                elif fc_name not in current_state.tool_registry:
-                    stdout = (
-                        f"Invalid tool call:\n\n{action.text}\n\n"
-                        f"'{fc_name}' not currently available."
-                    )
-                
-                else:
-                    try:  # Execute tool call
-                        tool = current_state.tool_registry[fc_name]
-                        new_doc_dict, maybe_result_str = tool(**fc_args, **scroll_tool_kwargs)
-                        # maybe_doc_result = result_str
+                if new_doc_dict is not None:
+                    scroll_msg = ""
+                    try:
+                        if new_doc_dict["next_chunk_idx"] is not None:
+                            scroll_msg += "\n- Scroll down for more..."
+                        if new_doc_dict["prev_chunk_idx"] is not None:
+                            scroll_msg += "\n- Scroll up for more..."
+                        stdout = RESULT_TEMPLATE.format(
+                            document=new_doc_dict["text"],
+                            scroll_message=scroll_msg,
+                        )
                     except Exception as e:
-                        _error_class = type(e).__name__
-                        new_doc_dict = None
-                        stdout = f"Invalid tool call:\n\n{action.text}\n\n{_error_class}: {e}"
-                        # maybe_result_str = str(e)
-                        # breakpoint()
-
-                    if new_doc_dict is not None:
-                        scroll_msg = ""
-                        scroll_down_msg = "\n- Scroll down for more..."
-                        scroll_up_msg   = "\n- Scroll up for more..."
-                        try:
-                            if (
-                                new_doc_dict["next_chunk_idx"] is not None
-                                and scroll_down_msg not in scroll_msg
-                            ):
-                                scroll_msg += scroll_down_msg
-                            if (
-                                new_doc_dict["prev_chunk_idx"] is not None
-                                and scroll_up_msg not in scroll_msg
-                            ):
-                                scroll_msg += scroll_up_msg
-                            stdout = RESULT_TEMPLATE.format(
-                                document=new_doc_dict["text"],
-                                scroll_message=scroll_msg,
-                            )
-
-                            # Update the document and identifiers
-                            if isinstance(new_doc_dict, dict):
-                                next_doc_id = new_doc_dict["chunk_idx"]
-                                next_doc_dict = new_doc_dict
-                                made_tool_call = True
-                        except Exception as e:
-                            _error_class = type(e).__name__
-                            logger.error(f"{_error_class}: {e}")
-                            print(new_doc_dict.keys())
-                            breakpoint()
-                    else:
-                        stdout = f"Error: {maybe_result_str}"
+                        print(e)
+                        print(new_doc_dict.keys())
+                        breakpoint()
+                else:
+                    stdout = f"Error: {maybe_result_str}"
 
                 env_response = {
                     "role": "tool",
@@ -372,77 +311,67 @@ class LongBenchEnvironment(Environment):
                     metadata["correct"] = reward
                     metadata["total"] = 1
 
-            else:
-                logger.error(f"Invalid parsed actions: {parsed_actions}")
-                logger.error(f"Specific unknown action type for action {action_idx}: {action.type}")
-                breakpoint()
+            # Update timesteps, fail if too many turns
+            timestep = timestep + 1
+            if timestep >= self.max_turns:
+                truncated = True
+                done = True
+                env_messages.append({"role": "user", "content": self.truncation_message})
+                if not updated_try_step:
+                    try_step += 1
+                    updated_try_step = True
 
-        # Update timesteps, fail if too many turns
-        timestep = timestep + 1
-        if timestep >= self.max_turns:
-            truncated = True
-            done = True
-            env_messages.append({"role": "user", "content": self.truncation_message})
-            if not updated_try_step:
-                try_step += 1
-                updated_try_step = True
+            # Handle badness (environment should always respond to LLM response)
+            if len(env_messages) == 0:
+                env_messages.append({
+                    "role": "user",
+                    "content": "No tool calls or final answers were parsed. Please try again",
+                })
+            if new_doc_dict is None:
+                new_doc_dict = copy(current_state.doc_dict)
 
-        # Handle badness (environment should always respond to LLM response)
-        if len(env_messages) == 0:
-            env_messages.append({
-                "role": "user",
-                "content": "No tool calls or final answers were parsed. Please try again",
-            })
-            rich_print(f"Last action: {action.text}")
-            for _act_idx, _action in enumerate(parsed_actions):
-                rich_print(f"Action {_act_idx}: {_action}")
-            logger.error("No tool calls or final answers were parsed.")
+            # Handle past observations to show
+            current_messages = self.maybe_hide_observations(
+                current_messages or [],
+                first_obs_to_show=current_state.first_obs_to_show,
+                last_obs_to_show=current_state.last_obs_to_show,
+            )
 
-        # Handle past observations to show
-        current_messages = self.maybe_hide_observations(
-            current_messages or [],
-            first_obs_to_show=current_state.first_obs_to_show,
-            last_obs_to_show=current_state.last_obs_to_show,
-        )
-
-        metadata.update({
-            "reward": reward,
-            "done": done,
-            "truncated": truncated,
-            "made_tool_call": made_tool_call,
-        })
-        new_state = LongBenchState(
-            system_prompt=current_state.system_prompt,
-            new_messages=env_messages,
-            model_response=model_response,
-            prior_messages=current_messages,
-            tool_registry=current_state.tool_registry,
-            tools=current_state.tools,
-            # LongBench-specific fields
-            question=question,
-            answer=answer,
-            doc_dict=next_doc_dict,
-            all_doc_dicts=current_state.all_doc_dicts,
-            current_doc_id=next_doc_id,
-            # Step-wise metadata
-            sample_id=sample_id,
-            generation_id=generation_id,
-            batch_id=batch_id,
-            try_step=try_step,
-            timestep=timestep,
-            # Track for accuracy eval
-            metadata=metadata,
-            # Past observations to show
-            first_obs_to_show=current_state.first_obs_to_show,
-            last_obs_to_show=current_state.last_obs_to_show,
-        )
-        return LongBenchStepResult(
-            state=new_state,
-            reward=reward,
-            done=done,
-            truncated=truncated,
-            info=new_state.metadata,  # alternative access
-        )
+            metadata.update(
+                {"reward": reward, "done": done, "truncated": truncated},
+            )
+            new_state = LongBenchState(
+                system_prompt=current_state.system_prompt,
+                new_messages=env_messages,
+                model_response=model_response,
+                prior_messages=current_messages,
+                tool_registry=current_state.tool_registry,
+                tools=current_state.tools,
+                # LongBench-specific fields
+                question=question,
+                answer=answer,
+                doc_dict=new_doc_dict,
+                all_doc_dicts=current_state.all_doc_dicts,
+                doc_chunk_idx=new_doc_dict["chunk_idx"],
+                # Step-wise metadata
+                sample_id=sample_id,
+                generation_id=generation_id,
+                batch_id=batch_id,
+                try_step=try_step,
+                timestep=timestep,
+                # Track for accuracy eval
+                metadata=metadata,
+                # Past observations to show
+                first_obs_to_show=current_state.first_obs_to_show,
+                last_obs_to_show=current_state.last_obs_to_show,
+            )
+            return LongBenchStepResult(
+                state=new_state,
+                reward=reward,
+                done=done,
+                truncated=truncated,
+                info=new_state.metadata,  # alternative access
+            )
 
 
 class AsyncLongBenchEnvironment(LongBenchEnvironment):
