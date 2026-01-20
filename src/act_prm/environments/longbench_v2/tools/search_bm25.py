@@ -36,12 +36,12 @@ def build_retriever(
     """
     Build BM25 retriever from corpus and stemmer
     """
+    # Always load new retriever for LongBench (bc we index over individual sample docs)
     try:
-        save_path = save_path or ""
-        return BM25.load(save_path, load_corpus=True)
+        return BM25.load(save_path or "does_not_exist", load_corpus=True)
     except FileNotFoundError:
         print(f"-> No retriever found at {save_path}, building new retriever")
-
+    
     if retriever_name.startswith("bm25"):
         # Lowercase corpus for BM25
         corpus = [c["text"].lower() for c in corpus]
@@ -92,14 +92,14 @@ class SearchTool(BaseTool):
             )
 
         if save_path is not None:
-            save_path = join(save_path, f"{retriever_name}")
+            self.bm25_save_path = join(save_path, f"{retriever_name}")
         self.retriever = build_retriever(
             retriever_name=retriever_name,
             corpus=corpus,
             stemmer=self.stemmer,
             retriever_config=self.retriever_config,
             stopwords="en",
-            save_path=save_path,
+            save_path=self.bm25_save_path,
         )
 
     def __call__(self, query: str, **kwargs: Any) -> tuple[dict[str, Any] | None, str]:
@@ -133,16 +133,17 @@ class SearchTool(BaseTool):
                 )
                 topk_results.append(doc_dict)
                 break
+        
             new_doc_dict = topk_results[0]
             result_str = topk_results_str[0]
             result_str = f"# Search Result:\n\n{result_str}"
 
         except Exception as e:
             _error_class = type(e).__name__
-            logger.error(f"Error in SearchTool: {_error_class}: {e}")
             new_doc_dict = None
-            result_str = f"{_error_class}: {e}"
-            # breakpoint()
+            result_str = f"Error in SearchTool ({_error_class}: {e})"
+            logger.error(result_str)
+            breakpoint()
 
         return new_doc_dict, result_str
 

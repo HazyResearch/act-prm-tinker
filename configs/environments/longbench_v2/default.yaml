@@ -21,6 +21,11 @@ search_tool_config:
 doc_chunk_size: 2048
 doc_chunk_overlap: 256
 
+hide_observations: false
+hidden_obs_content: "..."  # or "<output omitted for brevity>"
+first_obs_to_show: 1       # e.g, to keep prompt, maybe should be 2?
+last_obs_to_show: 0        # >= 2 to keep more than the last observation
+
 num_train_samples: 400
 num_val_samples: 16
 num_test_samples: 60

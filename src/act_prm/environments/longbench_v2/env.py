@@ -302,9 +302,12 @@ class LongBenchEnvironment(Environment):
                         new_doc_dict, maybe_result_str = tool(**fc_args, **scroll_tool_kwargs)
                         # maybe_doc_result = result_str
                     except Exception as e:
+                        # Handle a tool call error by sending this error to the LLM
                         _error_class = type(e).__name__
                         new_doc_dict = None
-                        stdout = f"Invalid tool call:\n\n{action.text}\n\n{_error_class}: {e}"
+                        maybe_result_str = (
+                            f"Invalid tool call:\n\n{action.text}\n\n{_error_class}: {e}"
+                        )
                         # maybe_result_str = str(e)
                         # breakpoint()
 
@@ -327,19 +330,19 @@ class LongBenchEnvironment(Environment):
                                 document=new_doc_dict["text"],
                                 scroll_message=scroll_msg,
                             )
-
                             # Update the document and identifiers
                             if isinstance(new_doc_dict, dict):
                                 next_doc_id = new_doc_dict["chunk_idx"]
                                 next_doc_dict = new_doc_dict
                                 made_tool_call = True
+                        
                         except Exception as e:
                             _error_class = type(e).__name__
                             logger.error(f"{_error_class}: {e}")
                             print(new_doc_dict.keys())
                             breakpoint()
                     else:
-                        stdout = f"Error: {maybe_result_str}"
+                        stdout = maybe_result_str
 
                 env_response = {
                     "role": "tool",
@@ -357,21 +360,23 @@ class LongBenchEnvironment(Environment):
                 ):
                     done = True
                     if "Final Answer: " in text:  # Last action was an answer submission
-                        ans_pred = text.split("Final Answer: ")[1].strip().lower()
+                        ans_pred = text.split("Final Answer: ")[-1].strip().lower()
                         ans_true = answer.lower()
-                        reward = float(ans_pred == ans_true)  # convert bool to float for reward
+                        reward = float(ans_pred == ans_true)  # convert bool to float for rewar
+                        if reward == 1:
+                            user_content = "# RESULT: CORRECT!"
+                        else:
+                            user_content = "# RESULT: INCORRECT!"
+                        metadata["correct"] = reward
+                        metadata["total"] = 1
                     else:
-                        reward = 0
-                    
-                    if reward == 1:
-                        user_content = "# RESULT: CORRECT!"
-                    else:
-                        user_content = "# RESULT: INCORRECT!"
-
+                        # Allow model to continue with task
+                        user_content = (
+                            "Ok! Please continue with the task. Remember when you're ready to"
+                            " answer, put your response as one letter in the following format:"
+                            "\n\nFinal Answer: <your chosen answer letter (A, B, C, or D)>"
+                        )
                     env_messages.append({"role": "user", "content": user_content})
-                    metadata["correct"] = reward
-                    metadata["total"] = 1
-
             else:
                 logger.error(f"Invalid parsed actions: {parsed_actions}")
                 logger.error(f"Specific unknown action type for action {action_idx}: {action.type}")
