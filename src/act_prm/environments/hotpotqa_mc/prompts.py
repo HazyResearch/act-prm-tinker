@@ -14,6 +14,7 @@ def render_prompt(
     question: str,
     all_titles: list[str],
     include_titles_in_prompt: bool = True,
+    actions_only: bool = False,
 ) -> str:
     """
     Render prompt for HotpotQA multiple choice environment
@@ -49,4 +50,7 @@ def render_prompt(
         )
     else:
         tool_msg = ""
-    return f"{initial_msg}{tool_msg}{final_msg}"
+    full_prompt = f"{initial_msg}{tool_msg}{final_msg}"
+    if actions_only:
+        full_prompt = full_prompt.replace("think and call tools", "**only** call tools")
+    return full_prompt

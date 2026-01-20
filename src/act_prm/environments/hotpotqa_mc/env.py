@@ -56,6 +56,7 @@ class HotpotQAMultipleChoiceEnv(Environment):
         grader_model_verbose: bool = False,
         qa_are_generated: bool = False,
         ambiguous_titles: bool = False,
+        actions_only: bool = False,
         next_obs_feedback: bool = False,
         num_fewshot_prompts: int = 0,
         num_train_samples: int = 1000,
@@ -73,6 +74,8 @@ class HotpotQAMultipleChoiceEnv(Environment):
         self.dataset_config = dataset_config
         self.qa_are_generated = qa_are_generated
         self.ambiguous_titles = ambiguous_titles
+        self.actions_only = actions_only  # Adjust system prompt to encourage only tool calls
+
         # Include grader feedback after answer submission if True
         self.next_obs_feedback = next_obs_feedback
         self.num_fewshot_prompts = num_fewshot_prompts  # if > 0, add few-shot samples in prompt
@@ -133,6 +136,7 @@ class HotpotQAMultipleChoiceEnv(Environment):
             fn_kwargs={
                 "ambiguous_titles": self.ambiguous_titles,
                 "include_titles_in_prompt": True,
+                "actions_only": self.actions_only,
             },
             remove_columns=ds.column_names,
             load_from_cache_file=False,

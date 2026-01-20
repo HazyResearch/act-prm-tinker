@@ -7,6 +7,7 @@ dataset_config:
 
 qa_are_generated: true
 ambiguous_titles: false
+actions_only: false
 next_obs_feedback: false
 num_fewshot_prompts: 2
 
