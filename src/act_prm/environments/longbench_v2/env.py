@@ -369,9 +369,10 @@ class LongBenchEnvironment(Environment):
                         ans_true = answer.lower()
                         reward = float(ans_pred == ans_true)  # convert bool to float for rewar
                         if reward == 1:
-                            user_content = "# RESULT: CORRECT!"
+                            user_content = f"# RESULT: CORRECT! ({ans_pred} == {ans_true})"
                         else:
-                            user_content = "# RESULT: INCORRECT!"
+                            user_content = f"# RESULT: INCORRECT! ({ans_pred} != {ans_true})"
+                        # ^Note for multi-try, should not include the "ans_true" in the user response
                         metadata["correct"] = reward
                         metadata["total"] = 1
                     else:

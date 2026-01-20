@@ -141,9 +141,10 @@ class SearchTool(BaseTool):
             result_str = json.dumps(topk_result_preview, indent=2)
 
         except Exception as e:
-            result_str = f"error: {str(e)}"
             topk_result_preview = {}
-            logger.error(f"SearchTool error: {e}")
+            _error_class = type(e).__name__
+            result_str = f"Error in SearchTool ({_error_class}: {e})"
+            logger.error(result_str)
             breakpoint()
 
         return topk_result_preview, result_str
