@@ -40,6 +40,7 @@ class TinkerGenerator:
         llm: TinkerCompleter,
         env: Environment,
         hf_tokenizer: PreTrainedTokenizerBase,
+        enable_thinking: bool | None = None,  # default to HF template, but often set to False 
         discount_factor: float = 0.9,
         mean_center: bool = False,
         verbose: bool = False,
@@ -49,7 +50,8 @@ class TinkerGenerator:
         self.llm = llm
         self.env = env
         self.hf_tokenizer = hf_tokenizer
-
+        self.enable_thinking = enable_thinking
+        
         self.discount_factor = discount_factor
         self.mean_center = mean_center
         self.verbose = verbose
@@ -138,15 +140,21 @@ class TinkerGenerator:
             # Generate model responses and step through the environment
             state_messages: list[dict[str, Any]] = self._get_messages_from_state(state)
 
+            # NOTE: MZ 1/20/26: PDB debugging command for checking thinking vs no thinking prompt
+            # print(hf_tokenizer.apply_chat_template(state_messages, tools=state.tools, add_generation_prompt=True, enable_thinking=False, tokenize=False))
+            # For Qwen3:
+            # -> enable_thinking=False will lead to "...assistant\n<think>\n\n</think>\n\n'", as if the thinking already happend
+            # -> enable_thinking=True will lead to "...assistant\n", so the model will start with "<think>..." and think (as it was trained to do)
             input_ids: list[int] = hf_tokenizer.apply_chat_template(
                 state_messages,
                 tools=state.tools,
                 add_generation_prompt=True,
-                enable_thinking=False,
+                enable_thinking=self.enable_thinking,
                 tokenize=True,
             )
             tinker_input: ModelInput = ModelInput.from_ints(input_ids)
             # 1. Generate model responses (thoughts + actions)
+            # _response = await llm.generate(_tinker_input, max_tokens=max_tokens, temperature=temperature)
             response: TokensWithLogprobsAndText | None = await llm.generate(
                 tinker_input,
                 max_tokens=max_tokens,

@@ -38,6 +38,10 @@ def get_actions(
                 output = tool_call["function"]
                 name = output.get("name", "invalid_tool_call")
                 arguments = output.get(tool_call_argname, {})
+
+                # Error and edge-case handling
+                if not isinstance(name, str):
+                    name = "invalid_tool_call"
                 if not isinstance(arguments, dict):
                     arguments = {"arguments": json.dumps(arguments)}
                 elif len(arguments) == 0:

@@ -126,8 +126,10 @@ class TinkerCompleter:
                 text=text_content,
                 is_complete=is_complete
             )
-        except tinker.BadRequestError as e:
-            logger.error(f"[red]Tinker BadRequestError: {e}[/red]")
+        # except tinker.BadRequestError as e:
+        except Exception as e:
+            _exception_class = type(e).__name__
+            logger.error(f"[red]Tinker {_exception_class}: {e}[/red]")
             return None
         
 
