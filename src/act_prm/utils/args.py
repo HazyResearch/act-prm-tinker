@@ -7,7 +7,7 @@ import logging
 import os
 from omegaconf import OmegaConf
 
-from .utils import get_run_name
+from .setup import get_run_name
 
 logger = logging.getLogger(__name__)
 
