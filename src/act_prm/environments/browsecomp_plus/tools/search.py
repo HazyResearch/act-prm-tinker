@@ -128,7 +128,12 @@ class SearchTool(BaseTool):
 
             for i in range(results.shape[1]):
                 result_i, _ = results[0, i], scores[0, i]  # for now, don't show score
-                doc_dict = self.corpus[result_i["id"]]
+                try:
+                    doc_id = result_i["id"]  # results[0, i] can be dict or np.ndarray?
+                except IndexError:
+                    doc_id = result_i.item()
+                doc_dict = self.corpus[doc_id]
+                # doc_dict = self.corpus[result_i["id"]]
                 result_preview = self._format_result_preview(
                     doc_dict, i, llm_query_input_ids
                 )

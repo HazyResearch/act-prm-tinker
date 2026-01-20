@@ -120,14 +120,17 @@ class SearchTool(BaseTool):
             topk_results_str: list[str] = []
             for i in range(results.shape[1]):
                 # doc_idx, score = results[0, i], scores[0, i]
-                doc_id = results[0, i]["id"]
+                try:
+                    doc_id = results[0, i]["id"]  # results[0, i] can be dict or np.ndarray?
+                except IndexError:
+                    doc_id = results[0, i].item()
                 doc_dict = self.corpus[doc_id]
                 # Return string representation of the result
-                scroll_msg = ""
-                if doc_dict["next_chunk_idx"] is not None:
-                    scroll_msg += "\n- Scroll down for more..."
-                if doc_dict["prev_chunk_idx"] is not None:
-                    scroll_msg += "\n- Scroll up for more..."
+                scroll_msg = "" # <-- handle this later
+                # if doc_dict["next_chunk_idx"] is not None:
+                #     scroll_msg += "\n- Scroll down for more..."
+                # if doc_dict["prev_chunk_idx"] is not None:
+                #     scroll_msg += "\n- Scroll up for more..."
                 topk_results_str.append(
                     RESULT_TEMPLATE.format(document=doc_dict["text"], scroll_message=scroll_msg)
                 )

@@ -513,9 +513,10 @@ class BrowseCompPlusSearchEnv(Environment):
             })
 
         # Let model see available tools
-        _available_tool_names = "\n".join(f"- {k}" for k in available_tool_registry.keys())
-        available_tools_msg = f"# Currently Available Tools:\n{_available_tool_names}"
-        env_messages[-1]["content"] += f"\n\n{available_tools_msg}"
+        available_tools_str = "\n".join(f"- {k}" for k in available_tool_registry.keys())
+        available_tools_str = f"# Currently Available Tools:\n{available_tools_str}"
+        _content_key = "output" if "output" in env_messages[-1] else "content"
+        env_messages[-1][_content_key] += f"\n\n{available_tools_str}"
 
         # Handle past observations to show
         current_messages = self.maybe_hide_observations(

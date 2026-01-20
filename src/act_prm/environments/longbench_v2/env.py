@@ -260,6 +260,7 @@ class LongBenchEnvironment(Environment):
             "current_doc_id": current_state.current_doc_id,
             "doc_dict": current_state.doc_dict,
         }
+        available_tool_names = [k for k in current_state.tool_registry.keys()]
         
         done = False
         truncated = False
@@ -313,22 +314,26 @@ class LongBenchEnvironment(Environment):
 
                     if new_doc_dict is not None:
                         scroll_msg = ""
-                        scroll_down_msg = "\n- Scroll down for more..."
-                        scroll_up_msg   = "\n- Scroll up for more..."
+                        # scroll_down_msg = "\n- Scroll down for more..."
+                        # scroll_up_msg   = "\n- Scroll up for more..."
+                        available_tool_names = ["search"]
                         try:
                             if (
                                 new_doc_dict["next_chunk_idx"] is not None
-                                and scroll_down_msg not in scroll_msg
+                                # and scroll_down_msg not in scroll_msg
                             ):
-                                scroll_msg += scroll_down_msg
+                                # scroll_msg += scroll_down_msg
+                                available_tool_names.append("scroll_down")
                             if (
                                 new_doc_dict["prev_chunk_idx"] is not None
-                                and scroll_up_msg not in scroll_msg
+                                # and scroll_up_msg not in scroll_msg
                             ):
-                                scroll_msg += scroll_up_msg
+                                # scroll_msg += scroll_up_msg
+                                available_tool_names.append("scroll_up")
+                            
                             stdout = RESULT_TEMPLATE.format(
                                 document=new_doc_dict["text"],
-                                scroll_message=scroll_msg,
+                                scroll_message="",  # scroll_msg,
                             )
                             # Update the document and identifiers
                             if isinstance(new_doc_dict, dict):
@@ -402,6 +407,12 @@ class LongBenchEnvironment(Environment):
             for _act_idx, _action in enumerate(parsed_actions):
                 rich_print(f"Action {_act_idx}: {_action}")
             logger.error("No tool calls or final answers were parsed.")
+
+        # Let model see available tools
+        available_tools_str = "\n".join(f"- {_name}" for _name in available_tool_names)
+        available_tools_str = f"# Currently Available Tools:\n{available_tools_str}"
+        _content_key = "output" if "output" in env_messages[-1] else "content"
+        env_messages[-1][_content_key] += f"\n\n{available_tools_str}"
 
         # Handle past observations to show
         current_messages = self.maybe_hide_observations(
