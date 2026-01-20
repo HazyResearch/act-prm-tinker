@@ -3,6 +3,7 @@ Search environment for BrowseComp-Plus
 """
 
 import json
+import logging
 import os
 from copy import copy
 from os.path import join
@@ -22,6 +23,9 @@ from ..types import EnvironmentStateWithAnswer, EnvironmentStepResult
 from .data_download import load_browsecomp_plus_dataset
 from .utils import process_batch_for_search, render_prompt
 from .tools import ExpandTool, ScrollUpTool, ScrollDownTool, SearchTool
+
+
+logger = logging.getLogger(__name__)
 
 # "\n\nYour final answer should be a concise sentence, in the following format: 'Final Answer: <put your answer here>'.\n\n"
 THOUGHT_ACTION_FEWSHOT_PROMPTS = [
@@ -182,7 +186,9 @@ class BrowseCompPlusSearchEnv(Environment):
             rich_print(f"-> Loaded dataset from {_hf_repo_id_text}!")
         
         except Exception as e:  # File probably doesn't exist yet
-            _error_text = f"[bright_red]{e}[/bright_red]"
+            _error_class = type(e).__name__
+            logger.error(f"{_error_class}: {e}")
+            _error_text = f"[bright_red]{_error_class}: {e}[/bright_red]"
             rich_print(f"[red]Error loading dataset from {_hf_repo_id_text}[/red]: {_error_text}")
             rich_print("Processing and saving datasets...")
             pbar = tqdm(
@@ -222,7 +228,9 @@ class BrowseCompPlusSearchEnv(Environment):
             rich_print(f"-> Loaded dictionary corpus from {_doc_corpus_hf_repo_text}!")
         
         except Exception as e:  # File probably doesn't exist yet
-            _error_text = f"[bright_red]{e}[/bright_red]"
+            _error_class = type(e).__name__
+            logger.error(f"{_error_class}: {e}")
+            _error_text = f"[bright_red]{_error_class}: {e}[/bright_red]"
             rich_print(
                 f"[red]Error loading dictionary corpus from {_doc_corpus_hf_repo_text}[/red]: {_error_text}"
             )
@@ -396,9 +404,10 @@ class BrowseCompPlusSearchEnv(Environment):
                     try:
                         maybe_new_doc, results = fn_call(**fc_args, **tool_kwargs)
                     except Exception as e:
-                        print(f"Error during tool call: {e}")
-                        stdout = f"Invalid tool call: {action.text}"
-                        stdout += f"\n\nError: {e}"
+                        # Handle a tool call error by sending this error to the LLM
+                        _error_class = type(e).__name__
+                        logger.error(f"Error during tool call: {_error_class}: {e}")
+                        stdout = f"Invalid tool call:\n\n{action.text}\n\n{_error_class}: {e}"
                         made_tool_call = False
                         results = None
                         maybe_new_doc = None
@@ -502,6 +511,11 @@ class BrowseCompPlusSearchEnv(Environment):
                 "role": "user",
                 "content": "No tool calls or final answers were parsed. Please try again",
             })
+
+        # Let model see available tools
+        _available_tool_names = "\n".join(f"- {k}" for k in available_tool_registry.keys())
+        available_tools_msg = f"# Currently Available Tools:\n{_available_tool_names}"
+        env_messages[-1]["content"] += f"\n\n{available_tools_msg}"
 
         # Handle past observations to show
         current_messages = self.maybe_hide_observations(

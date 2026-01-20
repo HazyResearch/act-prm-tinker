@@ -391,7 +391,7 @@ class RLTrainer(BaseTrainer):
         # Save thought-action rollouts so far to a HF Dataset and push to hub
         # -> Then can evaluate by seeing how training another LLM from scratch performs
         # -> Will overwrite existing dataset if it already exists (e.g., to hit total samples)
-        ds_identifier = "_".join([
+        ds_identifier = "-".join([
             f"{delim[:2].upper()}{self.run_name.split(delim)[-1].split("-")[0]}"
             for delim in ["enco=", "geco=", "se=", "re="]  # env, generator, seed, replicate
         ])
@@ -401,75 +401,7 @@ class RLTrainer(BaseTrainer):
             _save_trajectories_to_hf_dataset(_trajectories, ds_name)
             logger.info("Saved trajectories to HF Dataset: %s", ds_name)
         except Exception as e:
-            logger.error("Failed to save trajectories to HF Dataset: %s", e)
-
-        return all_trajectories_per_group
-
-
-    async def _generate_and_save_trajectories_old(
-        self,
-        sampling_client: tinker.SamplingClient,
-        renderer: renderers.Renderer,
-        save_generator_constructor: Callable[..., TinkerGenerator],
-        save_batch_idx: int,
-        save_env: Environment | None = None,
-        cfg: DictConfig | None = None,
-        hf_tokenizer: PreTrainedTokenizerBase | None = None,
-        save_name_or_identifier: str | None = None,
-        trajectory_key: str = "policy",
-        dataset_prefix: str = "mzio/aprm_sft_rollouts",
-        dataset_suffix: str = "",
-    ) -> list[list[Trajectory]]:
-        """
-        Generate trajectories for all tasks in an environment
-        """
-        env = save_env or self.env
-        cfg = cfg or self.cfg
-        renderer = renderer or self.renderer
-        hf_tokenizer = hf_tokenizer or self.hf_tokenizer
-        
-        env.split = "train"
-        batch_size = min(cfg.batch_size, len(env))
-        num_sft_gen_batches = len(env) // batch_size
-        logger.info(
-            "Generating trajectories for all %d tasks in the environment, "
-            "(%d batches for %d tasks per batch)",
-            len(env), num_sft_gen_batches, batch_size,
-        )
-        all_trajectories_per_group: list[list[Trajectory]] = []
-        for sft_gen_batch_idx in range(0, num_sft_gen_batches):
-            # 1. Sample rollouts for training
-            env.split = "train"
-            _, new_trajectories = await run_rollouts(
-                sampling_client=sampling_client,
-                renderer=renderer,
-                hf_tokenizer=hf_tokenizer,
-                generator_constructor=save_generator_constructor,
-                env=env,
-                cfg=cfg,
-                batch_id=sft_gen_batch_idx,
-                checkpoint_name="sft_gen",
-                split="train",
-                num_tries=cfg.num_tries,
-                start_idx=sft_gen_batch_idx * batch_size,
-                tasks_per_update=batch_size,
-                name_or_identifier=save_name_or_identifier,
-            )
-            all_trajectories_per_group.append(new_trajectories[trajectory_key])
-
-            # Save thought-action rollouts so far to a HF Dataset and push to hub
-            # -> Then can evaluate by seeing how training another LLM from scratch performs
-            # -> Will overwrite existing dataset if it already exists (e.g., to hit total samples)
-            ds_identifier = "_".join([
-                f"{delim[:2].upper()}{self.run_name.split(delim)[-1].split("-")[0]}"
-                for delim in ["enco=", "geco=", "se=", "re="]  # env, generator, seed, replicate
-            ])
-            ds_name = f"{dataset_prefix}-{ds_identifier}{dataset_suffix}_{save_batch_idx:04d}"
-            try:
-                _traj_so_far = [traj for group in all_trajectories_per_group for traj in group]
-                _save_trajectories_to_hf_dataset(_traj_so_far, ds_name)
-                logger.info("Saved trajectories to HF Dataset: %s", ds_name)
-            except Exception as e:
-                logger.error("Failed to save trajectories to HF Dataset: %s", e)
+            _error_text = f"({type(e).__name__}: {e})"
+            logger.error("Failed to save trajectories to HF Dataset: %s", _error_text)
 
         return all_trajectories_per_group

@@ -26,6 +26,8 @@ from typing import Any, Callable
 import torch
 from omegaconf import DictConfig
 from rich import print as rich_print
+from rich.console import Console
+from rich.table import Table
 from tqdm import tqdm
 
 import tinker
@@ -53,6 +55,19 @@ from .tinker.utils import (
 from .train import is_better, run_rollouts
 
 logger = logging.getLogger(__name__)
+console = Console()
+
+
+def display_metrics(metrics: dict[str, Any], title: str | None = None) -> None:
+    # Display metrics
+    table = Table(title=title, style="bright_yellow")
+    # title=f"SFT Eval Loop {loop_id}, Eval {eval_idx}, Batch {batch_id}",
+    # style="bright_yellow",
+    table.add_column("Metric", justify="left")
+    table.add_column("Value", justify="left")
+    for k, v in metrics.items():
+        table.add_row(k, str(v))
+    console.print(table)
 
 
 class ActPrmSftRlTrainer(RLTrainer):
@@ -243,8 +258,9 @@ class ActPrmSftRlTrainer(RLTrainer):
         all_train_batches: list[list[list[Trajectory]]] = split_list(
             all_trajectories_per_env, num_splits
         )
+        sft_batch_start, sft_batch_end = sft_batch_idx, sft_batch_idx + cfg.sft_num_batches
         sft_pbar = tqdm(
-            range(sft_batch_idx, sft_batch_idx + cfg.sft_num_batches),
+            range(sft_batch_start, sft_batch_end),
             desc="Training new policy LLM with SFT (act_prm_sft_rl.train)",
             colour="blue",
             position=1,
@@ -300,6 +316,7 @@ class ActPrmSftRlTrainer(RLTrainer):
                         name_or_identifier=_name_or_identifier,
                     )
                     metrics.update(eval_rollout_metrics)
+                    display_metrics(eval_rollout_metrics, title=f"SFT Eval Loop {sft_batch_idx}")
                 
                 # Save best checkpoints
                 _metric_prefix = "act_prm_sft_eval"
@@ -392,7 +409,7 @@ class ActPrmSftRlTrainer(RLTrainer):
             colour="magenta",
             position=1,
         )
-        for batch_idx in rl_pbar:
+        for batch_idx, overall_batch_idx in enumerate(rl_pbar):
             metrics = {
                 "progress/batch": batch_idx,
                 "optim/lr": cfg.learning_rate,
@@ -405,7 +422,7 @@ class ActPrmSftRlTrainer(RLTrainer):
                 with timed("run_evals", metrics):
                     eval_env.split = "eval"
                     _name_or_identifier = (
-                        f"** Stage 3: RL Evaluation, Train Step {batch_idx} / {num_batches - 1} **"
+                        f"Stage 3: RL Evaluation, Train Step {batch_idx} / {num_batches - 1}"
                     )
                     eval_rollout_metrics, _ = await run_rollouts(
                         sampling_client=sampling_client,
@@ -424,6 +441,7 @@ class ActPrmSftRlTrainer(RLTrainer):
                         name_or_identifier=_name_or_identifier,
                     )
                     metrics.update(eval_rollout_metrics)
+                    display_metrics(eval_rollout_metrics, title=f"RL Eval Loop {batch_idx}")
 
                 # Save best checkpoints
                 _metric_prefix = "eval" if checkpoint_name is None else f"{checkpoint_name}_eval"
@@ -512,7 +530,7 @@ class ActPrmSftRlTrainer(RLTrainer):
             # Log metrics
             metrics.update(update_metrics)
             metrics["time/total"] = time.time() - t_start
-            self.ml_logger.log_metrics(metrics, step=batch_idx)
+            self.ml_logger.log_metrics(metrics, step=overall_batch_idx)
             rl_pbar.set_postfix(**{k.split("/")[-1]: v for k, v in metrics.items()})
 
         return best_rl_sampling_client_path

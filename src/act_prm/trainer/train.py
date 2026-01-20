@@ -395,7 +395,7 @@ async def do_train_step_and_get_sampling_client(
 
     # Resample from data_D to determine actual training set
     if cfg.mini_batch_size and cfg.num_substeps is None:
-        num_substeps = len(data_D) // cfg.mini_batch_size
+        num_substeps = max(len(data_D) // cfg.mini_batch_size, 1)
     elif cfg.num_substeps:
         num_substeps = cfg.num_substeps
         if cfg.mini_batch_size:
@@ -409,7 +409,7 @@ async def do_train_step_and_get_sampling_client(
     # Randomly subsample training data if not evenly divisible by num_substeps (# of mini-batches)
     # -> Tinker requires this: https://tinker-docs.thinkingmachines.ai/rl/rl-hyperparams#multiple-updates-per-sampling-iteration
     if len(data_D) % num_substeps != 0:
-        new_batch_size = (len(data_D) // num_substeps) * num_substeps
+        new_batch_size = (max(len(data_D) // num_substeps, 1) * num_substeps)
         data_D = random.sample(data_D, new_batch_size)
     random.shuffle(data_D)  # Ensure random ordering of mini-batches
 

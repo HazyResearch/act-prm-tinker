@@ -338,7 +338,7 @@ class ActPrmSftEvalTrainer(RLTrainer):
         _ds_name = []
         for delim in ["-enco=", "-geco=", "-se=", "-re="]:
             _ds_name.append(self.run_name.split(delim)[-1].split("-")[0])
-        _ds_name = "_".join(_ds_name)
+        _ds_name = "-".join(_ds_name)
         try:
             self._save_trajectories_to_hf_dataset(
                 trajectories=all_new_trajectories,
@@ -346,7 +346,8 @@ class ActPrmSftEvalTrainer(RLTrainer):
             )
             logger.info("Saved thought-action rollouts to HF Dataset: %s", f"mzio/aprm_sft-{_ds_name}-{batch_id:04d}")
         except Exception as e:
-            logger.error("Failed to save thought-action rollouts to HF Dataset: %s", e)
+            _error_text = f"({type(e).__name__}: {e})"
+            logger.error("Failed to save thought-action rollouts to HF Dataset: %s", _error_text)
         
         # Create Tinker datums
         data_D, _ = await self.prepare_sft_minibatch(

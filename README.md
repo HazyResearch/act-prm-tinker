@@ -242,13 +242,12 @@ uv run python main.py \
 --actions_only --hide_observations
 ```
 
-
 ### BrowseComp-Plus Search
 
 ```bash
 # Yolo run
-# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t 0
-# [h0] 0:srun*
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm0
+# [h2] 0:srun*
 uv run python main.py \
 --is_async \
 --env_config act_prm/browsecomp_100_hide_obs \
@@ -259,7 +258,22 @@ uv run python main.py \
 --log_path ./logs \
 --model_name Qwen/Qwen3-4B-Instruct-2507 \
 --lora_rank 32 \
---seed 42 --replicate 5 --verbose
+--seed 42 --replicate 5 --verbose \
+--actions_only --hide_observations
+
+# (base) mzhang@hazy1:~$ tmux attach -t aprm1
+uv run python main.py \
+--is_async \
+--env_config act_prm/browsecomp_100_hide_obs \
+--eval_env_config browsecomp_plus/search_hide_obs \
+--generator_config aprm_qwen3_ap_nobandit \
+--trainer_config qwen3_4b_aprm20_sft200_rl200 \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 5 --verbose \
+--actions_only --hide_observations
 ```
 
 ```bash
@@ -844,17 +858,18 @@ uv run python main.py \
 --lora_rank 32 \
 --seed 42 --replicate 0 --verbose
 
+# Adjust num_substeps to keep minibatch size at group_size * batch_size (128 in this case)
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm2
 CUDA_VISIBLE_DEVICES=0 \
 uv run python main.py \
 --is_async \
 --env_config longbench_v2/default \
 --generator_config default \
---trainer_config qwen3_4b_pg \
+--trainer_config qwen3_4b_pg_nstep \
 --replay_buffer_config default \
 --log_path ./logs \
 --model_name Qwen/Qwen3-4B-Instruct-2507 \
 --lora_rank 32 \
---num_substeps 2 \
 --seed 42 --replicate 0 --verbose
 
 CUDA_VISIBLE_DEVICES=0 \

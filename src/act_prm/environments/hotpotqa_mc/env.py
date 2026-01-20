@@ -2,6 +2,7 @@
 HotpotQA Multiple Choice Environment
 """
 
+import logging
 from copy import copy
 from typing import Any
 
@@ -17,6 +18,9 @@ from ..types import EnvironmentStateWithAnswer, EnvironmentStepResult
 from .prompts import FEWSHOT_PROMPTS
 from .tools import VisitTool
 from .utils import process_sample, process_sample_from_gen_dataset
+
+
+logger = logging.getLogger(__name__)
 
 
 class HotpotQAMultipleChoiceState(EnvironmentStateWithAnswer):
@@ -259,12 +263,14 @@ class HotpotQAMultipleChoiceEnv(Environment):
                     result = tool(**fc_args, all_docs_dict=all_docs_dict)
                 
                 except Exception as e:
+                    # Handle a tool call error by sending this error to the LLM
+                    _error_class = type(e).__name__
+                    logger.error(f"Error during tool call: {_error_class}: {e}")
                     if title not in all_docs_dict and title is not None:
                         result = f"Title '{title}' not found in available titles"
                     else:
                         result = (
-                            f"Invalid tool call: {action.text}. "
-                            f"Error during execution:\n{str(e)}"
+                            f"Invalid tool call:\n\n{action.text}\n\n{_error_class}: {e}"
                         )
                 env_response = {
                     "role": "tool",

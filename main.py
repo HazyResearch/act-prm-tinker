@@ -29,7 +29,7 @@ from tinker_cookbook.utils import ml_log
 
 from act_prm.environments import get_env
 from act_prm.replay_buffer import get_replay_buffer
-from act_prm.setup import get_args, print_config, seed_everything
+from act_prm.utils import get_args, print_config, seed_everything
 from act_prm.trainer import get_trainer
 
 
@@ -83,13 +83,15 @@ async def main() -> None:
             print_config(cfg, cfg_name.upper())
     env_cfg, eval_env_cfg, rl_env_cfg, generator_cfg, trainer_cfg, replay_buffer_cfg = updated_cfgs
     cfg = trainer_cfg  # Main config to reference (has all Tinker training attributes)
+    ml_logger_cfg = OmegaConf.to_container(cfg, resolve=True)
+    ml_logger_cfg.update(vars(args))
 
     # Setup logging to WandB
     ml_logger = ml_log.setup_logging(
         log_dir=cfg.log_path,
         wandb_project=cfg.wandb_project,
         wandb_name=cfg.wandb_name,
-        config=cfg,
+        config=ml_logger_cfg,
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("pylatexenc").setLevel(logging.WARNING)
