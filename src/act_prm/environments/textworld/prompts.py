@@ -17,19 +17,6 @@ INSTRUCTION_PROMPT_TREASURE_HUNT = """
 You are an agent playing TextWorld, a text-based adventure game where you are in a randomly generated maze and must find a specific object.
 You need to explore different rooms to find the target object.
 
-## Commands:
-- look: describe the current room
-- goal: print the goal of this game
-- inventory: print the player's inventory
-- go ...: move the player north, east, south, or west. You can only go in the direction indicated with an exit or a door
-- open ...: open a door or a container. You need to open a closed door before you want to go through it
-- drop ...: drop an object on the floor 
-- take ...: take an object that is visible. Make sure the object is visible to take
-- put ... on ...: place an object on a supporter
-- take ... from ...: take an object from a container or a supporter
-- insert ... into ...: place an object into a container
-- unlock ... with ...: unlock a door or a container with a key
-
 ## Rules:
 - You need to unlock a locked door with a matched key in your inventory before you want to open it.
 - The target object might be located in a closed or locked container
