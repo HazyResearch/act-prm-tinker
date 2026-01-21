@@ -363,7 +363,6 @@ class LongBenchEnvironment(Environment):
                     action.type == "message"
                     and action_idx + 1 == len(parsed_actions)
                 ):
-                    done = True
                     if "Final Answer: " in text:  # Last action was an answer submission
                         ans_pred = text.split("Final Answer: ")[-1].strip().lower()
                         ans_true = answer.lower()
@@ -375,6 +374,7 @@ class LongBenchEnvironment(Environment):
                         # ^Note for multi-try, should not include the "ans_true" in the user response
                         metadata["correct"] = reward
                         metadata["total"] = 1
+                        done = True
                     else:
                         # Allow model to continue with task
                         user_content = (

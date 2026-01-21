@@ -64,7 +64,7 @@ def display_state_action_next_obs(
             messages[ix] = f"[dim]{msg}[/dim]"
         elif "[next_obs]" in msg:
             msg = msg.replace("[next_obs]", "")
-            messages[ix] = f"[dim]{msg}[/dim]"
+            messages[ix] = f"[dim italic]{msg}[/dim italic]"
         
         if "[system]" in msg:
             msg = msg.replace("[system]", "")

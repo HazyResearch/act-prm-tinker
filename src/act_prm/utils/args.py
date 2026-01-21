@@ -119,7 +119,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--eval_group_size",
         type=int,
-        help="Group size for evaluation; will override if specified",
+        help="Group size for evaluation; will override if specified. Set >1 if we want error bars",
     )
     parser.add_argument(
         "--samples_per_task",

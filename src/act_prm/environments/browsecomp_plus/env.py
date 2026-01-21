@@ -438,7 +438,6 @@ class BrowseCompPlusSearchEnv(Environment):
                     and action_idx + 1 == len(parsed_actions)
                     # and "Final Answer: " in text
                 ):
-                    done = True
                     if "Final Answer: " in text:  # Last action was an answer submission
                         reward, grader_text = self.grader_model(
                             question=question,
@@ -449,18 +448,21 @@ class BrowseCompPlusSearchEnv(Environment):
                             split=self.split,
                         )
                         reward = float(reward)  # Convert bool to float for reward
+                        done = True
+                        metadata["correct"] = reward
+                        metadata["total"] = 1
+
+                        user_content = "# RESULT: CORRECT!" if reward == 1 else "# RESULT: INCORRECT!"
+                        if self.next_obs_feedback:  # Include feedback in the next observation
+                            user_content += f"\n\n{grader_text}"
                     else:
-                        reward = 0
-                        grader_text = ""
-                    user_content = "# RESULT: CORRECT!" if reward == 1 else "# RESULT: INCORRECT!"
-                    if self.next_obs_feedback:  # Include feedback in the next observation
-                        user_content += f"\n\n{grader_text}"
-                    env_messages.append({
-                        "role": "user",
-                        "content": user_content,
-                    })
-                    metadata["correct"] = reward
-                    metadata["total"] = 1
+                        # Allow model to continue with task
+                        user_content = (
+                            "Ok! Please continue with the task. Remember, once you have found the"
+                            " answer, provide your final answer as a concise sentence in the"
+                            " following format: 'Final Answer: <put your answer here>'."
+                        )
+                    env_messages.append({"role": "user", "content": user_content})
 
         # Update available tools based on what was called
         if made_tool_call:
