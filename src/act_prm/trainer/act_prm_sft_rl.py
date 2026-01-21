@@ -405,6 +405,8 @@ class ActPrmSftRlTrainer(RLTrainer):
             metrics["time/total"] = time.time() - t_start
             self.ml_logger.log_metrics(metrics, step=overall_batch_idx)
             sft_pbar.set_postfix(**{k.split("/")[-1]: v for k, v in metrics.items()})
+
+            breakpoint()
         
         # ---------- Third stage of training (generate thoughts from states only) ----------
         logger.info("Stage 3 training RL")
