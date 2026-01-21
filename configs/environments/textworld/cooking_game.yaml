@@ -1,0 +1,23 @@
+name: "textworld"
+is_async: false
+task: "the_cooking_game"
+state_keys: ["description", "score", "moves"]
+dataset_config:
+  cache_dir: "/scr/mzhang/data/textworld/tw_games"
+
+hide_observations: false
+hidden_obs_content: "..."  # or "<output omitted for brevity>"
+first_obs_to_show: 1       # e.g, to keep prompt, maybe should be 2?
+last_obs_to_show: 0        # >= 2 to keep more than the last observation
+
+num_train_samples: 20
+num_val_samples: null
+num_test_samples: 5
+
+max_turns: 80
+num_tries: 1
+seed: 0
+split: "train"
+system_prompt: "You are a helpful tool-calling assistant."
+truncation_message: "Sorry, you have reached the maximum number of steps. Please try again."
+verbose: false

@@ -171,7 +171,7 @@ class BaseTool(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_tool_desc(self) -> dict:
+    def get_tool_desc(self) -> dict[str, Any]:
         """
         Returm the tool description for function calling
         """

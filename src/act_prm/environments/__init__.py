@@ -20,8 +20,15 @@ def get_env(name: str, is_async: bool = False, **kwargs: Any) -> Environment:
             from .act_prm import ActPrmEnv
             return ActPrmEnv(**kwargs)
 
-    elif name == "hotpotqa_mc":
+    elif name == "textworld":
+        if is_async:
+            from .textworld import AsyncTextWorldEnv
+            return AsyncTextWorldEnv(**kwargs)
+        else:
+            from .textworld import TextWorldEnv
+            return TextWorldEnv(**kwargs)
 
+    elif name == "hotpotqa_mc":
         if is_async:
             from .hotpotqa_mc import AsyncHotpotQAMultipleChoiceEnv
             return AsyncHotpotQAMultipleChoiceEnv(**kwargs)

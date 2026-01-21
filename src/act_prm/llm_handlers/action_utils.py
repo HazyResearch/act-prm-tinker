@@ -36,12 +36,16 @@ def get_actions(
         if message.get("tool_calls", None) is not None:
             for tool_call in message["tool_calls"]:
                 output = tool_call["function"]
-                name = output.get("name", "invalid_tool_call")
+                # name = output.get("name", "invalid_tool_call")
+                name = output.get("name", None)
                 arguments = output.get(tool_call_argname, {})
 
                 # Error and edge-case handling
-                if not isinstance(name, str):
-                    name = "invalid_tool_call"
+                if name is None:
+                    name = json.dumps(output)
+                elif not isinstance(name, str):
+                    # name = "invalid_tool_call"
+                    name = str(name)
                 if not isinstance(arguments, dict):
                     arguments = {"arguments": json.dumps(arguments)}
                 elif len(arguments) == 0:
