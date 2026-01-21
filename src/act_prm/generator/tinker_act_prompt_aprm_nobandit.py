@@ -213,6 +213,10 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
                     panel_content.append(
                         f"Name/ID: [bright_yellow]{self.name_or_identifier}[/bright_yellow]"
                     )
+                if self.cfg.get("dataset_url_sft", None) is not None:
+                    panel_content.append(
+                        f"SFT url: [blue1]{self.cfg.dataset_url_sft}[/blue1]"
+                    )
                 panel_content = "\n".join(panel_content)
                 self.display_state_action_next_obs(  # slightly coded for Qwen models for now
                     state_messages=standard_chat,

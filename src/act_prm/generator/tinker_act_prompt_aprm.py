@@ -17,7 +17,7 @@ from ..environments.types import EnvironmentStepResult
 from ..llm_handlers.action_utils import get_actions
 from ..llm_handlers.tinker import TinkerCompleter, TokensWithLogprobsAndText
 from ..llm_handlers.types import ActionFromLLM
-from ..replay_buffer.types import TrajectoryGroup, MeanCenteredTrajectoryGroup
+from ..replay_buffer.types import TrajectoryGroup
 
 from .tinker_act_prm import (
     compute_group_thought_action_metrics,
@@ -229,7 +229,10 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             generation_idx=0,
             try_step=try_step,
         )
-        max_turns = len(state.assistant_indices)
+        try:
+            max_turns = len(state.assistant_indices)
+        except AttributeError:
+            max_turns = len(state.action_trajectory)
 
         done = False
         while not done:
@@ -326,6 +329,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 "batch_id": batch_id,
                 "unique_data_sample_id": unique_data_sample_id,
                 "split": split,
+                "action_probs_in_group": group_metrics["target_action_probs"],
             }
             # Save (state, thought, action) steps
             trajectory_group = self._get_trajectory_group_from_generations(
@@ -335,7 +339,6 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 state_action_tokens_in_group=group_metrics["state_thought_action_tokens"],
                 old_logprobs_in_group=group_metrics["action_logprobs"],
                 rewards_in_group=rewards_in_group,
-                action_probs_in_group=group_metrics["target_action_probs"],
                 generation_ids_in_group=valid_response_indices,
                 **shared_kwargs,
             )
@@ -419,6 +422,10 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                     if self.name_or_identifier:
                         panel_content.append(
                             f"Name/ID: [bright_yellow]{self.name_or_identifier}[/bright_yellow]"
+                        )
+                    if self.cfg.get("dataset_url_sft", None) is not None:
+                        panel_content.append(
+                            f"SFT url: [blue1]{self.cfg.dataset_url_sft}[/blue1]"
                         )
                     panel_content = "\n".join(panel_content)
                     self.display_state_action_next_obs(

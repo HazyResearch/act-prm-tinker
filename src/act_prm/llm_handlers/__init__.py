@@ -4,6 +4,7 @@ LLM classes and types
 
 from typing import Any
 
+from .action_utils import get_actions
 from .base import LLM
 from .huggingface import HuggingFaceLLM
 from .openai import (
@@ -37,6 +38,7 @@ def load_llm(
 
 
 __all__ = [
+    "get_actions",
     "load_llm",
     "ActionFromLLM",
     "LLM",

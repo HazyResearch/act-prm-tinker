@@ -20,6 +20,15 @@ def get_env(name: str, is_async: bool = False, **kwargs: Any) -> Environment:
             from .act_prm import ActPrmEnv
             return ActPrmEnv(**kwargs)
 
+    elif name == "act_prm_with_base_env":
+        if is_async:
+            from .act_prm import AsyncActPrmEnvWithBaseEnv
+            return AsyncActPrmEnvWithBaseEnv(**kwargs)
+        else:
+            raise NotImplementedError(
+                f"Sorry, synchronous version of '{name}' not implemented yet."
+            )
+
     elif name == "textworld":
         if is_async:
             from .textworld import AsyncTextWorldEnv

@@ -15,6 +15,8 @@ class StateActionSample(BaseModel):
     """
     state_action_tokens: list[int]
     state_len: int
+    state: list[dict[str, Any]] | None = None
+    action: dict[str, Any] | None = None
     
     return_: float = 1     # Somewhat dummy values for consistency with EpisodeStep
     advantage: float = 1   # and Trajectory computations, but also indicates training

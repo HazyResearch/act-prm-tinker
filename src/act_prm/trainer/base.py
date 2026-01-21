@@ -72,7 +72,7 @@ class BaseTrainer(ABC):
         """
         Get a (partially initialized) TinkerGenerator constructor by name
         """
-        return get_generator_constructor(**kwargs, ml_logger=self.ml_logger)
+        return get_generator_constructor(**kwargs, ml_logger=self.ml_logger, cfg=self.cfg)
 
     @abstractmethod
     async def train(

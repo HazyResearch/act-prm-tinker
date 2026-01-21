@@ -259,7 +259,10 @@ async def run_rollouts(
                 )
                 for sample_idx in range(start_idx, start_idx + batch_size)  
             ),
-            desc=f"Generating {batch_size} rollouts ({split} split)",
+            desc=(
+                f"Generating {batch_size * num_return_sequences} {split.upper()} rollouts"
+                f" ({batch_size} tasks, {num_return_sequences} rollouts per task)"
+            ),
             colour="cyan" if split == "train" else "magenta",
         )
         # Save metrics and samples

@@ -70,6 +70,7 @@ class TextWorldState(EnvironmentState):
     tools: list[dict[str, Any]]
     action_trajectory: list[str]  # list of TextWorld actions that lead to success
     last_action_text: str  # TextWorld action representation for the last action
+    original_system_prompt: str | None = None
     
     # TextWorld shared GameState attributes
     tw_feedback: str
@@ -200,10 +201,11 @@ class TextWorldEnv(Environment):
             f"\n-> number of available '{self.task}' tasks: {num_tasks}"
         )
 
-    def _build_system_prompt(self) -> str:
+    def _build_system_prompt(self, system_prompt: str | None = None) -> str:
         # put task instructions into system prompt to keep user obs clean
+        system_prompt = system_prompt or self.system_prompt
         instr = get_instruction_prompt(self.task, max_turns=self.max_turns)
-        return f"{self.system_prompt}\n\n{instr}"
+        return f"{system_prompt}\n\n{instr}"
 
     def _key(self, key: str, key_map: dict[str, str] | None = None) -> str:
         """
@@ -408,7 +410,7 @@ class TextWorldEnv(Environment):
 
         # Update timesteps, fail if too many turns
         timestep = timestep + 1
-        if timestep >= self.max_turns:
+        if timestep >= self.max_turns + 1:  # some leeway?
             truncated = True
             done = True
             env_messages.append({"role": "user", "content": self.truncation_message})

@@ -26,7 +26,7 @@ class Environment(ABC):
 
     def __init__(
         self,
-        max_turns: int = 10000,
+        max_turns: int | None = None,
         num_tries: int = 1,
         tool_role: str = "tool",
         truncation_message: str = DEFAULT_TRUNCATION_TEMPLATE,

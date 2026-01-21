@@ -56,7 +56,11 @@ def get_args() -> argparse.Namespace:
             "(but we use different splits for evaluation, i.e., from the 'eval' split)"
         )
     )
-    parser.add_argument( "--rl_env_config", type=str, help="RL environment config; ditto")
+    parser.add_argument(
+        "--base_env_config",
+        type=str,
+        help="For ActPrmEnvWithBaseEnv, the environment we use for taking given actions",
+    )
     parser.add_argument(
         "--best_metric",
         type=str,
@@ -171,6 +175,7 @@ def get_args() -> argparse.Namespace:
     ## Miscellaneous
     parser.add_argument("--eval_every", type=int, help="Iters to evaluate, 0 = disabled")
     parser.add_argument("--save_every", type=int, help="Iters to save checkpoint, 0 = disabled")
+    parser.add_argument("--save_rollouts_every", type=int, help="Iters to save rollouts, 0 = disabled")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--replicate", type=str, default="0", help="Unique identifier for run")
     parser.add_argument("--verbose", action="store_true", default=False, help="Extra details")
@@ -193,6 +198,7 @@ def get_args() -> argparse.Namespace:
 
     # Get run (i.e., experiment) name
     _ignore_args = ["base_url", "log_path", "project_name", "verbose"]
+    _ignore_args.extend([argn for argn in vars(args).keys() if argn.endswith("_every")])
     args.run_name = get_run_name(args, prefix=args.project_name, ignore_args=_ignore_args)
     logger.info("Run name: %s", args.run_name)
 

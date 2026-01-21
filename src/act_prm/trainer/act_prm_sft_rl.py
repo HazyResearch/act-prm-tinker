@@ -42,10 +42,11 @@ from transformers import PreTrainedTokenizerBase
 from ..environments import Environment, EnvironmentState
 from ..environments.act_prm import ActPrmEnv
 from ..generator.tinker import TinkerGenerator
+from ..llm_handlers.action_utils import get_actions
 from ..replay_buffer import ReplayBuffer
 from ..replay_buffer.types import StateActionSample, Trajectory
 
-from .rl import RLTrainer
+from .rl import RLTrainer, _save_trajectories_to_hf_dataset
 from .tinker.utils import (
     gather_with_progress,
     save_checkpoint_and_get_sampling_client,
@@ -185,7 +186,7 @@ class ActPrmSftRlTrainer(RLTrainer):
                     save_env=env,  # We save rollouts from training env
                     save_name_or_identifier="Stage 1: SFT Generation with Act-PRM LLM",
                     trajectory_key="thought_action_policy",
-                    dataset_prefix="mzio/aprm_sft_thought_action_rollouts",
+                    dataset_prefix="mzio/aprm-sft_genthinkact",
                     dataset_suffix="-ap1",
                 )
                 # Get best action-prompted sampling client
@@ -216,6 +217,7 @@ class ActPrmSftRlTrainer(RLTrainer):
         else:
             logger.info("** Stage 1: No action-prompted rollouts -> Using saved trajectories for SFT **")
             env.split = "train"
+            env.default_context = []  # no few-shot
             # "Sample rollouts" from env samples
             # num_sft_gen_batches = min(len(env) // cfg.batch_size, 1)
             states: list[EnvironmentState] = await gather_with_progress(
@@ -223,24 +225,57 @@ class ActPrmSftRlTrainer(RLTrainer):
                     env.reset_async(sample_idx=idx, batch_idx=0)
                     for idx in range(len(env))
                 ],
-                desc="Collecting SFT training data from observations",
+                desc="Initializing states for SFT training data from observations",
                 colour="blue",
             )
-            all_trajectories_per_env: list[list[Trajectory]] = [
-                self.get_trajectory_from_messages(
-                    messages=state.action_trajectory,
-                    hf_tokenizer=hf_tokenizer,
-                    system_prompt={"role": "system", "content": state.system_prompt},
-                    tools=state.tools,
-                )
-                for state in states
-            ]
+            # all_trajectories_per_env: list[list[Trajectory]] = [
+            #     self.get_trajectory_from_messages(
+            #         messages=state.action_trajectory,
+            #         hf_tokenizer=hf_tokenizer,
+            #         system_prompt={"role": "system", "content": state.system_prompt},
+            #         tools=state.tools,
+            #     )
+            #     for state in states
+            # ]
+            # hack
+            # eval_env.split = "train"
+            all_trajectories_per_env: list[list[Trajectory]] = await gather_with_progress(
+                [
+                    self.get_trajectory_from_actions_and_env(
+                        state=state,
+                        env=env,
+                        hf_tokenizer=hf_tokenizer,
+                    )
+                    for state in states
+                ],
+                desc="Collecting SFT training data from actions and environment",
+                colour="blue",
+            )
             # To match amount of data to take num_substeps over, account for only having
             # 1 rollout per task
             sft_group_size = cfg.group_size * cfg.batch_size
             # long_trajs = [traj for group in all_trajectories_per_env for traj in group if len(traj.episode_steps) > 2]
             # rich_print(hf_tokenizer.decode(long_trajs[0].episode_steps[-1].state_action_tokens))
             # breakpoint()
+            # all_trajectories_per_group = [group[1][trajectory_key] for group in all_trajectories_per_group]
+            # Save thought-action rollouts so far to a HF Dataset and push to hub
+            # -> Then can evaluate by seeing how training another LLM from scratch performs
+            # -> Will overwrite existing dataset if it already exists (e.g., to hit total samples)
+            
+            dataset_prefix: str = "mzio/aprm-sft_act_only"
+            ds_identifier = "-".join([
+                f"{delim[:2].upper()}{self.run_name.split(delim)[-1].split("-")[0]}"
+                for delim in ["enco=", "geco=", "se=", "re="]  # env, generator, seed, replicate
+            ])
+            ds_name = f"{dataset_prefix}-{ds_identifier}"
+            try:
+                _trajectories = [traj[0] for traj in all_trajectories_per_env]
+                _save_trajectories_to_hf_dataset(_trajectories, ds_name)
+                _url = f"https://huggingface.co/datasets/{ds_name}"
+                logger.info("Saved trajectories to HF Dataset: %s", _url)
+            except Exception as e:
+                _error_text = f"({type(e).__name__}: {e})"
+                logger.error("Failed to save trajectories to HF Dataset: %s", _error_text)
 
         # ------------------------------------------------------------------------------
         # Second stage of training (SFT new policy LLM with the thought-action rollouts)
@@ -613,10 +648,10 @@ class ActPrmSftRlTrainer(RLTrainer):
         -> But we hide prior observations (user_message) if self.hide_observations is True
         """
         hf_tokenizer = hf_tokenizer or self.hf_tokenizer
-
-        episode_steps: list[StateActionSample] = []
         _tokenize_kwargs = {"enable_thinking": False, "tokenize": True, "tools": tools}
 
+        episode_steps: list[StateActionSample] = []
+        
         # Add system prompt to messages
         if messages[0]["role"] != "system":
             assert system_prompt is not None, (
@@ -653,3 +688,99 @@ class ActPrmSftRlTrainer(RLTrainer):
             final_reward=1.0,
         )
         return [trajectory]
+
+    async def get_trajectory_from_actions_and_env(
+        self,
+        state: EnvironmentState,
+        env: Environment,
+        hf_tokenizer: PreTrainedTokenizerBase | None = None,
+    ) -> list[Trajectory]:
+        """
+        Return singleton of a Trajectory where trajectory.episode_steps is a list 
+        of StateActionSample (See replay_buffer.types)
+        """
+        hf_tokenizer = hf_tokenizer or self.hf_tokenizer
+
+        system_prompt = state.system_prompt
+        
+        # messages = state.new_messages
+        # messages = [{"role": "system", "content": system_prompt}] + messages
+        action_trajectory = state.action_trajectory
+        tools = state.tools
+
+        episode_steps: list[StateActionSample] = []
+        _tokenize_kwargs = {"enable_thinking": False, "tokenize": True, "tools": tools}
+
+        for action_idx, action in enumerate(action_trajectory):
+            messages = (
+                (state.prior_messages or []) 
+                + (state.model_response or [])
+                + state.new_messages
+            )
+            # Additional preprocessing into {"role": <role>, "content": <content>} format
+            # -> See `act_prm.environments` classes for environment responses
+            messages = [
+                {"role": msg["role"], "content": msg["output"]}
+                if msg.get("type", "") == "function_call_output"
+                else msg
+                for msg in messages                                                                                                         
+            ] # Remove system prompt (will add it back after default context)
+            if messages[0].get("role", "") == "system":
+                messages = messages[1:]
+            # Return final messages list
+            messages = [
+                {"role": "system", "content": state.base_env_state.system_prompt},
+                *messages,
+            ]
+            # if isinstance(action, str):
+            #     model_message = [{"role": "assistant", "content": action}]
+            # else:
+            #     model_message = [action]
+            model_message = [{"role": "assistant", "content": ""}]  # thoughts
+            parsed_actions = get_actions(model_message)
+            env_step_result = await env.step_async(
+                parsed_actions=parsed_actions,
+                # model_response=model_message,
+                current_state=state,
+                current_messages=messages,
+            )
+            state = env_step_result.state
+            # Update messages
+
+            # try:
+            #     step_messages = self.maybe_hide_observations(messages + model_message)
+            # except Exception as e:
+            #     print(messages, type(messages))
+            #     print(model_message, type(model_message))
+            #     breakpoint()
+            step_messages = messages
+            state_action_input_ids = hf_tokenizer.apply_chat_template(
+                step_messages,
+                add_generation_prompt=False,
+                **_tokenize_kwargs,
+            )
+            state_len = len(hf_tokenizer.apply_chat_template(
+                step_messages[:-1],
+                add_generation_prompt=True,
+                **_tokenize_kwargs,
+            ))
+            episode_steps.append(
+                StateActionSample(  # simplified version of EpisodeStep
+                    state_action_tokens=state_action_input_ids,
+                    state_len=state_len,
+                    state=step_messages[:-1],
+                    action=step_messages[-1],
+                )
+            )
+            # # Proceed to next step
+            # messages = step_messages[:-1]
+            
+        
+        trajectory = Trajectory(
+            episode_steps=episode_steps,
+            try_step=0,           # below are dummy values for SFT
+            discount_factor=1.0,
+            final_reward=1.0,
+        )
+        return [trajectory]
+    

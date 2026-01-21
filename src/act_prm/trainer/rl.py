@@ -201,14 +201,14 @@ class RLTrainer(BaseTrainer):
                             self.best_replay_buffer_path
                         )
 
-                # Generate and save trajectories to a HF Dataset
-                _save_rollouts_every = cfg.get("save_rollouts_every", -1)
-                if _save_rollouts_every > 0 and (batch_idx + 1) % _save_rollouts_every == 0:
-                    await self.generate_and_save_trajectories(
-                        cfg=cfg,
-                        save_batch_idx=batch_idx,
-                        **generate_and_save_trajectories_kwargs,
-                    )
+            # Generate and save trajectories to a HF Dataset
+            _save_rollouts_every = cfg.get("save_rollouts_every", end_batch)
+            if _save_rollouts_every > 0 and (batch_idx + 1) % _save_rollouts_every == 0:
+                await self.generate_and_save_trajectories(
+                    cfg=cfg,
+                    save_batch_idx=batch_idx,
+                    **generate_and_save_trajectories_kwargs,
+                )
 
             # 1. Sample rollouts for training
             env.split = "train"
@@ -350,7 +350,7 @@ class RLTrainer(BaseTrainer):
         hf_tokenizer: PreTrainedTokenizerBase | None = None,
         save_name_or_identifier: str | None = None,
         trajectory_key: str = "policy",
-        dataset_prefix: str = "mzio/aprm_sft_rollouts",
+        dataset_prefix: str = "mzio/aprm-sft_rollouts",
         dataset_suffix: str = "",
     ) -> list[list[Trajectory]]:
         """
@@ -395,13 +395,16 @@ class RLTrainer(BaseTrainer):
             f"{delim[:2].upper()}{self.run_name.split(delim)[-1].split("-")[0]}"
             for delim in ["enco=", "geco=", "se=", "re="]  # env, generator, seed, replicate
         ])
-        ds_name = f"{dataset_prefix}-{ds_identifier}{dataset_suffix}_{save_batch_idx:04d}"
+        ds_name = f"{dataset_prefix}-{ds_identifier}{dataset_suffix}-b{save_batch_idx:04d}"
+        cfg.dataset_url_sft = f"https://huggingface.co/datasets/{ds_name}"
         try:
             _trajectories = [traj for group in all_trajectories_per_group for traj in group]
             _save_trajectories_to_hf_dataset(_trajectories, ds_name)
-            logger.info("Saved trajectories to HF Dataset: %s", ds_name)
+            # logger.info("Saved trajectories to HF Dataset: %s", ds_name)
+            logger.info("Saved trajectories to HF Dataset: %s", cfg.dataset_url_sft)
         except Exception as e:
             _error_text = f"({type(e).__name__}: {e})"
             logger.error("Failed to save trajectories to HF Dataset: %s", _error_text)
+            breakpoint()
 
         return all_trajectories_per_group

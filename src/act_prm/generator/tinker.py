@@ -13,6 +13,7 @@ import sys
 from copy import copy
 from typing import Any
 
+from omegaconf import DictConfig
 from tinker.types import ModelInput
 from tinker_cookbook.utils import ml_log
 from transformers import PreTrainedTokenizerBase
@@ -46,6 +47,7 @@ class TinkerGenerator:
         verbose: bool = False,
         ml_logger: ml_log.Logger | None = None,
         name_or_identifier: str | None = None,
+        cfg: DictConfig | None = None,  # access to training configs
     ) -> None:
         self.llm = llm
         self.env = env
@@ -58,6 +60,7 @@ class TinkerGenerator:
         self.run_url = ml_logger.get_logger_url() if ml_logger is not None else None
         self.cmd_str = f"uv run python main.py {" ".join(sys.argv[1:])}"
         self.name_or_identifier = name_or_identifier
+        self.cfg = cfg
 
     def _get_trajectory_group(self, **kwargs: Any) -> TrajectoryGroup:
         """
@@ -164,9 +167,7 @@ class TinkerGenerator:
                 logger.warning("No valid response, ending rollout")
                 done = True
                 truncated = True
-                # exit while loop
-                break
-
+                break  # Exit while loop
 
             # print(hf_tokenizer.decode(input_ids))
             # breakpoint()
@@ -242,6 +243,10 @@ class TinkerGenerator:
                 if self.name_or_identifier:
                     panel_content.append(
                         f"Name/ID: [bright_yellow]{self.name_or_identifier}[/bright_yellow]"
+                    )
+                if self.cfg.get("dataset_url_sft", None) is not None:
+                    panel_content.append(
+                        f"SFT url: [blue1]{self.cfg.dataset_url_sft}[/blue1]"
                     )
                 panel_content = "\n".join(panel_content)
                 self.display_state_action_next_obs(  # slightly coded for Qwen models for now

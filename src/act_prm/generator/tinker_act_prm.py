@@ -7,7 +7,7 @@ from copy import deepcopy
 from typing import Any, Literal
 
 import numpy as np
-from rich import print as rich_print
+# from rich import print as rich_print
 from tinker import SamplingClient
 from tinker.types import ModelInput
 from transformers import PreTrainedTokenizerBase
@@ -18,9 +18,7 @@ from ..environments.types import EnvironmentStepResult
 from ..llm_handlers.action_utils import get_actions
 from ..llm_handlers.tinker import TinkerCompleter, TokensWithLogprobsAndText
 from ..llm_handlers.types import ActionFromLLM
-from ..replay_buffer.types import (
-    EpisodeStep, Trajectory, TrajectoryGroup, MeanCenteredTrajectoryGroup,
-)
+from ..replay_buffer.types import EpisodeStep, Trajectory, TrajectoryGroup
 from ..trainer.tinker.utils import gather_with_progress
 
 from .tinker import TinkerGenerator
@@ -370,6 +368,10 @@ class TinkerActPrmGenerator(TinkerGenerator):
                     if self.name_or_identifier:
                         panel_content.append(
                             f"Name/ID: [bright_yellow]{self.name_or_identifier}[/bright_yellow]"
+                        )
+                    if self.cfg.get("dataset_url_sft", None) is not None:
+                        panel_content.append(
+                            f"SFT url: [blue1]{self.cfg.dataset_url_sft}[/blue1]"
                         )
                     panel_content = "\n".join(panel_content)
                     self.display_state_action_next_obs(
