@@ -238,7 +238,8 @@ async def run_rollouts(
     all_eval_metrics = {}
     keys_for_correct = []
     eval_metric_keys = [
-        "final_reward", "first_return", "timesteps", "correct", "total",
+        "final_reward", "first_return", "action_prob", "last_state_len",
+        "timesteps", "correct", "total",
     ]
 
     # Store new trajectories to return

@@ -133,6 +133,11 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
             ]
 
             # ---------- Save episode steps for each generation ----------
+            reward = self._compute_group_rewards(
+                rewards_in_group=group_metrics["target_action_probs"],
+                split=split,
+            )[0]
+            
             shared_kwargs = {
                 "next_obs": next_obs,
                 "tools": state.tools,
@@ -146,13 +151,11 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
                 "unique_data_sample_id": unique_data_sample_id,
                 "generation_id": generation_id,
                 "split": split,
+                # NOTE MZ 1/20/2026: Check if we save per-step action probs in WandB
+                "action_prob": group_metrics["target_action_probs"][0],
             }
 
             # 1. Get state-thought-action artifacts (for SFT; thought_action_policy)
-            reward += self._compute_group_rewards(
-                rewards_in_group=group_metrics["target_action_probs"],
-                split=split,
-            )[0]
             thought_action_messages = group_metrics["thought_action_messages"][0]
             state_action_tokens = group_metrics["state_thought_action_tokens"][0]
             thought_action_logps = group_metrics["action_logprobs"][0]

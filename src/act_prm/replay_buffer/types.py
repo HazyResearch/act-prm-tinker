@@ -22,6 +22,8 @@ class StateActionSample(BaseModel):
     advantage_is_computed: bool = True
     constant_reward_group: bool = False
 
+    action_prob: float = 0.0  # A bit hacky, but track this even for non Act-PRM samples
+
 
 class EpisodeStep(BaseModel):
     """
@@ -55,6 +57,7 @@ class EpisodeStep(BaseModel):
     constant_reward_group: bool = False
 
     tools: list[dict[str, Any]] | None = None
+    action_prob: float = 0.0  # A bit hacky, but track this even for non Act-PRM samples
 
 
 class Trajectory():
@@ -79,6 +82,10 @@ class Trajectory():
         self.returns = self.compute_returns()
         self.first_return = self.returns[0]
         self.correct = self.final_reward == 1  # heuristic for accuracy evals
+
+        self.last_state_len = episode_steps[-1].state_len
+        # A bit hacky, but track this even for non Act-PRM samples
+        self.action_prob = episode_steps[-1].action_prob
 
     def __len__(self) -> int:
         return len(self.episode_steps)

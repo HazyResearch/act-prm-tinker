@@ -432,6 +432,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
                 state_action_tokens_in_group=group_metrics["state_thought_action_tokens"],
                 old_logprobs_in_group=group_metrics["action_logprobs"],
                 rewards_in_group=rewards_in_group,
+                action_probs_in_group=group_metrics["target_action_probs"],
                 generation_ids_in_group=range(num_return_sequences),
                 **shared_kwargs,
             )
@@ -451,6 +452,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
         state_action_tokens_in_group: list[list[int]],
         old_logprobs_in_group: list[list[float]],
         rewards_in_group: list[float],
+        action_probs_in_group: list[float],
         generation_ids_in_group: list[int],
         try_step: int,
         **shared_kwargs: Any,
@@ -466,6 +468,7 @@ class TinkerActPrmGenerator(TinkerGenerator):
                 state_len=state_len,
                 old_logprobs=old_logprobs_in_group[i],
                 reward=rewards_in_group[i],
+                action_prob=action_probs_in_group[i],
                 generation_id=generation_ids_in_group[i],
                 try_step=try_step,
                 **shared_kwargs,

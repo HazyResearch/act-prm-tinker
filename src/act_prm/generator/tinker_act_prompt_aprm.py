@@ -335,6 +335,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 state_action_tokens_in_group=group_metrics["state_thought_action_tokens"],
                 old_logprobs_in_group=group_metrics["action_logprobs"],
                 rewards_in_group=rewards_in_group,
+                action_probs_in_group=group_metrics["target_action_probs"],
                 generation_ids_in_group=valid_response_indices,
                 **shared_kwargs,
             )
