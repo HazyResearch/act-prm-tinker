@@ -425,7 +425,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                         )
                     if self.cfg.get("dataset_url_sft", None) is not None:
                         panel_content.append(
-                            f"SFT url: [blue1]{self.cfg.dataset_url_sft}[/blue1]"
+                            f"SFT url: [cyan]{self.cfg.dataset_url_sft}[/cyan]"
                         )
                     panel_content = "\n".join(panel_content)
                     self.display_state_action_next_obs(
