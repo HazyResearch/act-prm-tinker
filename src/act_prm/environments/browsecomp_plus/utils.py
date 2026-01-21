@@ -164,6 +164,7 @@ def render_prompt(
         " Otherwise, you'll most likely fail."
         " Once you have found the answer, provide your final answer as a concise sentence,"
         " in the following format: 'Final Answer: <put your answer here>'."
+        "\n\nAfter each tool call, you should reflect on the results. Then, either call another tool or answer the question."
     )
     # We initialize without search results, so just show initial instruction prompt
     if search_results is None:

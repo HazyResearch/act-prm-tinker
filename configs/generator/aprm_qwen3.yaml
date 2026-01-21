@@ -1,0 +1,12 @@
+# Act-PRM Tinker Generator for Qwen3 LLMs
+name: "act_prm"
+reward_method: "em"
+discount_factor: 1.0
+mean_center: false
+verbose: false
+
+action_bos: "<tool_call>"
+action_eos: "</tool_call>"
+thought_bos: "<thought>"
+thought_eos: "</thought>"
+final_answer_bos: "Final Answer: "

@@ -238,15 +238,17 @@ class OpenAIResponsesLLM(LLM):
                     try:
                         name_str = output.name
                     except Exception as name_e:
-                        print(f"Name Exception: {name_e}")
+                        _error_class = type(name_e).__name__
+                        print(f"Name Exception: {_error_class}: {name_e}")
                         name_str = "invalid_tool_call"
-                        name_error = str(name_e)
+                        name_error = f"Name Exception: ({_error_class}: {name_e})"
                     try:
                         arguments_str = json.loads(output.arguments)
                     except Exception as arguments_e:
-                        print(f"Arguments Exception: {arguments_e}")
+                        _error_class = type(arguments_e).__name__
+                        print(f"Arguments Exception: {_error_class}: {arguments_e}")
                         arguments_str = output.arguments
-                        arguments_error = str(arguments_e)
+                        arguments_error = f"Arguments Exception: ({_error_class}: {arguments_e})"
                     text_repr = json.dumps(
                         {"name": name_str, "arguments": arguments_str}
                     )
@@ -289,8 +291,9 @@ class OpenAIResponsesLLM(LLM):
                             )
                         )
                 except Exception as e:
+                    _error_class = type(e).__name__
                     print("-> Error with OpenAIResponsesLLM.get_actions:")
-                    print(f"  -> output.type: {output.type}\n  -> error: {e}")
+                    print(f"  -> output.type: {output.type}\n  -> error: {_error_class}: {e}")
             else:
                 raise ValueError(f"Unknown output type: {output.type}")
         return action_list

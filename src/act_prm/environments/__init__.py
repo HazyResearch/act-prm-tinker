@@ -12,8 +12,32 @@ def get_env(name: str, is_async: bool = False, **kwargs: Any) -> Environment:
     """
     Get environment based on name
     """
-    if name == "hotpotqa_mc":
+    if name == "act_prm":
+        if is_async:
+            from .act_prm import AsyncActPrmEnv
+            return AsyncActPrmEnv(**kwargs)
+        else:
+            from .act_prm import ActPrmEnv
+            return ActPrmEnv(**kwargs)
 
+    elif name == "act_prm_with_base_env":
+        if is_async:
+            from .act_prm import AsyncActPrmEnvWithBaseEnv
+            return AsyncActPrmEnvWithBaseEnv(**kwargs)
+        else:
+            raise NotImplementedError(
+                f"Sorry, synchronous version of '{name}' not implemented yet."
+            )
+
+    elif name == "textworld":
+        if is_async:
+            from .textworld import AsyncTextWorldEnv
+            return AsyncTextWorldEnv(**kwargs)
+        else:
+            from .textworld import TextWorldEnv
+            return TextWorldEnv(**kwargs)
+
+    elif name == "hotpotqa_mc":
         if is_async:
             from .hotpotqa_mc import AsyncHotpotQAMultipleChoiceEnv
             return AsyncHotpotQAMultipleChoiceEnv(**kwargs)

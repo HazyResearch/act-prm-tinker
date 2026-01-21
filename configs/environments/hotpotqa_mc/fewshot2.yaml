@@ -7,14 +7,20 @@ dataset_config:
 
 qa_are_generated: false
 ambiguous_titles: false
+actions_only: false
 next_obs_feedback: false
 num_fewshot_prompts: 2
+
+hide_observations: false
+hidden_obs_content: "..."  # or "<output omitted for brevity>"
+first_obs_to_show: 1       # e.g, to keep prompt
+last_obs_to_show: 0        # >= 2 to keep more than the last observation
 
 num_train_samples: 1000
 num_val_samples: 64
 num_test_samples: 100
 
-max_turns: 20
+max_turns: 10
 num_tries: 1
 seed: 0
 split: "train"

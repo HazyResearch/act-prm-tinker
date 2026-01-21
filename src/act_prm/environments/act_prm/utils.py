@@ -2,12 +2,15 @@
 Helper functions for processing Act-PRM samples
 """
 
+import logging
 from copy import copy
 from functools import partial
 from typing import Any
 
 from datasets import Dataset
 from tqdm import tqdm
+
+logger = logging.getLogger(__name__)
 
 
 def get_thought_and_actions(
@@ -155,42 +158,48 @@ def get_chat_from_ds_sample(
     return chat, (reward, return_)
 
 
-def get_action_only_trajectories_from_dataset(
+def get_full_trajectories_from_dataset(
     ds: Dataset,
+    actions_only: bool = True,
     **get_thought_and_actions_kwargs: Any,
-) -> list[list[dict[str, Any]]]:
+) -> list[list[dict[str, Any]], list[dict[str, Any]]]:
     """
-    Get full action-only trajectories from Dataset, where each trajectory is a list of messages
+    Get full action-only trajectories from Dataset, 
+    where each trajectory is a tuple of (list of messages, list of tools)
     """
-    full_trajectory_samples = ds.filter(lambda x: x["reward"] != 0)  # only last step reward != 0
+    # full_trajectory_samples = ds.filter(lambda x: x["reward"] != 0)  # only last step reward != 0
+    full_trajectory_samples = ds.filter(lambda x: x["done"])
     
     all_trajectories = []
     for last_step_sample in tqdm(full_trajectory_samples):
         # Parse Dataset sample into message chat
         last_step_messages, _ = get_chat_from_ds_sample(last_step_sample)
-        # Get action-only messages
-        action_messages = [
-            # returns tuple of (thought_msgs, action_msgs)
-            get_thought_and_actions(msg, **get_thought_and_actions_kwargs)[1]
-            for msg in last_step_messages
-        ]
+        tools = last_step_sample.get("tools", [])  # assume tools are consistent for all steps
+        if actions_only:
+            messages = [
+                # returns tuple of (thought_msgs, action_msgs)
+                get_thought_and_actions(msg, **get_thought_and_actions_kwargs)[1]
+                for msg in last_step_messages
+            ]
+        else:  # Otherwise, assistant messages are the original messages
+            messages = last_step_messages
         # Remove system prompt in messages
-        if action_messages[0] is not None and action_messages[0]["role"] == "system":
-            action_messages = action_messages[1:]
+        if messages[0] is not None and messages[0]["role"] == "system":
+            messages = messages[1:]
         # Remove any invalid actions (will be None, also should remove the next-step-obs)
         invalid_act_next_obs_idx = [
-            i for i, msg in enumerate(action_messages) if msg is None
+            i for i, msg in enumerate(messages) if msg is None
         ]
         final_messages = []
         # Go through and remove any bad (action, next-obs) pairs
         bad_next_obs = False
-        for i, msg in enumerate(action_messages):
+        for i, msg in enumerate(messages):
             if i in invalid_act_next_obs_idx and not bad_next_obs:
                 bad_next_obs = True
             elif bad_next_obs:        # Don't add the next-obs,
                 bad_next_obs = False  # But reset the flag
             else:
                 final_messages.append(msg)
-        all_trajectories.append(final_messages)
+        all_trajectories.append((final_messages, tools))
 
     return all_trajectories

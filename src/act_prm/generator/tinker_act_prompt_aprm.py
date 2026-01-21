@@ -3,6 +3,7 @@ Tinker Generator with Action Process Reward Models
 """
 
 import asyncio
+import logging
 from copy import copy, deepcopy
 from typing import Any
 
@@ -16,13 +17,15 @@ from ..environments.types import EnvironmentStepResult
 from ..llm_handlers.action_utils import get_actions
 from ..llm_handlers.tinker import TinkerCompleter, TokensWithLogprobsAndText
 from ..llm_handlers.types import ActionFromLLM
-from ..replay_buffer.types import TrajectoryGroup, MeanCenteredTrajectoryGroup
+from ..replay_buffer.types import TrajectoryGroup
 
 from .tinker_act_prm import (
     compute_group_thought_action_metrics,
     process_state_messages_for_metrics,
     TinkerActPrmGenerator,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def get_thought_and_actions(
@@ -132,6 +135,9 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
     """
     Tinker Generator with Action Process Reward Models
     """
+    def __init__(self, keep_top_k: int | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.keep_top_k = keep_top_k
 
     def _get_thought_prompt(
         self,
@@ -223,7 +229,10 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             generation_idx=0,
             try_step=try_step,
         )
-        max_turns = len(state.assistant_indices)
+        try:
+            max_turns = len(state.assistant_indices)
+        except AttributeError:
+            max_turns = len(state.action_trajectory)
 
         done = False
         while not done:
@@ -241,49 +250,56 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                     temperature=temperature
                 ) for _ in range(num_return_sequences)
             ])
+            valid_response_indices = [
+                i for i, response in enumerate(responses_in_group) if response is not None
+            ]
+            responses_in_group = [responses_in_group[i] for i in valid_response_indices]
+
+            if len(responses_in_group) == 0:
+                logger.warning("No valid responses in group, skipping")
+                done = True
+                truncated = True
+                break
+            
             # Parse thoughts from responses
             thoughts_in_group: list[str] = [  # demonstrations may have <thought>...</thought>
                 self._parse_thoughts(response.text) for response in responses_in_group
             ]
             # Compute per-step rewards for each thought
-            # -> Get current state without last action
-            standard_chat = process_state_messages_for_metrics(state_messages, state.system_prompt)
+            # -> Get current state without last action, remove few-shot prompts
+            first_msg_to_show = getattr(state, "first_obs_to_show", 0) - 3
+            # ^-1 ActPRM environment previously counts system prompt as first message,
+            # but we apply after system_prompt in process_state_messages_for_metrics
+            standard_chat = process_state_messages_for_metrics(
+                state_messages,
+                system_prompt=getattr(env, "original_system_prompt", state.system_prompt),
+                first_msg_to_show=max(first_msg_to_show, 0)
+            )
             group_metrics = await compute_group_thought_action_metrics(
                 state_messages=standard_chat,
                 generated_thoughts=thoughts_in_group,
                 target_action=state.action_target,
-                system_prompt=state.system_prompt,
                 tools=state.tools,
                 hf_tokenizer=hf_tokenizer,
                 sampling_client=llm.sampling_client,
             )
             # Get artifacts for RL training
-            rewards_in_group = group_metrics["action_probs"]
+            rewards_in_group = self._compute_group_rewards(
+                rewards_in_group=group_metrics["target_action_probs"],
+                split=split,
+            )
             thought_action_messages = group_metrics["thought_action_messages"]
-            # Visualize generated thoughts
-            if self.verbose:
-                for i in range(num_return_sequences):
-                    header_text = (
-                        f"Batch {batch_id}, Try {try_step}, "
-                        f"Sample {unique_data_sample_id}, Generation {i}, "
-                        f"Step {state.timestep} / {max_turns - 1}, "
-                        f"Reward {rewards_in_group[i]:.4f}"
-                    )
-                    self.display_state_action_next_obs(
-                        state_messages=standard_chat,
-                        action_messages=thought_action_messages[i],
-                        next_obs_messages=[],
-                        hf_tokenizer=hf_tokenizer,
-                        tools=state.tools,
-                        header_text=header_text,
-                        generation_id=i,
-                    )
 
             # Pick the highest-reward thought to continue for the next step
-            best_thought_idx = np.argmax(rewards_in_group)
+            best_thought_idx = np.argmax(rewards_in_group).item()
             best_thought = thoughts_in_group[best_thought_idx]
             model_messages = [{"role": "assistant", "content": best_thought}]
-            parsed_actions: list[ActionFromLLM] = [get_actions(model_messages)]
+            parsed_actions: list[ActionFromLLM] = get_actions(model_messages)
+            try:
+                _action = parsed_actions[0]
+            except IndexError as e:
+                logger.error(f"IndexError: {e}")
+                breakpoint()
 
             env_step_result: EnvironmentStepResult = await env.step_async(
                 parsed_actions=parsed_actions,
@@ -313,6 +329,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 "batch_id": batch_id,
                 "unique_data_sample_id": unique_data_sample_id,
                 "split": split,
+                "action_probs_in_group": group_metrics["target_action_probs"],
             }
             # Save (state, thought, action) steps
             trajectory_group = self._get_trajectory_group_from_generations(
@@ -322,54 +339,63 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 state_action_tokens_in_group=group_metrics["state_thought_action_tokens"],
                 old_logprobs_in_group=group_metrics["action_logprobs"],
                 rewards_in_group=rewards_in_group,
-                generation_ids_in_group=range(num_return_sequences),
-                try_step=try_step,
+                generation_ids_in_group=valid_response_indices,
                 **shared_kwargs,
             )
+            if self.keep_top_k is not None:
+                trajectory_group.keep_top_k(self.keep_top_k)
             all_trajectory_groups.append(trajectory_group)
 
             # Save action-prompted (state, action, thought) steps            
             # 1. Get state-action-thought artifacts for RL training
             state_action_thought_messages_G = [
-                deepcopy(act_prompt_state_messages) for _ in range(num_return_sequences)
+                deepcopy(act_prompt_state_messages) for _ in range(len(responses_in_group))
             ]
-            state_action_thought_input_ids_G = []
+            state_action_thought_tokens_G = []
             for i, response in enumerate(responses_in_group):
                 state_action_thought_messages_G[i][-1]["content"] += response.text
-                state_action_thought_input_ids_G.append(
+                state_action_thought_tokens_G.append(
                     hf_tokenizer.apply_chat_template(
                         state_action_thought_messages_G[i],
                         add_generation_prompt=False,
                         tokenize=True,
-                        tools=state.tools,
+                        # tools=state.tools, # no tools for action-prompted generation
                     )
                 )
             action_token_lens_G = [
-                len(state_action_thought_input_ids_G[i]) - len(input_ids)
-                for i in range(num_return_sequences)
+                len(state_action_thought_tokens_G[i]) - len(input_ids)
+                for i in range(len(responses_in_group))
             ]
             state_action_thought_tinker_input_G = [
-                ModelInput.from_ints(input_ids) for input_ids in state_action_thought_input_ids_G
+                ModelInput.from_ints(_tokens) for _tokens in state_action_thought_tokens_G
             ]
             logprobs_G = await asyncio.gather(*[
-                llm.compute_logprobs_async(tinker_input)[-action_token_lens_G[i]:]
-                for i, tinker_input in enumerate(state_action_thought_tinker_input_G)
+                llm.compute_logprobs_async(_tinker_input)
+                for _tinker_input in state_action_thought_tinker_input_G
             ])
+            logprobs_G = [logprobs[-action_token_lens_G[i]:] for i, logprobs in enumerate(logprobs_G)]
             actions_in_group = [
-                {"role": "assistant", "content": responses_in_group[i].text}
-                for i in range(num_return_sequences)
+                {"role": "assistant", "content": response.text}
+                for response in responses_in_group
             ]
+            # for _ix, _msg in enumerate(act_prompt_state_messages):
+            #     print(f"act_prompt_state_messages[{_ix}]: {_msg}")
+            # logger.warning(
+            #     "self.hf_tokenizer.decode(state_action_thought_tokens_G[0][-action_token_lens_G[0]:]):"
+            #     f"{self.hf_tokenizer.decode(state_action_thought_tokens_G[0][-action_token_lens_G[0]:])}"
+            # )
+            # breakpoint()
             
             # 2. Actually save state-action-thought steps to a TrajectoryGroup
             act_prompt_trajectory_group = self._get_trajectory_group_from_generations(
                 state_messages=act_prompt_state_messages,
                 actions_in_group=actions_in_group,  # list[dict[str, str]]
-                state_len=group_metrics["state_len"][0],
-                state_action_tokens_in_group=state_action_thought_input_ids_G[i],
-                old_logprobs_in_group=logprobs_G[i],
+                # state_len=group_metrics["state_len"][0],
+                state_len=len(input_ids),
+                state_action_tokens_in_group=state_action_thought_tokens_G,
+                old_logprobs_in_group=logprobs_G,
                 rewards_in_group=rewards_in_group,
-                generation_ids_in_group=range(num_return_sequences),
-                try_step=try_step,
+                generation_ids_in_group=valid_response_indices,
                 **shared_kwargs,
             )
             all_act_prompt_trajectory_groups.append(act_prompt_trajectory_group)
@@ -378,7 +404,52 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             # Transition to next state
             state = next_state
 
+            # Visualize generated thoughts
+            if self.verbose:
+                for i in [best_thought_idx]:  # or range(num_return_sequences), but this is a lot
+                    header_text = (
+                        f"Batch {batch_id}, Split {split}, Try {try_step}, "
+                        f"Sample {unique_data_sample_id}, Generation {i}, "
+                        f"Step {state.timestep - 1} / {max_turns - 1}, "  # -1 bc just took a step
+                        f"Reward {rewards_in_group[i]:.4f}"
+                    )
+                    rewards_str = ", ".join([f"{r:.4f}" for r in sorted(rewards_in_group)[::-1]])
+                    panel_content = [
+                        f"Rewards: [bright_green][{rewards_str}][/bright_green]",
+                        f"Run url: [cyan]{self.run_url}[/cyan]",
+                        f"Run cmd: [bright_blue]{self.cmd_str}[/bright_blue]",
+                    ]
+                    if self.name_or_identifier:
+                        panel_content.append(
+                            f"Name/ID: [bright_yellow]{self.name_or_identifier}[/bright_yellow]"
+                        )
+                    if self.cfg.get("dataset_url_sft", None) is not None:
+                        panel_content.append(
+                            f"SFT url: [cyan]{self.cfg.dataset_url_sft}[/cyan]"
+                        )
+                    panel_content = "\n".join(panel_content)
+                    self.display_state_action_next_obs(
+                        state_messages=standard_chat,
+                        action_messages=thought_action_messages[i],
+                        next_obs_messages=[],
+                        hf_tokenizer=hf_tokenizer,
+                        tools=state.tools,
+                        header_text=f"SFT trajectory:\n{header_text}",
+                        panel_content=panel_content,
+                        generation_id=i,
+                    )
+                    self.display_state_action_next_obs(
+                        state_messages=act_prompt_state_messages,
+                        action_messages=model_messages,
+                        next_obs_messages=[],
+                        hf_tokenizer=hf_tokenizer,
+                        tools=state.tools,
+                        header_text=f"Action-prompt Completion:\n{header_text}",
+                        panel_content=panel_content,
+                        generation_id=i,
+                    )
+
         return {
-            "policy": all_trajectory_groups,
-            "act_prompt": all_act_prompt_trajectory_groups,
+            "policy": all_act_prompt_trajectory_groups, 
+            "thought_action_policy": all_trajectory_groups,
         }

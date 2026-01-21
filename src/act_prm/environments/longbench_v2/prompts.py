@@ -21,8 +21,11 @@ You are given a long document and some available tools. Your goal is to answer t
 '''
 ---
 
+## Tool Calls
+After each tool call, you should reflect on the results. Then, either call another tool or answer the question.
+
 ## Submission
-When you're ready to answer, put your response in the following format:
+When you're ready to answer, put your response as one letter in the following format:
 
 Final Answer: <your chosen answer letter (A, B, C, or D)>
 """

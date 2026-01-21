@@ -7,7 +7,7 @@ import logging
 import os
 from omegaconf import OmegaConf
 
-from .utils import get_run_name
+from .setup import get_run_name
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,9 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--project_name", type=str, default="act-prm-tinker")
 
     # Necessary arguments + configs (to load default args from)
-    parser.add_argument("--is_async", action="store_true", default=False, help="Use asynchronous environment")
+    parser.add_argument("--is_async", action="store_true", help="Use asynchronous environment")
+    parser.add_argument("--resume_run", action="store_true", default=False, help="Resume from checkpoint in log_path")
+    
     parser.add_argument("--env_config", type=str, help="Environment config to load default args")
     parser.add_argument("--generator_config", type=str, help="Generator config; ditto")
     parser.add_argument("--trainer_config", type=str, help="Trainer config; ditto")
@@ -30,6 +32,20 @@ def get_args() -> argparse.Namespace:
     ## Model (specified in trainer_config)
     parser.add_argument("--model_name", type=str)
     parser.add_argument("--lora_rank", type=int)
+
+    ## Environment
+    parser.add_argument(
+        "--actions_only",
+        action="store_true",
+        default=None,
+        help="If True, remove thoughts / reasoning traces from observed assistant messages",
+    )
+    parser.add_argument(
+        "--hide_observations",
+        action="store_true",
+        default=None,
+        help="If True, hide observations prior to the last one, e.g., for more 'human-like' context",
+    )
 
     ## Evaluation / Eval Environment
     parser.add_argument(
@@ -41,9 +57,13 @@ def get_args() -> argparse.Namespace:
         )
     )
     parser.add_argument(
+        "--base_env_config",
+        type=str,
+        help="For ActPrmEnvWithBaseEnv, the environment we use for taking given actions",
+    )
+    parser.add_argument(
         "--best_metric",
         type=str,
-        default="correct",
         help="Metric to save best checkpoints on",
     )
 
@@ -81,6 +101,19 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--temperature", type=float)
 
     ## Training Rollouts
+    parser.add_argument(
+        "--reward_method",
+        type=str,
+        default=None,
+        choices=["action_probs", "em"],
+        help="Method to compute rewards",
+    )
+    parser.add_argument(
+        "--mean_center",
+        action="store_true",
+        default=None,
+        help="Mean-center rewards",
+    )
     parser.add_argument("--discount_factor", type=float) 
     parser.add_argument(
         "--group_size",
@@ -90,7 +123,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--eval_group_size",
         type=int,
-        help="Group size for evaluation; will override if specified",
+        help="Group size for evaluation; will override if specified. Set >1 if we want error bars",
     )
     parser.add_argument(
         "--samples_per_task",
@@ -114,6 +147,7 @@ def get_args() -> argparse.Namespace:
     )
 
     ## Training Updates
+    parser.add_argument("--advantage_threshold", type=float)
     parser.add_argument("--learning_rate", type=float)
     parser.add_argument("--kl_penalty_coef", type=float)
     parser.add_argument("--kl_discount_factor", type=float)
@@ -141,6 +175,7 @@ def get_args() -> argparse.Namespace:
     ## Miscellaneous
     parser.add_argument("--eval_every", type=int, help="Iters to evaluate, 0 = disabled")
     parser.add_argument("--save_every", type=int, help="Iters to save checkpoint, 0 = disabled")
+    parser.add_argument("--save_rollouts_every", type=int, help="Iters to save rollouts, 0 = disabled")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--replicate", type=str, default="0", help="Unique identifier for run")
     parser.add_argument("--verbose", action="store_true", default=False, help="Extra details")
@@ -163,6 +198,7 @@ def get_args() -> argparse.Namespace:
 
     # Get run (i.e., experiment) name
     _ignore_args = ["base_url", "log_path", "project_name", "verbose"]
+    _ignore_args.extend([argn for argn in vars(args).keys() if argn.endswith("_every")])
     args.run_name = get_run_name(args, prefix=args.project_name, ignore_args=_ignore_args)
     logger.info("Run name: %s", args.run_name)
 
@@ -185,6 +221,11 @@ def get_args() -> argparse.Namespace:
             logger.info("Created %s at: %s", argname, getattr(args, argname))
         else:
             logger.info("Using %s at: %s", argname, getattr(args, argname))
+
+    # So Tinker doesn't load, delete checkpoints.jsonl at args.log_path if it exists
+    if not args.resume_run and os.path.exists(os.path.join(args.log_path, "checkpoints.jsonl")):
+        os.remove(os.path.join(args.log_path, "checkpoints.jsonl"))
+        logger.info("Deleted checkpoints.jsonl at: %s", os.path.join(args.log_path, "checkpoints.jsonl"))
 
     # Setup tinker-cookbook WandB logging
     args.wandb_project = args.project_name

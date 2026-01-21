@@ -2,10 +2,10 @@ name: "longbench_v2"
 is_async: false
 dataset_config:
   path: "zai-org/LongBench-v2"
-  cache_dir: "/scr/mzhang/data"
+  cache_dir: "/scr/mzhang/data/longbench_v2"
   split: "train"
 
-tokenizer_config:
+pretrained_model_config:
   pretrained_model_name_or_path: "Qwen/Qwen3-4B-Instruct-2507"
   cache_dir: "/scr/mzhang/models"
 
@@ -21,11 +21,16 @@ search_tool_config:
 doc_chunk_size: 2048
 doc_chunk_overlap: 256
 
+hide_observations: false
+hidden_obs_content: "..."  # or "<output omitted for brevity>"
+first_obs_to_show: 1       # e.g, to keep prompt, maybe should be 2?
+last_obs_to_show: 0        # >= 2 to keep more than the last observation
+
 num_train_samples: 400
 num_val_samples: 16
 num_test_samples: 60
 
-max_turns: 20
+max_turns: 50
 num_tries: 1
 seed: 0
 split: "train"

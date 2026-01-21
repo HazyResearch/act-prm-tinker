@@ -11,8 +11,7 @@ class ScrollUpTool(BaseTool):
     """
     Scroll up in the document context
     """
-    def __call__(
-        self,
+    def __call__(self,
         current_doc_id: int,
         all_doc_dicts: list[dict[str, Any]],
         **kwargs: Any,
@@ -79,6 +78,7 @@ class ScrollDownTool(BaseTool):
             if new_doc_dict["next_chunk_idx"] is not None:
                 result_str += " [...Scroll down for more]"
         else:
+            new_doc_dict = doc_dict
             result_str = "No next text available."
         return new_doc_dict, result_str
 

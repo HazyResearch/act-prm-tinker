@@ -36,8 +36,16 @@ def get_actions(
         if message.get("tool_calls", None) is not None:
             for tool_call in message["tool_calls"]:
                 output = tool_call["function"]
-                name = output.get("name", "invalid_tool_call")
+                # name = output.get("name", "invalid_tool_call")
+                name = output.get("name", None)
                 arguments = output.get(tool_call_argname, {})
+
+                # Error and edge-case handling
+                if name is None:
+                    name = json.dumps(output)
+                elif not isinstance(name, str):
+                    # name = "invalid_tool_call"
+                    name = str(name)
                 if not isinstance(arguments, dict):
                     arguments = {"arguments": json.dumps(arguments)}
                 elif len(arguments) == 0:
@@ -98,9 +106,9 @@ def get_messages_from_text(
                 else:
                     valid_tool_call = False
 
-    # Convert any text before to regular message
+    # Convert any text before first tool call to regular message
     message = text.split(tool_call_bos)[0].strip()
-    if len(message) > 0:
+    if len(message) > 0 or tool_call_bos not in text:  # 2nd case handles empty text
         messages.append({"role": "assistant", "content": message})
 
     if valid_tool_call:

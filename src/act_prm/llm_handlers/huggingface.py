@@ -128,11 +128,11 @@ class HuggingFaceLLM(LLM):
                 messages,
                 tools=tools,
                 add_generation_prompt=True,
+                # enable_thinking=True,
+                enable_thinking=False,
                 tokenize=True,
                 return_dict=True,
                 return_tensors="pt",
-                # enable_thinking=True,
-                enable_thinking=False,
             )
         else:
             og_padding_side = copy(self.tokenizer.padding_side)
@@ -143,8 +143,8 @@ class HuggingFaceLLM(LLM):
                     messages[_idx],
                     tools=_tools,
                     add_generation_prompt=True,
-                    tokenize=False,
                     enable_thinking=False,
+                    tokenize=False,
                 )
                 for _idx, _tools in enumerate(tools)
             ]

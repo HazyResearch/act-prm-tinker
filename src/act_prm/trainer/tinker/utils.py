@@ -90,23 +90,25 @@ async def gather_with_progress(
     return results
 
 
-# Copied from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L714
+# Modified from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L714
 async def save_checkpoint_and_get_sampling_client(
     training_client: tinker.TrainingClient,
     i_batch: int,
     log_path: str,
     save_every: int,
     start_batch: int = 0,
+    checkpoint_name: str | None = None,
 ) -> tuple[tinker.SamplingClient, dict[str, Any]]:
     """
     Save checkpoint and get sampling client
     """
     metrics = {}
+    name = f"{checkpoint_name}_{i_batch:06d}" if checkpoint_name else f"{i_batch:06d}"
     with timed("save_checkpoint", metrics):
         if save_every > 0 and i_batch > start_batch and i_batch % save_every == 0:
             path_dict = await checkpoint_utils.save_checkpoint_async(
                 training_client=training_client,
-                name=f"{i_batch:06d}",
+                name=name,
                 log_path=log_path,
                 loop_state={"batch": i_batch},
                 kind="both",

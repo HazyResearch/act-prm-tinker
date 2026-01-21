@@ -1,0 +1,49 @@
+# Default Policy Gradient training config
+trainer_name: sft
+
+model_name: "Qwen/Qwen3-4B-Instruct-2507"
+renderer_name: null
+stop_condition: null
+lora_rank: 32
+
+tool_call_kwargs:
+  tool_call_bos: "<tool_call>"
+  tool_call_eos: "</tool_call>"
+  tool_call_argname: "arguments"
+
+# Generation (Sampling Rollouts)
+num_batches: 1000
+num_tries: 1
+eval_num_tries: 1
+max_tokens: 1024
+temperature: 1.0
+
+batch_size: 16
+group_size: 8
+eval_group_size: 1
+
+# Training (Policy Updates)
+learning_rate: 4e-5
+discount_factor: 1.0
+loss_fn: "cross_entropy"
+num_substeps: 4
+mini_batch_size: null
+
+compute_post_kl: false
+kl_penalty_coef: 0.0
+kl_discount_factor: 0.0
+
+# Checkpointing
+eval_every: 3  # 8 * 16 = 128, batch_size 32 -> 4 substeps. 4 * 2.5 = 10 steps per eval
+save_every: 20
+best_metric: "final_reward"
+
+# Other miscellaneous
+base_url: null
+log_path: "./logs"
+load_checkpoint_path: null
+# Local parent dir for other checkpoints and data (e.g., replay buffer samples, etc.)
+checkpoint_path: "./checkpoints"
+
+wandb_project: null  # will set based on project_name
+wandb_name: null     # will set based on run name

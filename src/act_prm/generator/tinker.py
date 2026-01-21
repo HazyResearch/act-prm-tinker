@@ -8,9 +8,12 @@ Implements similar functions to the following Tinker Cookbook methods:
 """
 
 import asyncio
+import logging
+import sys
 from copy import copy
 from typing import Any
 
+from omegaconf import DictConfig
 from tinker.types import ModelInput
 from tinker_cookbook.utils import ml_log
 from transformers import PreTrainedTokenizerBase
@@ -26,6 +29,8 @@ from ..replay_buffer.types import (
 
 from .utils_display import display_state_action_next_obs
 
+logger = logging.getLogger(__name__)
+
 
 class TinkerGenerator:
     """
@@ -36,23 +41,37 @@ class TinkerGenerator:
         llm: TinkerCompleter,
         env: Environment,
         hf_tokenizer: PreTrainedTokenizerBase,
+        enable_thinking: bool | None = None,  # default to HF template, but often set to False 
         discount_factor: float = 0.9,
+        mean_center: bool = False,
         verbose: bool = False,
         ml_logger: ml_log.Logger | None = None,
+        name_or_identifier: str | None = None,
+        cfg: DictConfig | None = None,  # access to training configs
     ) -> None:
         self.llm = llm
         self.env = env
         self.hf_tokenizer = hf_tokenizer
-
+        self.enable_thinking = enable_thinking
+        
         self.discount_factor = discount_factor
+        self.mean_center = mean_center
         self.verbose = verbose
         self.run_url = ml_logger.get_logger_url() if ml_logger is not None else None
+        self.cmd_str = f"uv run python main.py {" ".join(sys.argv[1:])}"
+        self.name_or_identifier = name_or_identifier
+        self.cfg = cfg
 
     def _get_trajectory_group(self, **kwargs: Any) -> TrajectoryGroup:
         """
         Return trajectory group class
         - Override in subclasses, e.g., to return MeanCenteredTrajectoryGroup
         """
+        if self.mean_center:
+            # Returns trajectory group where we compute advantages by:
+            # 1. Computing mean-centered final rewards: final_reward - mean(final_rewards)
+            # 2. Optionally apply step-wise discounting to these values
+            return MeanCenteredTrajectoryGroup(**kwargs)
         return TrajectoryGroup(**kwargs)
 
     def _get_messages_from_state(
@@ -123,19 +142,33 @@ class TinkerGenerator:
         while not done:
             # Generate model responses and step through the environment
             state_messages: list[dict[str, Any]] = self._get_messages_from_state(state)
+
+            # NOTE: MZ 1/20/26: PDB debugging command for checking thinking vs no thinking prompt
+            # print(hf_tokenizer.apply_chat_template(state_messages, tools=state.tools, add_generation_prompt=True, enable_thinking=False, tokenize=False))
+            # For Qwen3:
+            # -> enable_thinking=False will lead to "...assistant\n<think>\n\n</think>\n\n'", as if the thinking already happend
+            # -> enable_thinking=True will lead to "...assistant\n", so the model will start with "<think>..." and think (as it was trained to do)
             input_ids: list[int] = hf_tokenizer.apply_chat_template(
                 state_messages,
-                add_generation_prompt=True,
-                tokenize=True,
                 tools=state.tools,
+                add_generation_prompt=True,
+                enable_thinking=self.enable_thinking,
+                tokenize=True,
             )
             tinker_input: ModelInput = ModelInput.from_ints(input_ids)
             # 1. Generate model responses (thoughts + actions)
-            response: TokensWithLogprobsAndText = await llm.generate(
+            # _response = await llm.generate(_tinker_input, max_tokens=max_tokens, temperature=temperature)
+            response: TokensWithLogprobsAndText | None = await llm.generate(
                 tinker_input,
                 max_tokens=max_tokens,
                 temperature=temperature,
             )
+            if response is None:
+                logger.warning("No valid response, ending rollout")
+                done = True
+                truncated = True
+                break  # Exit while loop
+
             # print(hf_tokenizer.decode(input_ids))
             # breakpoint()
             model_messages = [{"role": "assistant", "content": response.text}]
@@ -158,7 +191,7 @@ class TinkerGenerator:
                 parsed_actions=parsed_actions,
                 model_response=model_messages,
                 current_state=state,
-                # Set next_state.prior_messages to all messages
+                # Sets next_state.prior_messages to current state_messages
                 current_messages=state_messages,
             )
             next_state = env_step_result.state
@@ -178,10 +211,9 @@ class TinkerGenerator:
                 action=model_messages[0],  # parsed_actions,
                 next_obs=next_obs,
                 tools=state.tools,
-                state_len=len(input_ids),
                 state_action_tokens=state_action_input_ids,
-                # old_logprobs=response.logprobs,
-                old_logprobs=logprobs,
+                state_len=len(input_ids),
+                old_logprobs=logprobs,  # old_logprobs=response.logprobs,
                 temperature=temperature,
                 reward=reward,
                 done=done,
@@ -199,10 +231,24 @@ class TinkerGenerator:
             # If verbose, rich print the state and action
             if self.verbose:
                 _header_text = (
-                    f"Batch {batch_id}, Try {try_step}, "
+                    f"Batch {batch_id}, Split {split}, Try {try_step}, "
                     f"Sample {unique_data_sample_id}, Generation {generation_id}, "
                     f"Step {state.timestep} (Max {env.max_turns - 1})"
                 )
+                panel_content = [
+                    # f"Rewards: [bright_green][{rewards_str}][/bright_green]",
+                    f"Run url: [cyan]{self.run_url}[/cyan]",
+                    f"Run cmd: [bright_blue]{self.cmd_str}[/bright_blue]",
+                ]
+                if self.name_or_identifier:
+                    panel_content.append(
+                        f"Name/ID: [bright_yellow]{self.name_or_identifier}[/bright_yellow]"
+                    )
+                if self.cfg.get("dataset_url_sft", None) is not None:
+                    panel_content.append(
+                        f"SFT url: [cyan]{self.cfg.dataset_url_sft}[/cyan]"
+                    )
+                panel_content = "\n".join(panel_content)
                 self.display_state_action_next_obs(  # slightly coded for Qwen models for now
                     state_messages=state_messages,
                     action_messages=model_messages,
@@ -210,6 +256,7 @@ class TinkerGenerator:
                     hf_tokenizer=hf_tokenizer,
                     tools=state.tools,
                     header_text=_header_text,
+                    panel_content=panel_content,
                     generation_id=generation_id,
                 )
             # Transition to next state
@@ -219,8 +266,6 @@ class TinkerGenerator:
             episode_steps=episode_steps,
             try_step=try_step,
             discount_factor=self.discount_factor,
-            final_state=state,
-            final_obs=next_obs,
             final_reward=reward,
         )
 
@@ -261,10 +306,11 @@ class TinkerGenerator:
         tools: list[dict[str, Any]],
         header_text: str,
         generation_id: int,
+        panel_content: str | None = None,
         # Rich colors
         system_color: str = "bold bright_yellow",
         tool_call_color: str = "bold bright_blue",
-        tool_response_color: str = "bright_green",
+        tool_response_color: str = "bold",
         **other_rich_colors: Any,
     ) -> None:
         """
@@ -288,19 +334,6 @@ class TinkerGenerator:
             hf_tokenizer=hf_tokenizer,
             tools=tools,
             header_text=header_text,
-            run_url=self.run_url,
+            panel_content=panel_content,
             **_rich_colors,
         )
-
-
-class TinkerGRPOGenerator(TinkerGenerator):
-    """
-    Tinker Generator with Mean-Centered Return Rollouts
-    """
-    def _get_trajectory_group(self, **kwargs: Any) -> MeanCenteredTrajectoryGroup:
-        """
-        Returns trajectory group where we compute advantages by:
-        1. Computing mean-centered final rewards: final_reward - mean(final_rewards)
-        2. Optionally apply step-wise discounting to these values
-        """
-        return MeanCenteredTrajectoryGroup(**kwargs)

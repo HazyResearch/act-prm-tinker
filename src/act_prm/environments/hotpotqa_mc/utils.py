@@ -48,6 +48,7 @@ def process_sample(
     sample: dict[str, Any],
     ambiguous_titles: bool = False,
     include_titles_in_prompt: bool = True,
+    actions_only: bool = False,
 ) -> tuple[dict[str, Any], list[str], list[dict[str, Any]]]:
     """
     Process HotpotQA HF dataset samples into our format
@@ -62,7 +63,7 @@ def process_sample(
     sort_idx = np.argsort(all_titles)  # sort titles alphabetically
     all_titles = [all_titles[i] for i in sort_idx]
     all_docs = [all_docs[i] for i in sort_idx]
-    prompt = render_prompt(question, all_titles, include_titles_in_prompt)
+    prompt = render_prompt(question, all_titles, include_titles_in_prompt, actions_only)
     return {
         "query_id": query_id,
         "question": question,
@@ -77,6 +78,7 @@ def process_sample_from_gen_dataset(
     sample: dict[str, Any],
     ambiguous_titles: bool = False,
     include_titles_in_prompt: bool = True,
+    actions_only: bool = False,
 ) -> tuple[dict[str, Any], list[str], list[dict[str, Any]]]:
     """
     Process generated HotpotQA HF dataset samples into consistent format
@@ -94,7 +96,7 @@ def process_sample_from_gen_dataset(
     all_titles = [all_titles[i] for i in sort_idx]
     all_docs = [all_docs[i] for i in sort_idx]
     
-    prompt = render_prompt(question, all_titles, include_titles_in_prompt)
+    prompt = render_prompt(question, all_titles, include_titles_in_prompt, actions_only)
     return {
         "query_id": query_id,
         "question": question,

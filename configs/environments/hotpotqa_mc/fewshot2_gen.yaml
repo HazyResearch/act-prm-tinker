@@ -1,0 +1,43 @@
+name: "hotpotqa_mc"
+is_async: false
+dataset_config:
+  path: "mzio/hotpotqa_mc_gen-oai_gpt5_low-v2981"
+  cache_dir: "/scr/mzhang/data/hotpotqa"
+  split: "train"
+
+qa_are_generated: true
+ambiguous_titles: false
+actions_only: false
+next_obs_feedback: false
+num_fewshot_prompts: 2
+
+hide_observations: false
+hidden_obs_content: "..."  # or "<output omitted for brevity>"
+first_obs_to_show: 1       # e.g, to keep prompt
+last_obs_to_show: 0        # >= 2 to keep more than the last observation
+
+num_train_samples: 1000
+num_val_samples: 64
+num_test_samples: 100
+
+max_turns: 10
+num_tries: 1
+seed: 0
+split: "train"
+system_prompt: "You are a helpful assistant that can answer questions and call tools."
+truncation_message: "Sorry, you have reached the maximum number of steps. Please try again."
+verbose: false
+
+grader_model_config:
+  name: "hf_transformer"
+  is_async: false
+  model_config:
+    pretrained_model_name_or_path: "Qwen/Qwen3-8B"
+    cache_dir: "/scr/mzhang/models"
+    device_map: "auto"
+    low_cpu_mem_usage: true
+    dtype: "bfloat16"
+    # Override chat template (include {% generation %} keyword)
+    chat_template_path: "/scr/mzhang/projects/act-prm-tinker/chat_templates/qwen3_8b.jinja"
+grader_model_samples: 1
+grader_model_verbose: true

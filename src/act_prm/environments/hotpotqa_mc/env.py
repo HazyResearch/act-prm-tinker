@@ -2,13 +2,13 @@
 HotpotQA Multiple Choice Environment
 """
 
+import logging
 from copy import copy
 from typing import Any
 
 import numpy as np
 from datasets import Dataset,DatasetDict, load_dataset
 from pydantic import InstanceOf
-from rich import print as rich_print
 
 from ...graders.qa import LLMGraderForQA
 from ...llm_handlers import ActionFromLLM
@@ -18,6 +18,9 @@ from ..types import EnvironmentStateWithAnswer, EnvironmentStepResult
 from .prompts import FEWSHOT_PROMPTS
 from .tools import VisitTool
 from .utils import process_sample, process_sample_from_gen_dataset
+
+
+logger = logging.getLogger(__name__)
 
 
 class HotpotQAMultipleChoiceState(EnvironmentStateWithAnswer):
@@ -53,6 +56,7 @@ class HotpotQAMultipleChoiceEnv(Environment):
         grader_model_verbose: bool = False,
         qa_are_generated: bool = False,
         ambiguous_titles: bool = False,
+        actions_only: bool = False,
         next_obs_feedback: bool = False,
         num_fewshot_prompts: int = 0,
         num_train_samples: int = 1000,
@@ -70,6 +74,8 @@ class HotpotQAMultipleChoiceEnv(Environment):
         self.dataset_config = dataset_config
         self.qa_are_generated = qa_are_generated
         self.ambiguous_titles = ambiguous_titles
+        self.actions_only = actions_only  # Adjust system prompt to encourage only tool calls
+
         # Include grader feedback after answer submission if True
         self.next_obs_feedback = next_obs_feedback
         self.num_fewshot_prompts = num_fewshot_prompts  # if > 0, add few-shot samples in prompt
@@ -130,6 +136,7 @@ class HotpotQAMultipleChoiceEnv(Environment):
             fn_kwargs={
                 "ambiguous_titles": self.ambiguous_titles,
                 "include_titles_in_prompt": True,
+                "actions_only": self.actions_only,
             },
             remove_columns=ds.column_names,
             load_from_cache_file=False,
@@ -202,6 +209,8 @@ class HotpotQAMultipleChoiceEnv(Environment):
             timestep=0,
             # Track for accuracy eval
             metadata={"correct": 0, "total": 1},
+            # Past observations to show (account for default context)
+            first_obs_to_show=len(messages) + 1,  # system + default context + user message
         )
 
     def step(
@@ -209,7 +218,7 @@ class HotpotQAMultipleChoiceEnv(Environment):
         **kwargs: Any,
     ) -> HotpotQAMultipleChoiceStepResult:
         """
-        Step through the environment; see _step_impl for details
+        Step through the environment; see `_step_impl` for details
         """
         return self._step_impl(**kwargs)
 
@@ -258,12 +267,14 @@ class HotpotQAMultipleChoiceEnv(Environment):
                     result = tool(**fc_args, all_docs_dict=all_docs_dict)
                 
                 except Exception as e:
+                    # Handle a tool call error by sending this error to the LLM
+                    _error_class = type(e).__name__
+                    logger.error(f"Error during tool call: {_error_class}: {e}")
                     if title not in all_docs_dict and title is not None:
                         result = f"Title '{title}' not found in available titles"
                     else:
                         result = (
-                            f"Invalid tool call: {action.text}. "
-                            f"Error during execution:\n{str(e)}"
+                            f"Invalid tool call:\n\n{action.text}\n\n{_error_class}: {e}"
                         )
                 env_response = {
                     "role": "tool",
@@ -318,14 +329,19 @@ class HotpotQAMultipleChoiceEnv(Environment):
                 "content": "No tool calls or final answers were parsed. Please try again",
             })
 
-        metadata.update(
-            {"reward": reward, "done": done, "truncated": truncated},
+        # Handle past observations to show
+        current_messages = self.maybe_hide_observations(
+            current_messages or [],
+            first_obs_to_show=current_state.first_obs_to_show,
+            last_obs_to_show=current_state.last_obs_to_show,
         )
+
+        metadata.update({"reward": reward, "done": done, "truncated": truncated})
         new_state = HotpotQAMultipleChoiceState(
             system_prompt=current_state.system_prompt,
             new_messages=env_messages,
             model_response=model_response,
-            prior_messages=current_messages or [],
+            prior_messages=current_messages,
             tool_registry=current_state.tool_registry,
             tools=available_tools,
             # HotpotQA-specific fields
@@ -340,6 +356,9 @@ class HotpotQAMultipleChoiceEnv(Environment):
             timestep=timestep,
             # Track for accuracy eval
             metadata=metadata,
+            # Past observations to show
+            first_obs_to_show=current_state.first_obs_to_show,
+            last_obs_to_show=current_state.last_obs_to_show,
         )
         return HotpotQAMultipleChoiceStepResult(
             state=new_state,

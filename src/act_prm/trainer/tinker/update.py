@@ -8,6 +8,7 @@ from typing import Any
 import logging
 
 import torch
+from tqdm import tqdm
 
 import tinker
 from tinker.types import LossFnType
@@ -37,7 +38,7 @@ def _training_logprobs_from_fwd_bwd(fwd_bwd_result: tinker.ForwardBackwardOutput
     return [output["logprobs"].to_torch() for output in fwd_bwd_result.loss_fn_outputs]
 
 
-# Copied from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L181
+# Modified from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L181
 async def train_step(
     data_D: list[tinker.Datum],
     training_client: tinker.TrainingClient,
@@ -63,7 +64,8 @@ async def train_step(
     )
     optim_future = await training_client.optim_step_async(adam_params)
 
-    for i in range(len(batches)):
+    pbar = tqdm(range(len(batches)), desc=f"Training with {loss_fn}", leave=False)
+    for i in pbar:
         # Enqueue next batch before consuming current results (to stay on same clock cycle)
         if i + 1 < len(batches):
             next_fwd_bwd_future = await training_client.forward_backward_async(
@@ -85,7 +87,7 @@ async def train_step(
     return training_logprobs_D
 
 
-# Copied from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L778
+# Modified from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L778
 async def compute_full_batch_metrics_and_get_sampling_client(
     training_client: tinker.TrainingClient,
     i_batch: int,
@@ -94,6 +96,8 @@ async def compute_full_batch_metrics_and_get_sampling_client(
     log_path: str,
     save_every: int,
     do_compute_post_kl: bool,
+    checkpoint_name: str | None = None,
+    do_compute_kl: bool = True,
 ) -> tuple[tinker.SamplingClient, dict[str, Any]]:
     """
     At the end of the iteration, this will compute metrics for the full batch
@@ -105,13 +109,14 @@ async def compute_full_batch_metrics_and_get_sampling_client(
     metrics = {}
 
     # Compute KL metrics
-    with timed("compute_kl_sample_train", metrics):
-        kl_sample_train_metrics = compute_kl_sample_train(data_D, training_logprobs_D)
-        metrics.update(kl_sample_train_metrics)
+    if do_compute_kl:
+        with timed("compute_kl_sample_train", metrics):
+            kl_sample_train_metrics = compute_kl_sample_train(data_D, training_logprobs_D)
+            metrics.update(kl_sample_train_metrics)
 
     # Get a sampling client using the new weights
     sampling_client, checkpoint_metrics = await save_checkpoint_and_get_sampling_client(
-        training_client, i_batch, log_path, save_every
+        training_client, i_batch, log_path, save_every, checkpoint_name=checkpoint_name
     )
     metrics.update(checkpoint_metrics)
 

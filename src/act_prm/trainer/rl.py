@@ -2,30 +2,58 @@
 Tinker RL Trainer for fully synchronous on-policy training
 """
 
-from os.path import join
-from typing import Any, Callable
+import asyncio
 import logging
 import time
+from os.path import join
+from typing import Any, Callable
 
+import torch
 from omegaconf import DictConfig
 
 import tinker
+from tinker import TensorData
 from tinker_cookbook import model_info, renderers
 from tinker_cookbook.checkpoint_utils import save_checkpoint_async
 from tinker_cookbook.utils import ml_log
+
+from datasets import Dataset
+from datasets.arrow_writer import SchemaInferenceError
 from transformers import PreTrainedTokenizerBase
 
 from ..environments import Environment
 from ..generator.tinker import TinkerGenerator
 from ..replay_buffer import ReplayBuffer
+from ..replay_buffer.types import Trajectory
 
+from .base import BaseTrainer
+from .tinker.metrics import incorporate_kl_penalty
 from .tinker.utils import save_checkpoint_and_get_sampling_client, timed
-from .train import is_better, run_rollouts, do_train_step_and_get_sampling_client
+from .train import is_better, run_rollouts
+
 
 logger = logging.getLogger(__name__)
 
 
-class RLTrainer:
+def _save_trajectories_to_hf_dataset(
+    trajectories: list[Trajectory],
+    dataset_name: str,
+    exclude_keys: list[str] | None = None,
+    private: bool = False,
+) -> None:
+    """
+    Save a list of trajectories to a HF Dataset
+    """
+    exclude_keys = exclude_keys or ["state_action_tokens", "old_logprobs"]
+    ds_samples = [
+        {k: v for k, v in vars(step).items() if k not in exclude_keys}
+        for trajectory in trajectories
+        for step in trajectory.episode_steps
+    ]  # Flatten to get dicts from list of EpisodeSteps in each Trajectory
+    Dataset.from_list(ds_samples).push_to_hub(dataset_name, private=private)
+
+
+class RLTrainer(BaseTrainer):
     """
     Trainer for fully synchronous on-policy training with Tinker
     """
@@ -34,7 +62,7 @@ class RLTrainer:
         cfg: DictConfig,
         training_client: tinker.TrainingClient,
         service_client: tinker.ServiceClient,
-        generator_constructor: Callable[..., TinkerGenerator],
+        generator_cfg: DictConfig,
         replay_buffer: ReplayBuffer,
         env: Environment,
         eval_env: Environment,  # could be the same as env, but update env.split
@@ -42,23 +70,34 @@ class RLTrainer:
         hf_tokenizer: PreTrainedTokenizerBase | None = None,
         **kwargs: Any,
     ) -> None:
-        self.cfg = cfg
-        self.training_client = training_client
-        self.service_client = service_client
-        self.generator_constructor = generator_constructor
+        super().__init__(
+            cfg,
+            training_client,
+            service_client,
+            generator_cfg,
+            env,
+            eval_env,
+            ml_logger,
+            hf_tokenizer,
+            **kwargs,
+        )
         self.replay_buffer = replay_buffer
-        self.env = env
-        self.eval_env = eval_env
-        self.ml_logger = ml_logger
-        self.hf_tokenizer = hf_tokenizer
-
         self.best_replay_buffer_path = join(cfg.checkpoint_path, "replay_buffer_best")
         self.last_replay_buffer_path = join(cfg.checkpoint_path, "replay_buffer")
-        self.best_metric = 1e8 if cfg.best_metric in ["loss"] else -1e8
-        self.best_sampling_client_path = ""
 
     # Modified from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L989
-    async def train(self, start_batch: int, end_batch: int, cfg: DictConfig | None = None) -> None:
+    async def train(
+        self, 
+        start_batch: int,
+        end_batch: int,
+        cfg: DictConfig | None = None,
+        env: Environment | None = None,
+        eval_env: Environment | None = None,
+        generator_constructor: Callable[..., TinkerGenerator] | None = None,
+        checkpoint_name: str | None = None,
+        name_or_identifier: str | None = None,
+        **generate_and_save_trajectories_kwargs: Any,
+    ) -> str:
         """
         Implement fully synchronous on-policy training with Tinker
 
@@ -66,8 +105,15 @@ class RLTrainer:
         1. Loads the most recent checkpoint and determines how we generate rollouts
         2. Generates rollouts (optionally running on the evaluation environment)
         3. Performs a policy update
+
+        Returns the path to the best sampling path
         """
         cfg = cfg or self.cfg
+        env = env or self.env
+        eval_env = eval_env or self.eval_env
+        generator_constructor = generator_constructor or self.generator_constructor
+
+        best_sampling_client_path = ""  # Path to the best sampling client
 
         # Initial sampling client
         sampling_client, _ = await save_checkpoint_and_get_sampling_client(
@@ -76,6 +122,7 @@ class RLTrainer:
             log_path=cfg.log_path,
             save_every=cfg.save_every,
             start_batch=start_batch,
+            checkpoint_name=checkpoint_name,
         )
 
         model_name = cfg.model_name or self.training_client.get_info().model_data.model_name
@@ -95,62 +142,90 @@ class RLTrainer:
             t_start = time.time()
 
             # Run evaluations
-            if cfg.eval_every > 0 and batch_idx % cfg.eval_every == 0:
+            if (cfg.eval_every > 0 and batch_idx % cfg.eval_every == 0) or batch_idx == end_batch - 1:
                 with timed("run_evals", metrics):
-                    self.eval_env.split = "eval"
-                    eval_rollout_metrics, _, replay_buffer = await run_rollouts(
+                    eval_env.split = "eval"
+                    eval_rollout_metrics, _ = await run_rollouts(
                         sampling_client=sampling_client,
                         renderer=renderer,
                         hf_tokenizer=hf_tokenizer,
-                        generator_constructor=self.generator_constructor,
-                        replay_buffer=self.replay_buffer,
-                        env=self.eval_env,
+                        generator_constructor=generator_constructor,
+                        env=eval_env,
                         cfg=cfg,
                         batch_id=batch_idx,
+                        checkpoint_name=checkpoint_name,
                         split="eval",
                         num_tries=cfg.eval_num_tries,
-                        start_idx=0,
-                        tasks_per_update=len(self.eval_env),  # Just use all eval tasks
+                        # Just use all eval tasks
+                        start_idx=0,  
+                        tasks_per_update=len(eval_env),
+                        name_or_identifier=name_or_identifier,
                     )
                     metrics.update(eval_rollout_metrics)
 
                 # Save best checkpoints
-                best_metric_key = f"eval/{cfg.eval_num_tries}/{cfg.best_metric}"
+                _metric_prefix = "eval" if checkpoint_name is None else f"{checkpoint_name}_eval"
+                best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
                 last_metric = eval_rollout_metrics[best_metric_key]
+                best_ckpt_name = (
+                    f"{batch_idx:06d}_best"
+                    if checkpoint_name is None
+                    else f"{checkpoint_name}_{batch_idx:06d}_best"
+                )
                 if is_better(last_metric, self.best_metric, cfg.best_metric):
                     self.best_metric = last_metric
-                    self.replay_buffer.save_to_hf_dataset(self.best_replay_buffer_path)
                     path_dict = await save_checkpoint_async(
                         training_client=self.training_client,
-                        name="best",
+                        name=best_ckpt_name,
                         log_path=cfg.log_path,
                         loop_state={"batch": batch_idx},
-                        kind="state",
+                        kind="both",
                     )
-                    self.best_sampling_client_path = path_dict["sampler_path"]
-                    logger.info("Saved best replay buffer to %s", self.best_replay_buffer_path)
-                    logger.info("Saved best sampling client to %s", self.best_sampling_client_path)
+                    best_sampling_client_path = path_dict["sampler_path"]
+                    logger.info("Saved best sampling client to %s", best_sampling_client_path)
                     logger.info(
                         "Updated best %s to %f at batch %d",
                         cfg.best_metric, self.best_metric, batch_idx,
                     )
+                    metrics.update({
+                        f"{_metric_prefix}/best_batch": batch_idx,
+                        f"{_metric_prefix}/best_metric": self.best_metric,
+                        f"{_metric_prefix}/best_sampling_client_path": best_sampling_client_path,
+                    })
+                    try:  # Saving replay buffer
+                        self.replay_buffer.save_to_hf_dataset(self.best_replay_buffer_path)
+                        logger.info("Saved best replay buffer to %s", self.best_replay_buffer_path)
+                    except SchemaInferenceError:
+                        logger.warning(
+                            "Failed to save best replay buffer to %s\nIs replay buffer empty?",
+                            self.best_replay_buffer_path
+                        )
+
+            # Generate and save trajectories to a HF Dataset
+            _save_rollouts_every = cfg.get("save_rollouts_every", end_batch)
+            if _save_rollouts_every > 0 and (batch_idx + 1) % _save_rollouts_every == 0:
+                await self.generate_and_save_trajectories(
+                    cfg=cfg,
+                    save_batch_idx=batch_idx,
+                    **generate_and_save_trajectories_kwargs,
+                )
 
             # 1. Sample rollouts for training
-            start_idx = batch_idx * cfg.batch_size
-            tasks_per_update = cfg.batch_size
-            self.env.split = "train"
+            env.split = "train"
             train_rollout_metrics, new_trajectories = await run_rollouts(
                 sampling_client=sampling_client,
                 renderer=renderer,
                 hf_tokenizer=hf_tokenizer,
-                generator_constructor=self.generator_constructor,
-                env=self.env,
+                generator_constructor=generator_constructor,
+                env=env,
                 cfg=cfg,
                 batch_id=batch_idx,
+                checkpoint_name=checkpoint_name,
                 split="train",
                 num_tries=cfg.num_tries,
-                start_idx=start_idx,
-                tasks_per_update=tasks_per_update,
+                start_idx=batch_idx * cfg.batch_size,
+                tasks_per_update=cfg.batch_size,
+                name_or_identifier=name_or_identifier,
             )
             metrics.update(train_rollout_metrics)
 
@@ -160,15 +235,176 @@ class RLTrainer:
             self.replay_buffer.save_to_hf_dataset(self.last_replay_buffer_path)
 
             # 2. Update policy LLM with generated rollouts
-            sampling_client, train_update_metrics = await do_train_step_and_get_sampling_client(
-                cfg=cfg,
+            data_D, prepare_minibatch_metrics = await self.prepare_minibatch(
+                new_trajectories=new_trajectories["policy"],
+                service_client=self.service_client,
+                model_name=cfg.model_name,
+                kl_penalty_coef=cfg.kl_penalty_coef,
+                kl_discount_factor=cfg.kl_discount_factor,
+            )
+            sampling_client, update_metrics = await self.do_train_step_and_get_sampling_client(
                 batch_idx=batch_idx,
                 training_client=self.training_client,
-                service_client=self.service_client,
-                new_trajectories=new_trajectories,
+                data_D=data_D,
+                prepare_minibatch_metrics=prepare_minibatch_metrics,
+                loss_fn="importance_sampling",
+                checkpoint_name=checkpoint_name,
             )
 
             # Log metrics
-            metrics.update(train_update_metrics)
+            metrics.update(update_metrics)
             metrics["time/total"] = time.time() - t_start
             self.ml_logger.log_metrics(metrics, step=batch_idx)
+        
+        return best_sampling_client_path
+
+    async def prepare_minibatch(self, **kwargs: Any) -> tuple[list[tinker.Datum], dict[str, Any]]:
+        """
+        Prepare a minibatch of trajectories for training; see `_prepare_minibatch` for details
+        """
+        return await self._prepare_minibatch(**kwargs)
+
+    async def _prepare_minibatch(
+        self,
+        new_trajectories: list[Trajectory],
+        service_client: tinker.ServiceClient,
+        model_name: str,
+        kl_penalty_coef: float | None = None,
+        kl_discount_factor: float | None = None,
+    ) -> tuple[list[tinker.Datum], dict[str, Any]]:
+        """
+        Subclass implementation of `prepare_minibatch`
+        """
+        metrics = {}
+        # Assemble training data
+        with timed("assemble_training_data", metrics):
+            data_D: list[tinker.Datum] = []
+            metadata_D: list[dict[str, int]] = []
+            for trajectory in new_trajectories:
+                for episode_step in trajectory.episode_steps:
+                    sa_input_ids = episode_step.state_action_tokens
+                    act_logprobs = episode_step.old_logprobs
+                    input_tokens = sa_input_ids[:-1]
+                    target_tokens = sa_input_ids[1:]
+                    target_state_len = episode_step.state_len - 1
+
+                    padded_logprobs = [0.0] * target_state_len + act_logprobs
+                    adv = episode_step.advantage
+                    padded_advantages = [0.0] * target_state_len + [adv] * len(act_logprobs)
+                    padded_mask = [0.0] * target_state_len + [1.0] * len(act_logprobs)
+
+                    try:
+                        assert (
+                            len(input_tokens)
+                            == len(padded_logprobs)
+                            == len(padded_advantages)
+                            == len(target_tokens)
+                        )
+                    except AssertionError:
+                        # print(self.hf_tokenizer.decode(target_tokens))
+                        # print(self.hf_tokenizer.decode(target_tokens[target_state_len:]))
+                        logger.error(f"len(input_tokens): {len(input_tokens)}")
+                        logger.error(f"len(padded_logprobs): {len(padded_logprobs)}")
+                        logger.error(f"len(padded_advantages): {len(padded_advantages)}")
+                        logger.error(f"len(target_tokens): {len(target_tokens)}")
+                        breakpoint()
+
+                    metadata_D.append({
+                        "sample_id": episode_step.unique_data_sample_id,
+                        "generation_id": episode_step.generation_id,
+                    })
+                    data_D.append(
+                        tinker.Datum(
+                            model_input=tinker.ModelInput.from_ints(input_tokens),
+                            loss_fn_inputs={
+                                "target_tokens": TensorData.from_torch(torch.tensor(target_tokens)),
+                                "logprobs": TensorData.from_torch(torch.tensor(padded_logprobs)),
+                                "advantages": TensorData.from_torch(torch.tensor(padded_advantages)),
+                                "mask": TensorData.from_torch(torch.tensor(padded_mask)),  # for KL
+                            },
+                        )
+                    )
+        # Incorporate KL penalty if configured
+        # - Copied from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L763
+        if kl_penalty_coef > 0:
+            with timed("kl_vs_base", metrics):
+                kl_penalty_metrics = await incorporate_kl_penalty(
+                    data_D,
+                    service_client.create_sampling_client(base_model=model_name),
+                    # ^^^ TODO: replace with the model we load, if relevant
+                    kl_penalty_coef,
+                    kl_discount_factor,
+                )
+            metrics.update(kl_penalty_metrics)
+
+        return data_D, metrics
+
+    async def generate_and_save_trajectories(
+        self,
+        sampling_client: tinker.SamplingClient,
+        renderer: renderers.Renderer,
+        save_generator_constructor: Callable[..., TinkerGenerator],
+        save_batch_idx: int,
+        save_env: Environment | None = None,
+        cfg: DictConfig | None = None,
+        hf_tokenizer: PreTrainedTokenizerBase | None = None,
+        save_name_or_identifier: str | None = None,
+        trajectory_key: str = "policy",
+        dataset_prefix: str = "mzio/aprm-sft_rollouts",
+        dataset_suffix: str = "",
+    ) -> list[list[Trajectory]]:
+        """
+        Generate trajectories for all tasks in an environment
+        -> We asynchronously create a "TrajectoryGroup" of `group_size` for each task
+        """
+        env = save_env or self.env
+        cfg = cfg or self.cfg
+        renderer = renderer or self.renderer
+        hf_tokenizer = hf_tokenizer or self.hf_tokenizer
+        
+        env.split = "train"
+        batch_size = 1  # so we can handle all tasks asynchronously
+        num_sft_gen_batches = len(env) // batch_size
+        
+        logger.info("Generating trajectories for all %d tasks in the environment", len(env))
+        all_trajectories_per_group: list[tuple[Any, dict[str, list[Trajectory]]]] = await (
+            asyncio.gather(*[
+                run_rollouts(
+                    sampling_client=sampling_client,
+                    renderer=renderer,
+                    hf_tokenizer=hf_tokenizer,
+                    generator_constructor=save_generator_constructor,
+                    env=env,
+                    cfg=cfg,
+                    batch_id=sft_gen_batch_idx,
+                    checkpoint_name="sft_gen",
+                    split="train",
+                    num_tries=cfg.num_tries,
+                    start_idx=sft_gen_batch_idx * batch_size,
+                    tasks_per_update=batch_size,
+                    name_or_identifier=save_name_or_identifier,
+                )
+                for sft_gen_batch_idx in range(num_sft_gen_batches)
+            ])
+        )
+        all_trajectories_per_group = [group[1][trajectory_key] for group in all_trajectories_per_group]
+        # Save thought-action rollouts so far to a HF Dataset and push to hub
+        # -> Then can evaluate by seeing how training another LLM from scratch performs
+        # -> Will overwrite existing dataset if it already exists (e.g., to hit total samples)
+        ds_identifier = "-".join([
+            f"{delim[:2].upper()}{self.run_name.split(delim)[-1].split("-")[0]}"
+            for delim in ["enco=", "geco=", "se=", "re="]  # env, generator, seed, replicate
+        ])
+        ds_name = f"{dataset_prefix}-{ds_identifier}{dataset_suffix}-b{save_batch_idx:04d}"
+        cfg.dataset_url_sft = f"https://huggingface.co/datasets/{ds_name}"
+        try:
+            _trajectories = [traj for group in all_trajectories_per_group for traj in group]
+            _save_trajectories_to_hf_dataset(_trajectories, ds_name)
+            # logger.info("Saved trajectories to HF Dataset: %s", ds_name)
+            logger.info("Saved trajectories to HF Dataset: %s", cfg.dataset_url_sft)
+        except Exception as e:
+            _error_text = f"({type(e).__name__}: {e})"
+            logger.error("Failed to save trajectories to HF Dataset: %s", _error_text)
+            breakpoint()
+
+        return all_trajectories_per_group

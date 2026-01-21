@@ -230,7 +230,7 @@ class ActionFirstActPrmEnv(Environment):
         **kwargs: Any,
     ) -> ActionProcessRewardStepResult:
         """
-        Step through the environment; see _step_impl for details
+        Step through the environment; see `_step_impl` for details
         """
         return self._step_impl(**kwargs)
 
@@ -244,7 +244,7 @@ class ActionFirstActPrmEnv(Environment):
         **kwargs: Any,
     ) -> ActionProcessRewardStepResult:
         """
-        Subclass implementation of step.
+        Subclass implementation of `step`.
 
         Here we maintain the entire input context via state.new_messages (no prior_messages).
         We also already compute rewards in the Act-PRM generator; we just pass them in here.

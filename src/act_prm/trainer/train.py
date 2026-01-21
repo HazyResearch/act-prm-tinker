@@ -104,7 +104,7 @@ async def do_sync_training(
 
     cfg.replay_buffer_path_best = join(cfg.checkpoint_path, "replay_buffer_best")
     cfg.replay_buffer_path_last = join(cfg.checkpoint_path, "replay_buffer")
-    best_metric = 1e8 if cfg.best_metric in ["loss"] else -1e8
+    best_metric = 1e8 if "loss" in cfg.best_metric else -1e8
 
     num_batches = end_batch - start_batch
     for batch_idx in range(start_batch, end_batch):
@@ -119,12 +119,11 @@ async def do_sync_training(
         if cfg.eval_every > 0 and batch_idx % cfg.eval_every == 0:
             with timed("run_evals", metrics):
                 eval_env.split = "eval"
-                eval_rollout_metrics, _, replay_buffer = await run_rollouts(
+                eval_rollout_metrics, _ = await run_rollouts(
                     sampling_client=sampling_client,
                     renderer=renderer,
                     hf_tokenizer=hf_tokenizer,
                     generator_constructor=generator_constructor,
-                    replay_buffer=replay_buffer,
                     env=eval_env,
                     cfg=cfg,
                     batch_id=batch_idx,
@@ -136,7 +135,7 @@ async def do_sync_training(
                 metrics.update(eval_rollout_metrics)
 
             # Save best checkpoints
-            best_metric_key = f"eval/{cfg.eval_num_tries}/{cfg.best_metric}"
+            best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
             last_metric = eval_rollout_metrics[best_metric_key]
             if is_better(last_metric, best_metric, cfg.best_metric):
                 best_metric = last_metric
@@ -146,7 +145,7 @@ async def do_sync_training(
                     name="best",
                     log_path=cfg.log_path,
                     loop_state={"batch": batch_idx},
-                    kind="state",
+                    kind="both",
                 )
 
         # 1. Sample rollouts for training
@@ -200,10 +199,12 @@ async def run_rollouts(
     env: Environment,
     cfg: DictConfig,
     batch_id: int,
+    checkpoint_name: str | None = None,
     split: str = "train",
     num_tries: int = 1,
     start_idx: int = 0,
     tasks_per_update: int | None = None,  # i.e., batch_size
+    name_or_identifier: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, list[Trajectory]]]:
     """
     Run rollouts for a single batch, e.g., by generating rollouts and grading them
@@ -212,6 +213,8 @@ async def run_rollouts(
     - final_metrics: Metrics for the batch, keyed by "{split}/{try_idx}/{metric}"
     - new_trajectories: Trajectories for the batch, keyed by an identifier (default "policy")
     """
+    env.split = split  # Select task split
+    
     tinker_completer = TinkerCompleter(
         sampling_client=sampling_client,
         renderer=renderer,
@@ -226,6 +229,7 @@ async def run_rollouts(
         llm=tinker_completer,
         env=env,
         hf_tokenizer=hf_tokenizer,
+        name_or_identifier=name_or_identifier,
     )
 
     batch_size = tasks_per_update or len(env)  # len(env) is the number of tasks or problems
@@ -234,11 +238,12 @@ async def run_rollouts(
     all_eval_metrics = {}
     keys_for_correct = []
     eval_metric_keys = [
-        "final_reward", "first_return", "timesteps", "correct", "total",
+        "final_reward", "first_return", "action_prob", "last_state_len",
+        "timesteps", "correct", "total",
     ]
 
     # Store new trajectories to return
-    new_trajectories: dict[str, list[Trajectory]] = []
+    new_trajectories: dict[str, list[Trajectory]] = {}
     
     for try_idx in range(num_tries):
         all_trajectory_groups: list[dict[str, list[TrajectoryGroup]]] = await gather_with_progress(
@@ -254,10 +259,15 @@ async def run_rollouts(
                 )
                 for sample_idx in range(start_idx, start_idx + batch_size)  
             ),
-            desc=f"Generating {batch_size} rollouts ({split} split)",
+            desc=(
+                f"Generating {batch_size * num_return_sequences} {split.upper()} rollouts"
+                f" ({batch_size} tasks, {num_return_sequences} rollouts per task)"
+            ),
+            colour="cyan" if split == "train" else "magenta",
         )
         # Save metrics and samples
         trajectory_keys = all_trajectory_groups[0].keys()
+        _metric_prefix = f"{checkpoint_name}_{split}" if checkpoint_name is not None else split
 
         for _key in trajectory_keys:
             for trajectory_groups in all_trajectory_groups:     # list of list of trajectory groups
@@ -266,7 +276,7 @@ async def run_rollouts(
                         if _key == "policy":
                             # Only store metrics for the default "policy" trajectory group
                             for metric_key in eval_metric_keys:
-                                _metric_key = f"{split}/{try_idx}/{metric_key}"
+                                _metric_key = f"{_metric_prefix}/try_{try_idx}/{metric_key}"
                                 if metric_key == "correct":
                                     keys_for_correct.append(_metric_key)
                                 if _metric_key not in all_eval_metrics:
@@ -274,7 +284,9 @@ async def run_rollouts(
                                 val = getattr(trajectory, metric_key, 1)  # 1 for total samples
                                 all_eval_metrics[_metric_key].append(val)
                         # Add trajectory to list of new trajectories
-                        new_trajectories.append(trajectory)
+                        if _key not in new_trajectories:
+                            new_trajectories[_key] = []
+                        new_trajectories[_key].append(trajectory)
 
     final_metrics = {}  # return these metrics for the batch
     # 1. Compute aggregate metrics
@@ -284,7 +296,8 @@ async def run_rollouts(
         else:
             final_metrics[k] = np.mean(v).item()
         final_metrics[f"{k}_std"] = np.std(v).item()
-    # 2. Add accuracy
+        final_metrics[f"{k}_max"] = np.max(v).item()
+    # 2. Add accuracy (dummy for Act-PRM training rollouts)
     for k in keys_for_correct:
         total_v = final_metrics[k.replace("correct", "total")]
         final_metrics[k.replace("correct", "accuracy")] = final_metrics[k] / total_v
@@ -368,7 +381,7 @@ async def do_train_step_and_get_sampling_client(
     training_client: tinker.TrainingClient,
     service_client: tinker.ServiceClient,
     new_trajectories: list[Trajectory],
-    loss_fn: LossFnType | None = None,,
+    loss_fn: LossFnType | None = None,
 ) -> tuple[tinker.SamplingClient, dict[str, Any]]:
     """
     Update LLM policy with new trajectories and return updated sampling client
@@ -386,7 +399,7 @@ async def do_train_step_and_get_sampling_client(
 
     # Resample from data_D to determine actual training set
     if cfg.mini_batch_size and cfg.num_substeps is None:
-        num_substeps = len(data_D) // cfg.mini_batch_size
+        num_substeps = max(len(data_D) // cfg.mini_batch_size, 1)
     elif cfg.num_substeps:
         num_substeps = cfg.num_substeps
         if cfg.mini_batch_size:
@@ -400,7 +413,7 @@ async def do_train_step_and_get_sampling_client(
     # Randomly subsample training data if not evenly divisible by num_substeps (# of mini-batches)
     # -> Tinker requires this: https://tinker-docs.thinkingmachines.ai/rl/rl-hyperparams#multiple-updates-per-sampling-iteration
     if len(data_D) % num_substeps != 0:
-        new_batch_size = (len(data_D) // num_substeps) * num_substeps
+        new_batch_size = (max(len(data_D) // num_substeps, 1) * num_substeps)
         data_D = random.sample(data_D, new_batch_size)
     random.shuffle(data_D)  # Ensure random ordering of mini-batches
 
