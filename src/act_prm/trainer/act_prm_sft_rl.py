@@ -583,8 +583,6 @@ class ActPrmSftRlTrainer(RLTrainer):
             self.ml_logger.log_metrics(metrics, step=overall_batch_idx)
             rl_pbar.set_postfix(**{k.split("/")[-1]: v for k, v in metrics.items()})
 
-            logger.debug("TESTING RL batch %d, overall batch %d", batch_idx, overall_batch_idx)
-
         return best_rl_sampling_client_path
 
 
