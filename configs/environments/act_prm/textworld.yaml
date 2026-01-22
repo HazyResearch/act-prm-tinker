@@ -1,0 +1,32 @@
+# TextWorld demonstrations
+name: "act_prm_with_base_env"
+is_async: false
+# For now, we assume that the base environment state has the ground-truth actions
+dataset_config: null
+
+success_rollouts_only: true
+actions_only: false
+
+hide_observations: false
+hidden_obs_content: "..."
+first_obs_to_show: 2
+last_obs_to_show: 1
+
+num_fewshot_prompts: 0
+action_bos: "<tool_call>"
+action_eos: "</tool_call>"
+final_answer_bos: "Final Answer: "
+
+# Also kinda dummy
+num_train_samples: 20
+num_val_samples: null
+num_test_samples: 5
+
+max_turns: null
+num_tries: 1
+seed: 0
+split: "train"
+system_prompt: "You are a helpful assistant that infers **concise** reasoning thoughts behind observed actions."
+original_system_prompt: "You are a helpful tool-calling assistant."
+truncation_message: "Sorry, you have reached the maximum number of steps. Please try again."
+verbose: false

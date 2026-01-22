@@ -199,6 +199,8 @@ def get_args() -> argparse.Namespace:
     # Get run (i.e., experiment) name
     _ignore_args = ["base_url", "log_path", "project_name", "verbose"]
     _ignore_args.extend([argn for argn in vars(args).keys() if argn.endswith("_every")])
+    if args.base_env_config is not None and args.base_env_config == args.env_config:
+        _ignore_args.append("base_env_config")
     args.run_name = get_run_name(args, prefix=args.project_name, ignore_args=_ignore_args)
     logger.info("Run name: %s", args.run_name)
 

@@ -193,15 +193,14 @@ class AsyncActPrmEnvWithBaseEnv(Environment):
         # but we can also do this via just `action_target`
         messages = base_env_state.new_messages + [{"role": "assistant", "content": action_target}]
 
-        # MZ 1/18/26: Note that we add default context here, but we filter it out for
-        # thought-action SFT trajectories
-
-        # MZ 1/21/26 -> Replicate "fsc*", try few-shot convo
+        # MZ 1/21/26 -> Make the few-shot prompts more seamless into the target task
         if self.num_fewshot_prompts > 0:
             messages[0]["content"] = (
                 f"Great! Now do the same for the next task:\n\n"
-                f"## Next Task:\n\n{messages[0]['content']}"
+                f"## Next Task:\n\n{messages[0]["content"]}"
             )
+        # MZ 1/18/26: Note that we add default context here, but we filter it out for
+        # thought-action SFT trajectories
         new_messages = self.default_context + messages
         
         return ActionProcessRewardState(

@@ -66,7 +66,10 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
             generation_idx=generation_id,
             try_step=try_step,
         )
-        max_turns = len(state.assistant_indices)
+        try:
+            max_turns = len(state.assistant_indices)
+        except AttributeError:
+            max_turns = len(state.action_trajectory)
 
         done = False
         reward = 0.0
