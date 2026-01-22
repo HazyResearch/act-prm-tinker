@@ -50,7 +50,14 @@ def _save_trajectories_to_hf_dataset(
         for trajectory in trajectories
         for step in trajectory.episode_steps
     ]  # Flatten to get dicts from list of EpisodeSteps in each Trajectory
-    Dataset.from_list(ds_samples).push_to_hub(dataset_name, private=private)
+    try:
+        Dataset.from_list(ds_samples).push_to_hub(dataset_name, private=private)
+    except Exception as e:
+        _error_text = f"({type(e).__name__}: {e})"
+        logger.error("Failed to save trajectories to HF Dataset: %s", _error_text)
+        dataset_name = dataset_name.replace("/", "-")
+        Dataset.from_list(ds_samples).save_to_disk(dataset_name)
+        logger.info("Saved trajectories to local directory: %s", dataset_name)
 
 
 class RLTrainer(BaseTrainer):

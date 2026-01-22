@@ -3,7 +3,7 @@ is_async: false
 task: "the_cooking_game"
 state_keys: ["description", "score", "moves"]
 dataset_config:
-  cache_dir: "/scr/mzhang/data/textworld/tw_games"
+  cache_dir: "/Users/michael/Documents/data/textworld/tw_games"
 
 hide_observations: false
 hidden_obs_content: "..."  # or "<output omitted for brevity>"

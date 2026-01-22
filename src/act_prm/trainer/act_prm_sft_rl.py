@@ -268,6 +268,12 @@ class ActPrmSftRlTrainer(RLTrainer):
                 for delim in ["enco=", "geco=", "se=", "re="]  # env, generator, seed, replicate
             ])
             ds_name = f"{dataset_prefix}-{ds_identifier}"
+            if len(ds_name) > 96:   # hacky patch
+                # HFValidationError: Repo id must use alphanumeric chars, '-', '_' or '.'. 
+                # The name cannot start or end with '-' or '.' and the maximum length is 96
+                ds_name = ds_name.replace("SE", "").replace("RE", "")
+                if len(ds_name) > 96:
+                    breakpoint()
             try:
                 _trajectories = [traj[0] for traj in all_trajectories_per_env]
                 _save_trajectories_to_hf_dataset(_trajectories, ds_name)
@@ -301,7 +307,7 @@ class ActPrmSftRlTrainer(RLTrainer):
             position=1,
         )
         for sft_batch_idx, overall_batch_idx in enumerate(sft_pbar):
-            metrics = {
+            sft_metrics = {
                 "progress/batch": sft_batch_idx,
                 "optim/lr": cfg.learning_rate,
                 "progress/done_frac": (sft_batch_idx + 1) / cfg.sft_num_batches,
@@ -329,58 +335,67 @@ class ActPrmSftRlTrainer(RLTrainer):
                     sft_batch_idx + 1 == cfg.sft_num_batches
                 )
             ):
-                with timed("run_evals", metrics):
-                    eval_env.split = "eval"
-                    _name_or_identifier = (
-                        "Stage 2: SFT Evaluation, "
-                        f"Train Step {sft_batch_idx} / {cfg.sft_num_batches - 1}"
-                    )
-                    eval_rollout_metrics, _ = await run_rollouts(
-                        sampling_client=sampling_client,
-                        renderer=renderer,
-                        hf_tokenizer=hf_tokenizer,
-                        generator_constructor=self.rl_generator_constructor,
-                        env=eval_env,
-                        cfg=cfg,
-                        batch_id=sft_batch_idx,
-                        checkpoint_name="act_prm_sft",
-                        split="eval",
-                        num_tries=cfg.eval_num_tries,
-                        start_idx=0,
-                        tasks_per_update=len(eval_env),
-                        name_or_identifier=_name_or_identifier,
-                    )
-                    metrics.update(eval_rollout_metrics)
-                    display_metrics(eval_rollout_metrics, title=f"SFT Eval Loop {sft_batch_idx}")
-                
-                # Save best checkpoints
-                _metric_prefix = "act_prm_sft_eval"
-                best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
-                last_metric = eval_rollout_metrics[best_metric_key]
-                best_ckpt_name = f"{_metric_prefix}_{sft_batch_idx:06d}_best"
-                if is_better(last_metric, sft_best_metric, cfg.best_metric):
-                    sft_best_metric = last_metric
-                    path_dict = await save_checkpoint_async(
-                        training_client=self.training_client,
-                        name=best_ckpt_name,
-                        log_path=cfg.log_path,
-                        loop_state={"batch": sft_batch_idx},
-                        kind="both",
-                    )
-                    best_sft_sampling_client_path = path_dict["sampler_path"]
-                    best_sft_state_path = path_dict["state_path"]
-                    logger.info("Saved best sampling client to %s", best_sft_sampling_client_path)
-                    logger.info("Saved best state to %s", best_sft_state_path)
-                    logger.info(
-                        "Updated best %s to %f at batch %d",
-                        cfg.best_metric, sft_best_metric, sft_batch_idx,
-                    )
-                    metrics.update({
-                        f"{_metric_prefix}/best_batch": sft_batch_idx,
-                        f"{_metric_prefix}/best_metric": sft_best_metric,
-                        f"{_metric_prefix}/best_sampling_client_path": best_sft_sampling_client_path,
-                        f"{_metric_prefix}/best_state_path": best_sft_state_path,
-                    })
+                with timed("run_evals", sft_metrics):
+                    _num_eval_tasks = len(eval_env.datasets["eval"])
+                    # Run on both train and eval splits
+                    for _split in ["train", "eval"]:
+                        setattr(eval_env, "split", _split)
+                    
+                        eval_env.split = _split
+                        _name_or_identifier = (
+                            "Stage 2: SFT Evaluation, "
+                            f"Train Step {sft_batch_idx} / {cfg.sft_num_batches - 1}"
+                            f" on {_split.capitalize()} split"
+                        )
+                        eval_rollout_metrics, _ = await run_rollouts(
+                            sampling_client=sampling_client,
+                            renderer=renderer,
+                            hf_tokenizer=hf_tokenizer,
+                            generator_constructor=self.rl_generator_constructor,
+                            env=eval_env,
+                            cfg=cfg,
+                            batch_id=sft_batch_idx,
+                            checkpoint_name="act_prm_sft",
+                            split=_split,
+                            num_tries=cfg.eval_num_tries,
+                            start_idx=0,
+                            tasks_per_update=_num_eval_tasks,
+                            name_or_identifier=_name_or_identifier,
+                        )
+                        sft_metrics.update(eval_rollout_metrics)
+                        display_metrics(
+                            eval_rollout_metrics,
+                            title=f"SFT Eval Loop {sft_batch_idx}, {_split.capitalize()} split"
+                        )
+                        if _split == "eval":
+                            # Save best checkpoints -> Make sure this is on the eval split
+                            _metric_prefix = "act_prm_sft_eval"
+                            best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
+                            last_metric = eval_rollout_metrics[best_metric_key]
+                            best_ckpt_name = f"{_metric_prefix}_{sft_batch_idx:06d}_best"
+                            if is_better(last_metric, sft_best_metric, cfg.best_metric):
+                                sft_best_metric = last_metric
+                                path_dict = await save_checkpoint_async(
+                                    training_client=self.training_client,
+                                    name=best_ckpt_name,
+                                    log_path=cfg.log_path,
+                                    loop_state={"batch": sft_batch_idx},
+                                    kind="both",
+                                )
+                                best_sft_sampling_client_path = path_dict["sampler_path"]
+                                best_sft_state_path = path_dict["state_path"]
+                                logger.info("Saved best sampling client to %s", best_sft_sampling_client_path)
+                                logger.info("Saved best state to %s", best_sft_state_path)
+                                logger.info(
+                                    "Updated best %s to %f at batch %d",
+                                    cfg.best_metric, sft_best_metric, sft_batch_idx,
+                                )
+                                sft_metrics.update({
+                                    f"{_metric_prefix}/best_batch": sft_batch_idx,
+                                    f"{_metric_prefix}/best_metric": sft_best_metric,
+                                    f"{_metric_prefix}/best_sampling_client_path": best_sft_sampling_client_path,
+                                    f"{_metric_prefix}/best_state_path": best_sft_state_path,
+                                })
 
             data_D, prepare_minibatch_metrics = self.prepare_sft_minibatch(
                 new_trajectories=new_trajectories,
@@ -401,10 +416,10 @@ class ActPrmSftRlTrainer(RLTrainer):
             )
             logger.info("Updated sampling client from SFT training, batch %d", sft_batch_idx)
             # Log metrics
-            metrics.update(update_metrics)
-            metrics["time/total"] = time.time() - t_start
-            self.ml_logger.log_metrics(metrics, step=overall_batch_idx)
-            sft_pbar.set_postfix(**{k.split("/")[-1]: v for k, v in metrics.items()})
+            sft_metrics.update(update_metrics)
+            sft_metrics["time/total"] = time.time() - t_start
+            self.ml_logger.log_metrics(sft_metrics, step=overall_batch_idx)
+            sft_pbar.set_postfix(**{k.split("/")[-1]: v for k, v in sft_metrics.items()})
         
         # ---------- Third stage of training (generate thoughts from states only) ----------
         logger.info("Stage 3 training RL")
@@ -567,6 +582,8 @@ class ActPrmSftRlTrainer(RLTrainer):
             metrics["time/total"] = time.time() - t_start
             self.ml_logger.log_metrics(metrics, step=overall_batch_idx)
             rl_pbar.set_postfix(**{k.split("/")[-1]: v for k, v in metrics.items()})
+
+            logger.debug("TESTING RL batch %d, overall batch %d", batch_idx, overall_batch_idx)
 
         return best_rl_sampling_client_path
 
