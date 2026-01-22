@@ -116,7 +116,7 @@ class TextWorldEnv(Environment):
     ) -> None:
         # max_turns in base class is used for generic envs; TextWorld uses `max_steps`
         # but we still set base max_turns to something sensible.
-        super().__init__(max_turns=max_turns, seed=seed, split=split, **kwargs)
+        super().__init__(seed=seed, split=split, **kwargs)
 
         self.textworld_games_path = dataset_config["cache_dir"]
         self.task = task

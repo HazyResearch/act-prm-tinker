@@ -84,7 +84,7 @@ class ActPrmEnv(Environment):
         split: str = "train",
         system_prompt: str = SYSTEM_PROMPT_MESSAGE["content"],
         original_system_prompt: str | None = None,
-        max_messages: int = 1000,  # a bit hacky, but truncate for long contexts
+        # max_messages: int = 1000,  # a bit hacky, but truncate for long contexts
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -92,7 +92,7 @@ class ActPrmEnv(Environment):
         self.success_rollouts_only = success_rollouts_only
         self.actions_only = actions_only
         self.num_fewshot_prompts = num_fewshot_prompts
-        self.max_messages = max_messages
+        # self.max_messages = max_messages
         
         # Use for parsing thoughts and actions from LLM messages
         self.action_bos = action_bos
@@ -180,7 +180,7 @@ class ActPrmEnv(Environment):
         """
         sample_idx_adj = self.adjust_sample_idx(sample_idx)  # Wrap around if out of bounds
         action_trajectory_and_tools = self.datasets[self.split][sample_idx_adj]
-        action_trajectory: list[dict[str, Any]] = action_trajectory_and_tools[0][:self.max_messages]
+        action_trajectory: list[dict[str, Any]] = action_trajectory_and_tools[0]  # [:self.max_messages]
         tools: list[dict[str, Any]] = action_trajectory_and_tools[1]
         # Initial sample is just first (obs, action) of the trajectory, i.e.,
         # [{"role": "user", "content": "..."},

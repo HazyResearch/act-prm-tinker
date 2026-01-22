@@ -30,7 +30,10 @@ class TextWorldTool(BaseTool):
         #    instead of {"name": "take", "arguments": {"item": "pepper from box"}}
         self.tools_to_resolve_from_text = {} 
         for tool_name in self.tool_to_template.keys():
-            if len(tool_name.split("_")) > 1:
+            if (
+                len(tool_name.split("_")) > 1
+                # and tool_name.split("_")[0] in self.tool_to_template.keys()
+            ):
                 # if a tool name has multiple words, use 2nd word's inclusion
                 # in TextWorld action text to resolve the tool (only have max 2-word tools)
                 _name_parts = tool_name.split("_")
@@ -87,20 +90,22 @@ class TextWorldTool(BaseTool):
         * 'prepare meal' -> '<tool_call>\n{"name": "prepare_meal", "arguments": {}}\n</tool_call>'
         * 'take white onion from fridge' -> '<tool_call>\n{"name": "take_from", "arguments": {"item": "white onion", "source": "fridge"}}\n</tool_call>'
         """
+        # Resolve tool name clashes; e.g., to distinguish between "take" and "take_from"
         tool_name = tw_action.split(" ")[0]
-        # e.g., to distinguish between "take" and "take_from"
         tie_break = self.tools_to_resolve_from_text.get(tool_name, "null")
-        if tie_break != "null":
-            tool_name = f"{tool_name}_{tie_break}" if tie_break in tw_action else tool_name  # should handle most cases
+        if tie_break != "null":  # should handle most cases
+            new_tool_name = f"{tool_name}_{tie_break}" if tie_break in tw_action else tool_name
+        else:
+            new_tool_name = tool_name
 
         # Go through words in tw_action text to build the JSON tool call
         tw_arg_text = tw_action[len(tool_name):].strip()  # after the tool call
         tw_args = tw_arg_text.split(tie_break)
 
         toolcall_arguments = list(
-            self.tool_descriptions[tool_name]["parameters"]["properties"].keys()
+            self.tool_descriptions[new_tool_name]["parameters"]["properties"].keys()
         )
-        toolcall = {"name": tool_name, "arguments": {}}
+        toolcall = {"name": new_tool_name, "arguments": {}}
         for arg_ptr, maybe_arg in enumerate(tw_args):
             if len(toolcall_arguments) > 0:
                 toolcall["arguments"][toolcall_arguments[arg_ptr]] = maybe_arg.strip()
