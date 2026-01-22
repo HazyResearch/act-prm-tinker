@@ -131,7 +131,11 @@ class AsyncActPrmEnvWithBaseEnv(Environment):
         Build fewshot examples, i.e., default context, for all samples
         """
         fewshot_prompts = []
-        for fewshot_prompt in THOUGHT_ACTION_FEWSHOT_PROMPTS[:self.num_fewshot_prompts]:
+
+        _all_thought_action_prompts = getattr(
+            self.base_env, "act_prm_fewshot_prompts", THOUGHT_ACTION_FEWSHOT_PROMPTS
+        )
+        for fewshot_prompt in _all_thought_action_prompts[:self.num_fewshot_prompts]:
             fewshot_prompts.extend(fewshot_prompt)
         return fewshot_prompts
 
@@ -189,6 +193,12 @@ class AsyncActPrmEnvWithBaseEnv(Environment):
         # but we can also do this via just `action_target`
         messages = base_env_state.new_messages + [{"role": "assistant", "content": action_target}]
 
+        # MZ 1/21/26 -> Make the few-shot prompts more seamless into the target task
+        if self.num_fewshot_prompts > 0:
+            messages[0]["content"] = (
+                f"Great! Now do the same for the next task:\n\n"
+                f"## Next Task:\n\n{messages[0]["content"]}"
+            )
         # MZ 1/18/26: Note that we add default context here, but we filter it out for
         # thought-action SFT trajectories
         new_messages = self.default_context + messages

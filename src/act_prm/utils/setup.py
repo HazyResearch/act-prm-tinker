@@ -51,5 +51,17 @@ def get_run_name(
             run_name += f"-{argn}={ckpt_id}"
 
     # Last cleanups (brevity, ensure no unintended directory separators)
-    run_name = run_name.replace("False", "0").replace("True", "1").replace("/", "_")
+    run_name = make_shorter(run_name.replace("/", "_"))
+    return run_name
+
+
+def make_shorter(run_name: str) -> str:
+    """
+    Apply various shortening heuristics to make run name shorter
+    """
+    run_name = run_name.replace("False", "0").replace("True", "1")
+    run_name = run_name.replace("=textworld_", "=tw_")  # textworld
+    run_name = run_name.replace("=Qwen_Qwen", "=Qwen")  # models
+    run_name = run_name.replace("=Llama_Llam", "=Llama")  # models
+    run_name = run_name.replace("-rebuco=default", "")  # if it's "default", don't need to specify
     return run_name

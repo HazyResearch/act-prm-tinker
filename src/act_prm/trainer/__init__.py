@@ -23,6 +23,10 @@ def get_trainer(name: str, **kwargs: Any) -> ActPrmTrainer | RLTrainer | SFTTrai
         from .act_prm_sft_rl import ActPrmSftRlTrainer
         return ActPrmSftRlTrainer(**kwargs)
 
+    elif name == "act_prm_joint":
+        from .act_prm_joint import ActPrmJointTrainer
+        return ActPrmJointTrainer(**kwargs)
+
     elif name == "rl":
         return RLTrainer(**kwargs)
 

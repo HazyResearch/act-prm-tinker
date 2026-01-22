@@ -451,5 +451,5 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
 
         return {
             "policy": all_act_prompt_trajectory_groups, 
-            "thought_action_policy": all_trajectory_groups,
+            "think_act_policy": all_trajectory_groups,
         }

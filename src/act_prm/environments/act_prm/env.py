@@ -28,7 +28,7 @@ from .utils import (
 )
 
 
-SYSTEM_PROMPT = {
+SYSTEM_PROMPT_MESSAGE = {
     "role": "system",
     "content": "You are a helpful assistant that infers reasoning thoughts behind observed actions."
 }
@@ -82,7 +82,7 @@ class ActPrmEnv(Environment):
         num_test_samples: int = 10,
         seed: int = 0,
         split: str = "train",
-        system_prompt: str = SYSTEM_PROMPT["content"],
+        system_prompt: str = SYSTEM_PROMPT_MESSAGE["content"],
         original_system_prompt: str | None = None,
         max_messages: int = 1000,  # a bit hacky, but truncate for long contexts
         **kwargs: Any,

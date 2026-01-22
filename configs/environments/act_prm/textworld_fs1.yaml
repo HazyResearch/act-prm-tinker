@@ -12,7 +12,7 @@ hidden_obs_content: "..."
 first_obs_to_show: 2
 last_obs_to_show: 1
 
-num_fewshot_prompts: 0
+num_fewshot_prompts: 1
 action_bos: "<tool_call>"
 action_eos: "</tool_call>"
 final_answer_bos: "Final Answer: "

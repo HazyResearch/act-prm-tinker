@@ -339,10 +339,13 @@ class ActPrmSftEvalTrainer(RLTrainer):
         for delim in ["-enco=", "-geco=", "-se=", "-re="]:
             _ds_name.append(self.run_name.split(delim)[-1].split("-")[0])
         _ds_name = "-".join(_ds_name)
+        _ds_name = f"mzio/aprm_sft-{_ds_name}-{batch_id:04d}" # hardcoded hack for now
+        if len(_ds_name) > 96:
+            breakpoint()
         try:
             self._save_trajectories_to_hf_dataset(
                 trajectories=all_new_trajectories,
-                dataset_name=f"mzio/aprm_sft-{_ds_name}-{batch_id:04d}",  # hardcoded hack for now
+                dataset_name=_ds_name,  
             )
             logger.info("Saved thought-action rollouts to HF Dataset: %s", f"mzio/aprm_sft-{_ds_name}-{batch_id:04d}")
         except Exception as e:

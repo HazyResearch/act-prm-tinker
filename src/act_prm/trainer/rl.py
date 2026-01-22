@@ -4,6 +4,7 @@ Tinker RL Trainer for fully synchronous on-policy training
 
 import asyncio
 import logging
+import random
 import time
 from os.path import join
 from typing import Any, Callable
@@ -140,6 +141,8 @@ class RLTrainer(BaseTrainer):
         logger.info("Using renderer: %s", renderer_name)
 
         num_batches = end_batch - start_batch
+        wen_shuffle = len(env.datasets["train"])
+        
         for batch_idx in range(start_batch, end_batch):
             metrics = {
                 "progress/batch": batch_idx,
@@ -219,6 +222,10 @@ class RLTrainer(BaseTrainer):
 
             # 1. Sample rollouts for training
             env.split = "train"
+            rl_start_idx = batch_idx * cfg.batch_size
+            if rl_start_idx + cfg.batch_size > wen_shuffle:
+                random.shuffle(env.datasets["train"])
+                wen_shuffle += len(env.datasets["train"])
             train_rollout_metrics, new_trajectories = await run_rollouts(
                 sampling_client=sampling_client,
                 renderer=renderer,
@@ -230,7 +237,7 @@ class RLTrainer(BaseTrainer):
                 checkpoint_name=checkpoint_name,
                 split="train",
                 num_tries=cfg.num_tries,
-                start_idx=batch_idx * cfg.batch_size,
+                start_idx=rl_start_idx,
                 tasks_per_update=cfg.batch_size,
                 name_or_identifier=name_or_identifier,
             )

@@ -21,6 +21,7 @@ from ...llm_handlers import ActionFromLLM  # same as your HotpotQA import
 
 from .factory import TextWorldFactory
 from .prompts import get_instruction_prompt
+from .prompts_aprm import FEWSHOT_PROMPTS as ACT_PRM_FEWSHOT_PROMPTS
 from .tools import TextWorldTool
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,9 @@ class TextWorldEnv(Environment):
         self.tool_descriptions: list[dict[str, Any]] = self.textworld_tool.get_tool_descs()
         self.get_llm_toolcall_from_tw_text = self.textworld_tool.get_llm_toolcall_from_tw_text
         # -> See self._step_impl() for how we call tools
+
+        # Few-shot prompts for Act-PRM generation + training
+        self.act_prm_fewshot_prompts = ACT_PRM_FEWSHOT_PROMPTS
 
     def __len__(self) -> int:
         """
