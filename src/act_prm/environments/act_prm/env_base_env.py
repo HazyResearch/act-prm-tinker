@@ -200,6 +200,7 @@ class AsyncActPrmEnvWithBaseEnv(Environment):
 
         # MZ 1/21/26 -> Make the few-shot prompts more seamless into the target task
         if self.num_fewshot_prompts > 0:
+            # "Great! Now do the same for the next task:\n\n## Next Task:\n\n"
             messages[0]["content"] = (
                 f"Great! Now do the same for the next task:\n\n"
                 f"## Next Task:\n\n{messages[0]["content"]}"
@@ -363,7 +364,7 @@ class AsyncActPrmEnvWithBaseEnv(Environment):
 
         if done:
             logger.info(f"Episode done at step {timestep} with reward {reward}")
-            rich_print(env_messages[-1]["content"])
+            rich_print(env_messages[-1])
             
         return ActionProcessRewardStepResult(
             state=new_state,

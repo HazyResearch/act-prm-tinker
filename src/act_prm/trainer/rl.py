@@ -409,7 +409,9 @@ class RLTrainer(BaseTrainer):
             f"{delim[:2].upper()}{self.run_name.split(delim)[-1].split("-")[0]}"
             for delim in ["enco=", "geco=", "se=", "re="]  # env, generator, seed, replicate
         ])
-        ds_name = f"{dataset_prefix}-{ds_identifier}{dataset_suffix}-b{save_batch_idx:04d}"
+        if "joint" in self.run_name:
+            ds_identifier += "-joint"
+        ds_name = f"{dataset_prefix}-{ds_identifier}{dataset_suffix}-b{save_batch_idx:03d}"
         cfg.dataset_url_sft = f"https://huggingface.co/datasets/{ds_name}"
         try:
             _trajectories = [traj for group in all_trajectories_per_group for traj in group]
