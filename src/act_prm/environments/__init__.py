@@ -29,6 +29,15 @@ def get_env(name: str, is_async: bool = False, **kwargs: Any) -> Environment:
                 f"Sorry, synchronous version of '{name}' not implemented yet."
             )
 
+    elif name == "action_lm":
+        if is_async:
+            raise NotImplementedError(
+                f"Sorry, asynchronous version of '{name}' not implemented yet."
+            )
+        else:
+            from .action_lm import ActionLmEnv
+            return ActionLmEnv(**kwargs)
+
     elif name == "textworld":
         if is_async:
             from .textworld import AsyncTextWorldEnv

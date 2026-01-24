@@ -1,6 +1,8 @@
 """
 Helper functions for Hugging Face PEFT implementation of LoRA
 """
+
+from typing import Any
 # Enable and disable adapters
 from peft import LoraConfig, PeftModel, TaskType, get_peft_model
 from peft.tuners.tuners_utils import BaseTunerLayer
@@ -23,11 +25,11 @@ TARGET_MODULES = (
 )
 
 
-def get_peft_model(model: PreTrainedModel, **lora_kwargs: Any) -> PeftModel:
+def get_lora_model(model: PreTrainedModel, **lora_kwargs: Any) -> PeftModel:
     """
     Get a PEFT model from a base model and LoRA configuration
     """
-    return get_peft_model(model, get_lora_config(**lora_kwargs))
+    return get_peft_model(model, peft_config=get_lora_config(**lora_kwargs))
 
 
 def get_lora_config(

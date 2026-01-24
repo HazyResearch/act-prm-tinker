@@ -3,7 +3,7 @@ Main script for training + evaluating LLMs using PyTorch
 
 Example command:
 ```bash
-uv run python main_torch.py \
+uv run python main_pytorch.py \
 --is_async \
 --env_config hotpotqa_mc/fewshot2 \
 --generator_config default \
@@ -19,6 +19,7 @@ uv run python main_torch.py \
 import argparse
 import asyncio
 import logging
+from typing import Any
 
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
@@ -29,8 +30,8 @@ from tinker_cookbook.utils import ml_log  # still use nice logging
 from act_prm.environments import get_env
 from act_prm.llm_handlers import load_llm
 from act_prm.llm_handlers.huggingface import HuggingFaceLLM
-from act_prm.lora import get_peft_model, save_lora
-from act_prm.pytorch import get_optimizer
+from act_prm.lora import get_lora_model, save_lora
+from act_prm.pytorch import get_optimizer, SftTrainer
 from act_prm.replay_buffer import get_replay_buffer
 from act_prm.utils import get_args, print_config, seed_everything
 # from act_prm.trainer import get_trainer
@@ -117,7 +118,7 @@ async def main() -> None:
 
     # Get LLM and attach LoRAs
     llm: HuggingFaceLLM = load_llm(**model_cfg)
-    llm.model = get_peft_model(llm.model, **lora_cfg)
+    llm.model = get_lora_model(llm.model, **lora_cfg)
     save_lora(llm.model, cfg.lora_checkpoint_path)
     optimizer = get_optimizer(llm.model, learning_rate=cfg.learning_rate)  # simple for now
     if args.verbose:  # Display trainable parameters
@@ -135,9 +136,7 @@ async def main() -> None:
     eval_env = get_env(**eval_env_cfg) if args.eval_env_config else env
 
     # Training loop
-    num_batches = cfg.num_batches  # number of training steps
-    trainer = get_trainer(
-        cfg.trainer_name,
+    trainer = SftTrainer(
         cfg=cfg,
         llm=llm,
         optimizer=optimizer,
@@ -145,21 +144,10 @@ async def main() -> None:
         env=env,
         eval_env=eval_env,
         ml_logger=ml_logger,
-        run_name=args.run_name,
+        hf_tokenizer=llm.tokenizer,
+        checkpoint_path=cfg.lora_checkpoint_path,
     )
-    await trainer.train(start_batch=start_batch, end_batch=num_batches)
-
-    # Save final checkpoint
-    if start_batch < num_batches:
-        _ = await checkpoint_utils.save_checkpoint_async(
-            training_client=training_client,
-            name="final",
-            log_path=cfg.log_path,
-            loop_state={"batch": num_batches},
-            kind="both",
-        )
-    else:
-        logger.info("Training was already complete; nothing to do")
+    trainer.train()
 
     # Cleanup
     ml_logger.close()

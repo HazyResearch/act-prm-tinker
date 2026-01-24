@@ -39,7 +39,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--lora_checkpoint_path",
         type=str,
-        default="./checkpoints",
+        default="./checkpoints_lora",
         help="Path to save and load LoRA checkpoints",
     )
 
@@ -91,6 +91,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint_path",
         type=str,
+        default="./checkpoints",
         help=(
             "Parent directory for saving other checkpoints and data (e.g., replay buffer samples)."
             " Similar to above, actual path is automatically determined (and created)"
@@ -221,14 +222,25 @@ def get_args() -> argparse.Namespace:
     # -> construct as args.log_path/args.env_config/model_name/args.run_name/
     # -> similar for checkpointing
     created_dir = False
-    _model_name = OmegaConf.load(f"./configs/trainer/{args.trainer_config}.yaml")["model_name"]
+    try:
+        _model_name = OmegaConf.load(f"./configs/trainer/{args.trainer_config}.yaml")["model_name"]
+    except Exception as e:
+        assert args.model_name is not None, "args.model_name must be specified if not in trainer_config"
+        _model_name = None
     _model_name = args.model_name or _model_name
     _model_name = _model_name.split("/")[-1].replace("-", "_")
     _env_config = args.env_config.replace("/", "_")
 
     for argname in ["log_path", "checkpoint_path", "lora_checkpoint_path"]:
         for new_dir in [_env_config, _model_name, args.run_name]:
-            setattr(args, argname, os.path.join(args.log_path, new_dir))
+            # setattr(args, argname, os.path.join(args.log_path, new_dir))
+            try:
+                setattr(args, argname, os.path.join(getattr(args, argname), new_dir))
+            except Exception as e:
+                _error_class = e.__class__.__name__
+                print(f"{_error_class}: {e}")
+                # setattr(args, argname, os.path.join(args.log_path, new_dir))
+                breakpoint()
             if not os.path.exists(getattr(args, argname)):
                 os.makedirs(getattr(args, argname))
                 created_dir = True

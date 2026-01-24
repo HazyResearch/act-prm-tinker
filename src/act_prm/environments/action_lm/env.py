@@ -19,35 +19,36 @@ import pandas as pd
 from datasets import Dataset as HFDataset, DatasetDict, load_dataset
 from tqdm import tqdm
 
-from ...llm_handlers import ActionFromLLM
+# from ...llm_handlers import ActionFromLLM
 
 from ..act_prm.utils import get_thought_and_actions
 from ..base import Environment
-from ..types import EnvironmentState, EnvironmentStepResult
+# from ..types import EnvironmentState, EnvironmentStepResult
 
 
 logger = logging.getLogger(__name__)
 
 
-class ActionLmState(EnvironmentState):
+class ActionLmState:
     """
     State for Action Language Modeling tasks (Pydantic object)
     """
-    trajectory: HFDataset
+    def __init__(self, trajectory: HFDataset) -> None:
+        self.trajectory = trajectory
 
 
-class ActionLmStepResult(EnvironmentStepResult):
-    """
-    Step result for HotpotQA multiple choice tasks
-    """
-    state: ActionLmState
-    reward: float
-    done: bool
-    truncated: bool
-    info: dict[str, Any] | None = None
+# class ActionLmStepResult(EnvironmentStepResult):
+#     """
+#     Step result for HotpotQA multiple choice tasks
+#     """
+#     state: ActionLmState
+#     reward: float
+#     done: bool
+#     truncated: bool
+#     info: dict[str, Any] | None = None
 
 
-class ActionLmEnvironment(Environment):
+class ActionLmEnv(Environment):
     """
     Action Language Modeling "Environment"
     
@@ -251,7 +252,14 @@ class ActionLmEnvironment(Environment):
         unique_sample_ids = df[self.sample_id_name].unique()
         target_thoughts = True if split == "train" else False
 
-        for _sample_id in unique_sample_ids:
+        pbar = tqdm(
+            unique_sample_ids,
+            desc=f"Initializing RL dataset for {split.upper()} split",
+            leave=True,
+            colour="magenta",
+            position=1,
+        )
+        for _sample_id in pbar:
             df_by_sample = df[df[self.sample_id_name] == _sample_id]
             df_by_sample = df_by_sample[df_by_sample["best_action"]]  # only keep one trajectory
             df_by_sample.sort_values(by=self.timestep_name, ascending=True, inplace=True)
@@ -276,7 +284,7 @@ class ActionLmEnvironment(Environment):
         e.g., https://huggingface.co/datasets/mzio/aprm-sft_genthinkact-ENtw_treasure_hunter-GEaprm_qwen3_ap-SE0-REfsc4-ap1-b019
         """
         # Build model_input_ids (tokens for full state-(thought)-action text)
-        messages = {"role": "system", "content": self.system_prompt}
+        messages = [{"role": "system", "content": self.system_prompt}]
         # Get state messages
         if self.actions_only:
             state_msgs = [
@@ -475,7 +483,8 @@ class ActionLmEnvironment(Environment):
     def step(
         self,
         **kwargs: Any,
-    ) -> ActionLmStepResult:
+    # ) -> ActionLmStepResult:
+    ) -> None:
         """
         Step through the environment; see `_step_impl` for details
         """
@@ -485,14 +494,16 @@ class ActionLmEnvironment(Environment):
         self,
         current_state: ActionLmState,
         **kwargs: Any,
-    ) -> ActionLmStepResult:
+    # ) -> ActionLmStepResult:
+    ) -> None:
         """
         Dummy method for now
         """
-        return ActionLmStepResult(
-            state=current_state,
-            reward=0.0,
-            done=True,
-            truncated=False,
-            info=None,
-        )
+        return None
+        # return ActionLmStepResult(
+        #     state=current_state,
+        #     reward=0.0,
+        #     done=True,
+        #     truncated=False,
+        #     info=None,
+        # )

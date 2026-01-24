@@ -4,6 +4,7 @@ PyTorch trainer for Hugging Face Transformer (PEFT) models
 
 import os
 import sys
+from copy import copy
 from typing import Any
 
 from omegaconf import DictConfig
@@ -14,17 +15,18 @@ from tqdm import tqdm
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
-from tinker_cookbook import ml_log
+from transformers import PreTrainedTokenizerBase
+from tinker_cookbook.utils import ml_log
 
 from act_prm.lora import load_lora, save_lora
 from act_prm.llm_handlers import HuggingFaceLLM
 from act_prm.environments import Environment
+from act_prm.replay_buffer import ReplayBuffer
 
-from .generator import run_rollouts
+# from .generator import run_rollouts
 
 console = Console()
 
@@ -115,8 +117,6 @@ class SftTrainer:
     
     def train(
         self,
-        # start_batch: int,
-        # end_batch: int,
         llm: HuggingFaceLLM | None = None,
         optimizer: Optimizer | Any | None = None,
         cfg: DictConfig | None = None,
@@ -169,7 +169,7 @@ class SftTrainer:
                 shuffle=True if split == "train" else False,
             )
         train_loader = dataloaders["train"]
-        eval_loader  = dataloaders["eval"]
+        # eval_loader  = dataloaders["eval"]
 
         # Do training loop
         pbar = tqdm(total=num_steps, desc="Training steps", colour="cyan", position=1)
