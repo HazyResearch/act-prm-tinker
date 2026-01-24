@@ -140,7 +140,7 @@ class ActPrmJointTrainer(RLTrainer):
         eval_env: Environment | None = None,
         generator_constructor: Callable[..., TinkerGenerator] | None = None,
         checkpoint_name: str | None = None,
-    ) -> None:
+    ) -> str:
         """
         Implement fully synchronous on-policy training with Tinker
 
@@ -278,7 +278,7 @@ class ActPrmJointTrainer(RLTrainer):
                 cfg.eval_every > 0 
                 and ((batch_idx + 1) % cfg.eval_every == 0 or batch_idx + 1 == cfg.num_batches)
             ):
-                with timed("run_evals", sft_metrics):
+                with timed("run_evals", metrics):
                     # Run `gen_think` evaluation on held-out eval tasks
                     env.split = "eval"
                     eval_results = await do_eval(
@@ -339,6 +339,11 @@ class ActPrmJointTrainer(RLTrainer):
             if rl_start_idx + cfg.batch_size > wen_shuffle:
                 random.shuffle(env.datasets["train"])
                 wen_shuffle += len(env.datasets["train"])
+            _ckeckpoint_name = (
+                f"{checkpoint_name}-aprm_gen_think"
+                if checkpoint_name is not None
+                else "aprm_gen_think"
+            )
             train_rollout_metrics, new_trajectories = await run_rollouts(
                 sampling_client=sampling_client,
                 renderer=renderer,
@@ -347,7 +352,7 @@ class ActPrmJointTrainer(RLTrainer):
                 env=env,
                 cfg=cfg,
                 batch_id=batch_idx,
-                checkpoint_name=checkpoint_name,
+                checkpoint_name=_checkpoint_name,
                 split="train",
                 num_tries=cfg.num_tries,
                 start_idx=rl_start_idx,
@@ -387,6 +392,6 @@ class ActPrmJointTrainer(RLTrainer):
             metrics.update(update_metrics)
             metrics["time/total"] = time.time() - t_start
             self.ml_logger.log_metrics(metrics, step=overall_batch_idx)
-            rl_pbar.set_postfix(**{k.split("/")[-1]: v for k, v in metrics.items()})
+            pbar.set_postfix(**{k.split("/")[-1]: v for k, v in metrics.items()})
 
-        return best_rl_sampling_client_path
+        return self.best_think_act_sampling_client_path

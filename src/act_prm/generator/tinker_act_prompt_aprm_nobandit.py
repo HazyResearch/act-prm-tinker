@@ -258,7 +258,7 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
         )
         return {
             "policy": action_prompt_trajectory,
-            "thought_action_policy": thought_action_trajectory,
+            "think_act_policy": thought_action_trajectory,
         }
 
     async def do_group_rollout(
@@ -288,11 +288,11 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
         # (state, thought, action) samples for SFT
         all_thought_action_trajectory_groups: list[TrajectoryGroup] = [
             self._get_trajectory_group(
-                trajectories=[traj["thought_action_policy"] for traj in trajectories_in_group], 
+                trajectories=[traj["think_act_policy"] for traj in trajectories_in_group], 
                 discount_factor=self.discount_factor,
             )
         ]
         return {
             "policy": all_trajectory_groups,
-            "thought_action_policy": all_thought_action_trajectory_groups, 
+            "think_act_policy": all_thought_action_trajectory_groups, 
         }
