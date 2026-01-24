@@ -244,6 +244,7 @@ class TextWorldEnv(Environment):
         
         # Prepare initial state message
         state_json = {self._key(k): v for k, v in tw_game_state.items() if k in self.state_keys}
+        state_json["max_possible_score"] = tw_game_state["max_score"]  # show max score to agent
         state_json["moves_left"] = self.max_turns - state_json["moves"]
         state_content = MESSAGE_TEMPLATE.format(
             action_feedback=tw_game_state["feedback"].strip(),
@@ -354,11 +355,16 @@ class TextWorldEnv(Environment):
                     state_json = {
                         self._key(k): v for k, v in tw_game_state.items() if k in self.state_keys
                     }
+                    state_json["max_possible_score"] = tw_game_state["max_score"]
                     state_json["moves_left"] = self.max_turns - state_json["moves"]
                     state_json["last_action"] = last_action_text
                     state_content = MESSAGE_TEMPLATE.format(
                         action_feedback=tw_game_state["feedback"].strip(),
                         state_json=json.dumps(state_json, indent=2),
+                    )
+                    state_content += (
+                        f"\n\n(Hint: the task is not fully done until score {state_json["score"]}"
+                        f" == max_possible_score {state_json["max_possible_score"]})"
                     )
                     # Update GameState attributes for our TextWorldState
                     next_state_tw_game_state_kwargs.update({

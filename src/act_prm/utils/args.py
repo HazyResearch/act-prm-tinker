@@ -33,6 +33,16 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--model_name", type=str)
     parser.add_argument("--lora_rank", type=int)
 
+    ## PyTorch training arguments -> orthogonal to Tinker arguments
+    parser.add_argument("--model_config", type=str, help="Model config; ditto")
+    parser.add_argument("--lora_config", type=str, help="LoRA config; ditto")
+    parser.add_argument(
+        "--lora_checkpoint_path",
+        type=str,
+        default="./checkpoints",
+        help="Path to save and load LoRA checkpoints",
+    )
+
     ## Environment
     parser.add_argument(
         "--actions_only",
@@ -82,8 +92,8 @@ def get_args() -> argparse.Namespace:
         "--checkpoint_path",
         type=str,
         help=(
-            "Parent directory for saving other checkpoints and data (e.g., replay buffer samples)"
-            ". Similar to above, actual path is automatically determined (and created)"
+            "Parent directory for saving other checkpoints and data (e.g., replay buffer samples)."
+            " Similar to above, actual path is automatically determined (and created)"
         )
     )
     parser.add_argument("--load_checkpoint_path", type=str, help="Path to load Tinker checkpoint")
@@ -197,7 +207,10 @@ def get_args() -> argparse.Namespace:
     #     args.eval_batch_size = args.eval_tasks_per_update
 
     # Get run (i.e., experiment) name
-    _ignore_args = ["base_url", "log_path", "project_name", "verbose"]
+    _ignore_args = [
+        "base_url", "checkpoint_path", "log_path", "load_checkpoint_path", "lora_checkpoint_path",
+        "project_name", "verbose",
+    ]
     _ignore_args.extend([argn for argn in vars(args).keys() if argn.endswith("_every")])
     if args.base_env_config is not None and args.base_env_config == args.env_config:
         _ignore_args.append("base_env_config")
@@ -213,7 +226,7 @@ def get_args() -> argparse.Namespace:
     _model_name = _model_name.split("/")[-1].replace("-", "_")
     _env_config = args.env_config.replace("/", "_")
 
-    for argname in ["log_path", "checkpoint_path"]:
+    for argname in ["log_path", "checkpoint_path", "lora_checkpoint_path"]:
         for new_dir in [_env_config, _model_name, args.run_name]:
             setattr(args, argname, os.path.join(args.log_path, new_dir))
             if not os.path.exists(getattr(args, argname)):
