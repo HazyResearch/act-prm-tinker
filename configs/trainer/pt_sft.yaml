@@ -24,6 +24,7 @@ num_steps: 1000
 gradient_accumulation_steps: 32
 
 # Checkpointing
+no_initial_eval: false
 eval_every: 5
 save_every: 10
 do_rollout_eval: false

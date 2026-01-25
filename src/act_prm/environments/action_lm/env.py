@@ -17,13 +17,14 @@ import numpy as np
 import pandas as pd
 from datasets import Dataset as HFDataset, DatasetDict, load_dataset
 from rich import print as rich_print
-from transformers import PreTrainedModel, TextStreamer
+from transformers import PreTrainedModel  # , TextStreamer
 from tqdm import tqdm
 
 # from ...llm_handlers import ActionFromLLM
 
-from ..act_prm.utils import get_thought_and_actions
-from ..base import Environment
+from act_prm.environments.act_prm.utils import get_thought_and_actions
+from act_prm.environments.base import Environment
+from act_prm.utils.display import RichTextStreamer
 # from ..types import EnvironmentState, EnvironmentStepResult
 from .utils import check_model_inputs, ROYGBIV
 
@@ -135,7 +136,7 @@ class ActionLmEnv(Environment):
         }
 
         # Silly streaming
-        self.streamer = TextStreamer(
+        self.streamer = RichTextStreamer(
             self.tokenizer,
             skip_prompt=True,
             skip_special_tokens=True,

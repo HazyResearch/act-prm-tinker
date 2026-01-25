@@ -248,7 +248,11 @@ class SftTrainer:
             # Evaluate 
             if (
                 not eval_already and eval_every > 0
-                and (step_idx % eval_every == 0 or step_idx == num_steps - 1 or step_idx == 0)
+                and (
+                    (step_idx + 1) % eval_every == 0
+                    or step_idx == num_steps - 1
+                    or (step_idx == 0 and not cfg.no_initial_eval)
+                )
             ):
                 if loss_metrics is not None:
                     display_metrics(loss_metrics, title=f"Train Metrics, Step {step_idx}")
@@ -309,6 +313,10 @@ class SftTrainer:
                     eval_success  = sum(success_per_task) / max(len(success_per_task), 1)
                     eval_longest  = sum(longest_per_task) / max(len(longest_per_task), 1)
 
+                    gen_eval_step_acc = sum(gen_step_acc_per_task) / max(len(gen_step_acc_per_task), 1)
+                    gen_eval_success  = sum(gen_success_per_task) / max(len(gen_success_per_task), 1)
+                    gen_eval_longest  = sum(gen_longest_per_task) / max(len(gen_longest_per_task), 1)
+
                     eval_metrics = {
                         "eval/nll": eval_nll,
                         "eval/ppl": eval_ppl,
@@ -316,6 +324,9 @@ class SftTrainer:
                         "eval/step_act_acc": eval_step_acc,
                         "eval/task_success": eval_success,
                         "eval/task_longest": eval_longest,
+                        "eval/gen_step_act_acc": gen_eval_step_acc,
+                        "eval/gen_task_success": gen_eval_success,
+                        "eval/gen_task_longest": gen_eval_longest,
                     }
                     eval_ppl = eval_metrics["eval/ppl"]
                     if eval_ppl < self.best_ppl:
@@ -351,8 +362,9 @@ class SftTrainer:
 
             # --- Training Update ---
             # Sanity-check model inputs
-            if (batch_idx) == 0 or (batch_idx + 1) % 100 == 0:
+            if (batch_idx) == 0 or (batch_idx + 1) % 10 == 0:
                 self._check_model_inputs(batch, hf_tokenizer, cfg)
+                # breakpoint()
 
             llm.model.train()
             # loss, ppl = self.compute_loss(llm.model, batch, cfg)

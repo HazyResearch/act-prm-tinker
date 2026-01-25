@@ -3,6 +3,7 @@ Basic logging helpers
 """
 
 import logging
+from typing import Any
 
 from omegaconf import OmegaConf, DictConfig, ListConfig
 from rich import print as rich_print
@@ -74,6 +75,7 @@ def rich_print_messages(
     assistant_color: str = "bright_cyan",
     tool_call_color: str = "dodger_blue1",
     tool_response_color: str = "bright_magenta",
+    **rich_print_kwargs: Any,
 ) -> None:
     """
     Print chat-templated messages in silly colors
@@ -107,7 +109,7 @@ def rich_print_messages(
         
     msgs_text = eos_token.join(msgs)
     try:
-        rich_print(msgs_text)
+        rich_print(msgs_text, **rich_print_kwargs)
     except MarkupError as e:
         logger.error(f"rich.errors.MarkupError: {e}")
         print(msgs_text)

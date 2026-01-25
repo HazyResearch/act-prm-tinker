@@ -48,6 +48,12 @@ def get_args() -> argparse.Namespace:
         default=None,
         help="Cast logits to float32 before computing cross-entropy loss",
     )
+    parser.add_argument(
+        "--no_initial_eval",
+        action="store_true",
+        default=None,
+        help="Don't evaluate on the first step",
+    )
 
     ## Environment
     parser.add_argument(
