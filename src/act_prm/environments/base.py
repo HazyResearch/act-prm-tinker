@@ -129,6 +129,7 @@ class Environment(ABC):
     def maybe_hide_observations(
         self,
         messages: list[dict[str, str]],
+        hide_observations: bool | None = None,
         hidden_obs_content: str | None = None,
         first_obs_to_show: int | None = None,  # e.g., to keep prompt
         last_obs_to_show: int | None = None,   # e.g., to keep last observation
@@ -137,7 +138,8 @@ class Environment(ABC):
         Hide observations from messages
         """
         num_messages = len(messages)
-        if num_messages == 0 or not self.hide_observations:
+        hide_observations = hide_observations or self.hide_observations
+        if num_messages == 0 or not hide_observations:
             return messages
 
         hidden_obs_content = hidden_obs_content or self.hidden_obs_content

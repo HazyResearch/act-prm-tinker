@@ -42,6 +42,12 @@ def get_args() -> argparse.Namespace:
         default="./checkpoints_lora",
         help="Path to save and load LoRA checkpoints",
     )
+    parser.add_argument(
+        "--fp32_loss",
+        action="store_true",
+        default=None,
+        help="Cast logits to float32 before computing cross-entropy loss",
+    )
 
     ## Environment
     parser.add_argument(

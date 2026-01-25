@@ -10,13 +10,14 @@ from functools import partial
 from typing import Any
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 import numpy as np
 import pandas as pd
 from datasets import Dataset as HFDataset, DatasetDict, load_dataset
+from rich import print as rich_print
+from transformers import PreTrainedModel, TextStreamer
 from tqdm import tqdm
 
 # from ...llm_handlers import ActionFromLLM
@@ -24,6 +25,7 @@ from tqdm import tqdm
 from ..act_prm.utils import get_thought_and_actions
 from ..base import Environment
 # from ..types import EnvironmentState, EnvironmentStepResult
+from .utils import check_model_inputs, ROYGBIV
 
 
 logger = logging.getLogger(__name__)
@@ -33,9 +35,9 @@ class ActionLmState:
     """
     State for Action Language Modeling tasks (Pydantic object)
     """
-    def __init__(self, trajectory: HFDataset) -> None:
+    def __init__(self, trajectory: HFDataset, trajectory_messages: HFDataset) -> None:
         self.trajectory = trajectory
-
+        self.trajectory_messages = trajectory_messages
 
 # class ActionLmStepResult(EnvironmentStepResult):
 #     """
@@ -46,6 +48,12 @@ class ActionLmState:
 #     done: bool
 #     truncated: bool
 #     info: dict[str, Any] | None = None
+
+def _get_item(x: Any) -> Any:
+    """
+    Get item from a tensor or scalar
+    """
+    return x.item() if hasattr(x, "item") else x
 
 
 class ActionLmEnv(Environment):
@@ -62,11 +70,14 @@ class ActionLmEnv(Environment):
         build_full_states: bool = False,  # if True, do an extra step of filling in past observations for samples
         best_actions_only: bool = False,
         best_halves_only: bool = False,
+        max_timestep: int | None = None,
+        target_thoughts_eval: bool = False,
         action_bos: str = "<tool_call>",
         action_eos: str = "</tool_call>",
         final_answer_bos: str = "Final Answer: ",
         frac_train_tasks: int = 0.8,
         frac_eval_tasks: int = 0.2,
+        fp32_loss: bool = False,
         seed: int = 0,
         split: str = "train",
         system_prompt: str = "You are a helpful assistant.",
@@ -82,6 +93,9 @@ class ActionLmEnv(Environment):
         self.build_full_states = build_full_states
         self.best_actions_only = best_actions_only
         self.best_halves_only = best_halves_only
+        self.max_timestep = max_timestep
+
+        self.target_thoughts_eval = target_thoughts_eval  # if True, we compute inference metrics over thought tokens too
 
         self.sample_id_name = sample_id_name
         self.timestep_name = timestep_name
@@ -104,6 +118,9 @@ class ActionLmEnv(Environment):
         self.seed = seed
         self.split = split
 
+        # For loss computation
+        self.fp32_loss = fp32_loss
+
         # Get tokenizer
         self.pretrained_model_config = pretrained_model_config
         self.tokenizer = self._init_tokenizer()  # see act_prm/environments/base.py
@@ -112,10 +129,17 @@ class ActionLmEnv(Environment):
         self.system_prompt = system_prompt
         # We'll use the DataFrames for trajectory-specific evaluation
         self.datasets, self.df_train, self.df_eval = self.init_data()
-        self.datasets_rl = {
+        self.datasets_rl: dict[str, tuple[list[HFDataset], list[HFDataset]]] = {
             "train": self.init_rl_data(self.df_train, split="train"),
             "eval":  self.init_rl_data(self.df_eval,  split="eval"),
         }
+
+        # Silly streaming
+        self.streamer = TextStreamer(
+            self.tokenizer,
+            skip_prompt=True,
+            skip_special_tokens=True,
+        )
         
     def __len__(self) -> int:
         """
@@ -140,8 +164,8 @@ class ActionLmEnv(Environment):
 
         Assumes df has columns: [state, action, self.sample_id_name, self.timestep_name, self.generation_id_name]
         """
-        if not self.build_full_states:
-            return df
+        # if not self.build_full_states:
+        #     return df
 
         unique_sample_ids = df[self.sample_id_name].unique()
         dfs_by_sample_update = []  # keep track of updated dfs for each sample here (heinous copy)
@@ -163,12 +187,31 @@ class ActionLmEnv(Environment):
                 # Add group metrics (i.e., indicator for best_action, best_half, group_advantage)
                 df_by_sample_step = self._add_group_metrics(df_by_sample_step)
                 for gen_idx, state in df_by_sample_step["state"].items():
-                    last_obs: dict[str, str] = state[-1]
+                    last_obs: dict[str, str] = state[-1]  # should be the same across all states
                     all_full_states[gen_idx].append(last_obs)  # add latest obs, action
                     all_full_states[gen_idx].append(df_by_sample_step["action"][gen_idx])
                 # Update the state for all samples in df_by_sample_step (omit last action)
                 # df_by_sample_step["state_full_obs"] = [_state[:-1] for _state in all_full_states]
-                df_by_sample_step["state"] = [_state[:-1] for _state in all_full_states]
+                if self.build_full_states:  # Update the original state to include full observations
+                    # df_by_sample_step["state"] = [_state[:-1] for _state in all_full_states]
+                    df_by_sample_step["state"] = [
+                        self.maybe_hide_observations(_state[:-1]) for _state in all_full_states
+                    ]
+                # Otherwise, will should also do something where we just hide the prior observations
+                # if t > 0:
+                #     for _idx, msg in enumerate(df_by_sample_step["state"][0]): print(_idx, msg)
+                #     breakpoint()
+                # if t > 0:
+                #     df_by_sample_step["state"] = [
+                #         [
+                #             self.maybe_hide_observations(_state[:-1], first_obs_to_show=2, last_obs_to_show=1)
+                #             # msg for _idx, msg in enumerate(_state[:-1])
+                #             # if msg["role"] in ["system", "assistant"]
+                #             # else {"role": msg["role"], "content": msg["content"]} if _idx <= 1
+                #         ]
+                #         for _state in all_full_states
+                #     ]
+                #     breakpoint()
                 dfs_by_sample_step_update.append(df_by_sample_step)
 
             df_by_sample = pd.concat(dfs_by_sample_step_update)  # reassign to updated version
@@ -196,6 +239,9 @@ class ActionLmEnv(Environment):
             df = df[df["best_action"]]
         elif self.best_halves_only:
             df = df[df["best_half"]]
+        # Filter for samples corresponding to max timestep
+        if self.max_timestep is not None:
+            df = df[df[self.timestep_name] <= self.max_timestep]
 
         # Separate into train and eval splits (no test for SFT evals)
         unique_sample_ids = df[self.sample_id_name].unique()
@@ -216,12 +262,16 @@ class ActionLmEnv(Environment):
         ds_train = ds_train.map(
             partial(self._preprocess_sample, target_thoughts=True),   # labels include thoughts
             remove_columns=ds_train.column_names,
-            load_from_cache_file=False,
+            # load_from_cache_file=False,
+            load_from_cache_file=True,
+            desc="Tokenizing SFT train split",
         )
         ds_eval = ds_eval.map(
             partial(self._preprocess_sample, target_thoughts=False),  # labels include actions only
             remove_columns=ds_eval.column_names,
-            load_from_cache_file=False,
+            # load_from_cache_file=False,
+            load_from_cache_file=True,
+            desc="Tokenizing SFT eval split",
         )
         datasets = DatasetDict({
             "train": ds_train.with_format("torch"),
@@ -249,12 +299,17 @@ class ActionLmEnv(Environment):
         """
         # samples: list[list[dict[str, Any]]] = []  # (num_samples, num_timesteps, model input dict)
         samples: list[HFDataset] = []
+        samples_messages: list[HFDataset] = []
+        
         unique_sample_ids = df[self.sample_id_name].unique()
-        target_thoughts = True if split == "train" else False
+        target_thoughts = True if split == "train" or self.target_thoughts_eval else False
 
+        def get_action_from_msg(msg: dict[str, str]) -> str:
+            return msg["content"].split(self.action_bos)[-1].split(self.action_eos)[0].strip()
+        
         pbar = tqdm(
             unique_sample_ids,
-            desc=f"Initializing RL dataset for {split.upper()} split",
+            desc=f"Initializing RL dataset for {split.title()} split",
             leave=True,
             colour="magenta",
             position=1,
@@ -263,15 +318,23 @@ class ActionLmEnv(Environment):
             df_by_sample = df[df[self.sample_id_name] == _sample_id]
             df_by_sample = df_by_sample[df_by_sample["best_action"]]  # only keep one trajectory
             df_by_sample.sort_values(by=self.timestep_name, ascending=True, inplace=True)
+            # df_by_sample = df_by_sample.reset_index(drop=True)
             ds_sample = HFDataset.from_pandas(df_by_sample)
             ds_sample = ds_sample.map(
                 partial(self._preprocess_sample, target_thoughts=target_thoughts),
                 remove_columns=ds_sample.column_names,
-                load_from_cache_file=False,
+                # load_from_cache_file=False,
+                load_from_cache_file=True,
+                desc=f"Tokenizing RL Sample {_sample_id}",
             )
             samples.append(ds_sample.with_format("torch"))
+            # Get message-based samples for generation-based evaluation
+            df_by_sample["target_action"] = df_by_sample["action"].apply(get_action_from_msg)
+            df_by_sample_messages = df_by_sample[["state", "action", "target_action", "tools"]].reset_index(drop=True)
+            ds_sample_messages = HFDataset.from_pandas(df_by_sample_messages)
+            samples_messages.append(ds_sample_messages)
 
-        return samples
+        return samples, samples_messages
 
     def _preprocess_sample(self, sample: dict[str, Any], target_thoughts: bool) -> dict[str, Any]:
         """
@@ -288,7 +351,7 @@ class ActionLmEnv(Environment):
         # Get state messages
         if self.actions_only:
             state_msgs = [
-                # Separate each msg into "think", "act" parts -> only take "act" part
+                # Separate each msg into "think", "act" parts -> only keep the "act" part
                 get_thought_and_actions(msg, **self.parse_action_kwargs)[1]
                 for msg in sample["state"]
             ]
@@ -302,6 +365,8 @@ class ActionLmEnv(Environment):
             if isinstance(sample["action"], str)
             else sample["action"]
         )
+        if self.actions_only:  # Only keep the "act" part of the action too
+            _, think_act_msg = get_thought_and_actions(think_act_msg, **self.parse_action_kwargs)
         think_msg, _ = get_thought_and_actions(think_act_msg, **self.parse_action_kwargs)
 
         # Get tokens and lengths for (1) state, (2) full model input, (3) state-thought only
@@ -312,12 +377,10 @@ class ActionLmEnv(Environment):
         state_thought_ids = _tokenize(
             messages + [think_msg],
             add_generation_prompt=False,
-            continue_final_message=False,
+            continue_final_message=True,
         )
-        model_input_ids = self.tokenizer.apply_chat_template(
-            messages + [think_act_msg],  # Full model input
-            add_generation_prompt=False,
-        )
+        # Full model input (state, thought, action)
+        model_input_ids = _tokenize(messages + [think_act_msg], add_generation_prompt=False)
         state_len = len(state_ids)
         state_thought_len = len(state_thought_ids)
 
@@ -359,64 +422,101 @@ class ActionLmEnv(Environment):
         Reset environment (loading a new sample)
         -> Assumes this is only for RL
         """
-        dataset = self.datasets_rl[self.split]
+        dataset, dataset_messages = self.datasets_rl[self.split]
         sample_idx_adj = sample_idx % len(dataset)
         ds_trajectory: HFDataset = dataset[sample_idx_adj]
+        ds_trajectory_messages: HFDataset = dataset_messages[sample_idx_adj]
         # sample_loader = DataLoader(ds_trajectory, batch_size=1, shuffle=False)
-
-        return ActionLmState(trajectory=ds_trajectory)
+        return ActionLmState(
+            trajectory=ds_trajectory,
+            trajectory_messages=ds_trajectory_messages,
+        )
 
     def compute_loss(
         self, 
-        model: nn.Module,
+        model: PreTrainedModel,
         batch: dict[str, torch.Tensor],
         ignore_index: int = -100,
+        fp32_loss: bool | None = None,
+        eval_mode: bool = False,
     ) -> dict[str, torch.Tensor]:
         """
         Compute loss for a batch of model inputs
+        -> We compute as a loss per sequence, which can then be averaged (instead of loss over tokens)
         """
+        fp32_loss = fp32_loss or self.fp32_loss
+        
         weight = batch.get("weight", 1.0)
+        device = model.device
         model_inputs = {
-            k: v.to(model.device) for k, v in batch.items()
+            k: v.to(device) for k, v in batch.items()
             if k in ["input_ids", "attention_mask"]
         }
         logits = model(**model_inputs, use_cache=False).logits[:, :-1, :]
-        labels = batch["labels"][:, 1:]
+        labels = batch["labels"][:, 1:].to(device)
 
         batch_size, seq_len_m1, vocab_size = logits.shape
-        device = logits.device
-
         valid = labels != ignore_index
         token_len = valid.sum(dim=-1)
 
-        token_nll = F.cross_entropy(
-            logits.view(-1, vocab_size).float(),
-            labels.view(-1).to(device),
-            reduction="none",
-            ignore_index=ignore_index,
-        ).reshape(batch_size, seq_len_m1).to(dtype=logits.dtype)
+        # Flatten
+        flat_logits = logits.reshape(-1, vocab_size)
+        flat_labels = labels.reshape(-1)
+        flat_valid  = valid.reshape(-1)
+        # Indices of labeled tokens only
+        valid_indices = flat_valid.nonzero(as_tuple=True)[0]
 
-        nll_sum = token_nll.sum(dim=1)
-        loss = nll_sum / token_len.clamp_min(1)
-        ppl = torch.exp(loss)
-        return {
-            "loss": loss * weight,
-            "ppl": ppl.detach().cpu(),
+        logits_v = flat_logits.index_select(0, valid_indices)
+        labels_v = flat_labels.index_select(0, valid_indices)
+
+        token_nll = F.cross_entropy(
+            logits_v.to(dtype=torch.float32 if fp32_loss else logits.dtype),
+            labels_v,  # .to(device),
+            reduction="none",
+            # ignore_index=ignore_index,
+        ).to(dtype=logits.dtype)
+
+        # Sum NLL per sequence in batch
+        # Flatten order is (batch-major), so batch_id = idx // Tm1
+        batch_id = valid_indices // seq_len_m1                                               # [N_valid]
+        nll_sum = torch.zeros(batch_size, device=device, dtype=token_nll.dtype)
+        nll_sum.scatter_add_(0, batch_id, token_nll)                             # [B]
+
+        # token_nll = F.cross_entropy(
+        #     logits.view(-1, vocab_size).to(dtype=torch.float32 if fp32_loss else logits.dtype),
+        #     labels.view(-1).to(device),
+        #     reduction="none",
+        #     ignore_index=ignore_index,
+        # ).reshape(batch_size, seq_len_m1).to(dtype=logits.dtype)
+
+        # nll_sum = token_nll.sum(dim=1)
+        loss = nll_sum / token_len.clamp_min(1)  # .to(device)
+        ppl = torch.exp(loss).detach().cpu()
+        out = {
+            "loss": loss * weight.to(device),
+            "ppl": ppl,
             "nll_sum": nll_sum.detach().cpu(),
             "token_len": token_len.detach().cpu(),
-            "logits": logits.detach().cpu(),  # shifted already [:, :-1, :]
-            "labels": labels.detach().cpu(),  # shifted already [:, 1:]
         }
+        if eval_mode:
+            out.update({
+                "logits_shifted": logits,  # .detach().cpu(),  # shifted already [:, :-1, :]
+                "labels_shifted": labels  # .detach().cpu(),  # shifted already [:, 1:]
+            })
+        return out
 
-    def eval_rollout(
+    def eval_rollout_lm(
         self,
-        model: nn.Module,
+        model: PreTrainedModel,
         sample_idx: int,
         ignore_index: int = -100,
+        current_pbar_pos: int = 0,
+        fp32_loss: bool | None = None,
     ) -> dict[str, Any]:
         """
-        Evaluate a single rollout
+        Evaluate a single rollout via language-modeling metrics on the target tokens
         """
+        fp32_loss = fp32_loss or self.fp32_loss
         state = self.reset(sample_idx=sample_idx)
         ds_trajectory: HFDataset = state.trajectory
         eval_loader = DataLoader(ds_trajectory, batch_size=1, shuffle=False)
@@ -426,26 +526,29 @@ class ActionLmEnv(Environment):
         rollout_step_correct = 0
         rollout_step_total = 0
         rollout_success = 1.0
+        longest_success = 0
 
         rollout_action_nlls: list[float] = []
         rollout_action_ppls: list[float] = []
         rollout_action_corrects: list[float] = []
         rollout_action_timesteps: list[int] = []
 
+        colour = ROYGBIV[sample_idx % len(ROYGBIV)]
         pbar = tqdm(
-            eval_loader, desc="Evaluating Rollout {sample_idx}",
-            leave=False, colour="yellow", position=2,
+            # eval_loader, desc=f"Evaluating Rollout {sample_idx} / {len(self) - 1}",
+            eval_loader, desc=f"Evaluating Rollout {sample_idx + 1} / {len(self)} via Inference",
+            leave=True, colour=colour, position=current_pbar_pos + 1,
         )
         for step_idx, batch in enumerate(pbar):
-            metrics = self.compute_loss(model, batch)
+            metrics = self.compute_loss(model, batch, eval_mode=True, fp32_loss=fp32_loss)
 
-            logits = metrics["logits"]
-            labels = metrics["labels"]
+            logits = metrics["logits_shifted"]  # (1, seq_len - 1, vocab_size)
+            labels = metrics["labels_shifted"]  # (1, seq_len - 1)
             _valid = labels != ignore_index
             length = _valid.sum(dim=-1)
 
             # Compute action-correctness
-            tok_pred = logits.argmax(dim=-1)  # 1, seq_len - 1
+            tok_pred = logits.argmax(dim=-1)    # (1, seq_len - 1)
             _correct = (tok_pred == labels) & _valid
             action_correct = (_correct.sum(dim=-1) == length).float().item()
 
@@ -455,6 +558,8 @@ class ActionLmEnv(Environment):
             rollout_step_correct += action_correct
             rollout_step_total += 1
             rollout_success *= action_correct
+            if rollout_success > 0:
+                longest_success += 1
 
             # Keep track of individual action metrics
             rollout_action_nlls.append(metrics["nll_sum"].item())
@@ -462,7 +567,21 @@ class ActionLmEnv(Environment):
             rollout_action_corrects.append(action_correct)
             rollout_action_timesteps.append(step_idx)
 
-        rollout_nll = rollout_nll_sum / rollout_tok_len.clamp_min(1)
+            _step_metrics = {
+                k: _get_item(v) for k, v in metrics.items() if not k.endswith("shifted")
+            }
+            _step_metrics.update({
+                "action_correct": _get_item(action_correct),
+                "rollout_success": _get_item(int(rollout_success)),
+                "longest_success": _get_item(longest_success),
+            })
+            pbar.set_postfix(**_step_metrics)
+
+            # Visualize samples?
+            if sample_idx == 0:
+                check_model_inputs(batch, self.tokenizer)
+
+        rollout_nll = rollout_nll_sum / max(rollout_tok_len, 1)
         rollout_ppl = torch.exp(torch.tensor(rollout_nll)).item()
 
         return {
@@ -472,12 +591,135 @@ class ActionLmEnv(Environment):
             "rollout_step_correct": rollout_step_correct,
             "rollout_step_total": rollout_step_total,
             "rollout_step_acc": rollout_step_correct / max(rollout_step_total, 1),
-            "rollout_success": rollout_success,
+            "rollout_success": int(rollout_success),
+            "longest_success": longest_success,
             # Action-wise metrics
-            "rollout_action_nlls": rollout_action_nlls,
-            "rollout_action_ppls": rollout_action_ppls,
-            "rollout_action_corrects": rollout_action_corrects,
-            "rollout_action_timesteps": rollout_action_timesteps,
+            "rollout_action_nll": rollout_action_nlls,
+            "rollout_action_ppl": rollout_action_ppls,
+            "rollout_action_correct": rollout_action_corrects,
+            "rollout_action_timestep": rollout_action_timesteps,
+        }
+
+    def eval_rollout_gen(
+        self,
+        model: PreTrainedModel,
+        sample_idx: int,
+        current_pbar_pos: int = 0,
+        fp32_loss: bool | None = None,
+    ) -> dict[str, Any]:
+        """
+        Evaluate a single rollout via generation metrics on the target tokens
+        """
+        fp32_loss = fp32_loss or self.fp32_loss
+        state = self.reset(sample_idx=sample_idx)
+        ds_trajectory_messages: HFDataset = state.trajectory_messages
+        
+        rollout_step_correct = 0
+        rollout_step_total = 0
+        rollout_success = 1.0
+        longest_success = 0
+
+        rollout_action_corrects: list[float] = []
+        rollout_action_timesteps: list[int] = []
+
+        colour = ROYGBIV[::-1][sample_idx % len(ROYGBIV)]
+        pbar = tqdm(
+            # eval_loader, desc=f"Evaluating Rollout {sample_idx} / {len(self) - 1}",
+            ds_trajectory_messages,
+            desc=f"Evaluating Rollout {sample_idx + 1} / {len(self)} via Generation",
+            leave=True, colour=colour, position=current_pbar_pos + 1,
+        )
+        for step_idx, sample in enumerate(pbar):
+            # Generate with the model
+            device = model.device
+
+            # state = sample["state"]
+            messages = [{"role": "system", "content": self.system_prompt}]
+            # Get state messages
+            if self.actions_only:
+                state_msgs = [
+                    # Separate each msg into "think", "act" parts -> only keep the "act" part
+                    get_thought_and_actions(msg, **self.parse_action_kwargs)[1]
+                    for msg in sample["state"]
+                ]
+            else:
+                state_msgs = sample["state"]
+            messages.extend(state_msgs)
+
+            state_inputs = self.tokenizer.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+                enable_thinking=False,
+                tools=sample["tools"],
+                tokenize=True,
+                return_dict=True,
+                return_tensors="pt",
+            )
+            input_len = state_inputs["input_ids"].shape[1]
+            outputs = model.generate(
+                **state_inputs.to(device),
+                max_new_tokens=1024,
+                num_return_sequences=1,  # maybe more if we want to do best of N
+                temperature=0.7,
+                # do_sample=False,
+                streamer=self.streamer,
+                pad_token_id=self.tokenizer.eos_token_id,
+            ).detach().cpu()
+            decoded_texts = self.tokenizer.batch_decode(
+                outputs[:, input_len:],
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=True,
+            )
+            # For now we only allow one tool call per response
+            decoded_texts = [
+                f"{text.split(self.action_eos)[0]}{self.action_eos}"
+                if self.action_eos in text
+                else text
+                for text in decoded_texts
+            ]
+            # Extract action from decoded text
+            action_preds = [
+                text.split(self.action_bos)[-1].split(self.action_eos)[0].strip()
+                for text in decoded_texts
+            ]
+            # Get ground-truth action (a bit hacky, we decode from token ids)
+            action_true = sample["target_action"].strip()
+
+            # Compute action-correctness
+            action_correct = [action_pred == action_true for action_pred in action_preds]
+            action_correct = sum(action_correct) / max(len(action_correct), 1)
+
+            rollout_step_correct += action_correct
+            rollout_step_total += 1
+            rollout_success *= action_correct
+
+            if rollout_success > 0:
+                longest_success += 1
+
+            pbar.set_postfix({
+                "target_action": action_true,
+                "step_correct": rollout_step_correct,
+                "step_total": rollout_step_total,
+                "step_acc": rollout_step_correct / max(rollout_step_total, 1),
+                "success": int(rollout_success),
+                "longest_success": longest_success,
+            })
+
+            if sample_idx == 0:  # a bit of a hack
+                # check_model_inputs(state_inputs, self.tokenizer)
+                decoded_inputs = self.tokenizer.batch_decode(state_inputs["input_ids"])[0]
+                rich_print(f"[cyan]Input {sample_idx}:\n{decoded_inputs}\n[/cyan]")
+
+        return {
+            # Rollout-wise metrics
+            "rollout_step_correct": rollout_step_correct,
+            "rollout_step_total": rollout_step_total,
+            "rollout_step_acc": rollout_step_correct / max(rollout_step_total, 1),
+            "rollout_success": int(rollout_success),
+            "longest_success": longest_success,
+            # Action-wise metrics
+            "rollout_action_correct": rollout_action_corrects,
+            "rollout_action_timestep": rollout_action_timesteps,
         }
     
     def step(

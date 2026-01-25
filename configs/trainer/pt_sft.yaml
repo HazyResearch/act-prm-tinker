@@ -1,0 +1,41 @@
+# PyTorch SFT training config
+trainer_name: pt_sft
+
+fp32_loss: false  # keep in bf16
+
+# # Generation (Sampling Rollouts)
+# num_batches: 200
+# num_tries: 1
+# eval_num_tries: 1
+# max_tokens: 1024
+# temperature: 1.0
+
+# batch_size: 16
+# group_size: 8
+# eval_group_size: 1
+
+# Training (Policy Updates)
+learning_rate: 4e-5
+# discount_factor: 0.9
+loss_fn: "cross_entropy"  # ignored
+# num_substeps: 1
+mini_batch_size: 32
+num_steps: 1000
+gradient_accumulation_steps: 32
+
+# Checkpointing
+eval_every: 5
+save_every: 10
+do_rollout_eval: false
+best_ro_metric: "final_reward"
+
+# Other miscellaneous
+base_url: null
+log_path: "./logs"
+load_checkpoint_path: null
+# Local parent dir for other checkpoints and data (e.g., replay buffer samples, etc.)
+checkpoint_path: "./checkpoints"
+lora_checkpoint_path: "./checkpoints_lora"
+
+wandb_project: null  # will set based on project_name
+wandb_name: null     # will set based on run name

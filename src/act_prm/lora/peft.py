@@ -3,6 +3,8 @@ Helper functions for Hugging Face PEFT implementation of LoRA
 """
 
 from typing import Any
+
+from rich import print as rich_print
 # Enable and disable adapters
 from peft import LoraConfig, PeftModel, TaskType, get_peft_model
 from peft.tuners.tuners_utils import BaseTunerLayer
@@ -29,7 +31,9 @@ def get_lora_model(model: PreTrainedModel, **lora_kwargs: Any) -> PeftModel:
     """
     Get a PEFT model from a base model and LoRA configuration
     """
-    return get_peft_model(model, peft_config=get_lora_config(**lora_kwargs))
+    model = get_peft_model(model, peft_config=get_lora_config(**lora_kwargs))
+    display_trainable_parameter_count(model)
+    return model
 
 
 def get_lora_config(
@@ -50,6 +54,34 @@ def get_lora_config(
         inference_mode=False,
         target_modules=list(target_modules),
     )
+
+
+def count_parameters(model: PreTrainedModel, trainable_only: bool = False) -> int:
+    """
+    Counts the total number of parameters in a PyTorch model.
+    If trainable_only is True, only counts trainable parameters.
+    """
+    return sum(
+        p.numel() for p in model.parameters()
+        if ((p.requires_grad and trainable_only) or not trainable_only)
+    )
+
+
+def display_trainable_parameter_count(model: PreTrainedModel) -> None:
+    """
+    Displays the total number of trainable parameters in a PyTorch model.
+    """
+    trainable_count = count_parameters(model, trainable_only=True)
+    total_count     = count_parameters(model)
+    trainable_ratio = trainable_count / total_count
+    _text = "\n".join([
+        f"-> [bright_blue]Trainable parameters:[/bright_blue] {trainable_count}",
+        f"-> [bright_red]Total parameters:[/bright_red]     {total_count}",
+        f"-> [bright_magenta]Trainable percentage:[/bright_magenta] {trainable_ratio * 100:.2f}%",
+    ])
+    rich_print(f"[bold]LoRA Parameter Counts[/bold]\n{_text}")
+    return trainable_count, total_count, trainable_ratio
+
 
 # Modified from https://github.com/huggingface/transformers/blob/878562b68d06536b475a61496e3c2a26fdb95af1/src/transformers/integrations/peft.py#L365
 def disable_adapters_(
