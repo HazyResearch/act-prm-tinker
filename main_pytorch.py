@@ -119,7 +119,7 @@ async def main() -> None:
     # Get LLM and attach LoRAs
     llm: HuggingFaceLLM = load_llm(**model_cfg)
     llm.model = get_lora_model(llm.model, **lora_cfg)
-    save_lora(llm.model, cfg.lora_checkpoint_path)
+    # save_lora(llm.model, cfg.lora_checkpoint_path)
     optimizer = get_optimizer(llm.model, learning_rate=cfg.learning_rate)  # simple for now
     if args.verbose:  # Display trainable parameters
         _params_text = "Trainable parameters:\n"

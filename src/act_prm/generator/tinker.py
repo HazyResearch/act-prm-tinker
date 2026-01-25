@@ -58,7 +58,7 @@ class TinkerGenerator:
         self.mean_center = mean_center
         self.verbose = verbose
         self.run_url = ml_logger.get_logger_url() if ml_logger is not None else None
-        self.cmd_str = f"uv run python main.py {" ".join(sys.argv[1:])}"
+        self.run_cmd = f"uv run python main.py {" ".join(sys.argv[1:])}"
         self.name_or_identifier = name_or_identifier
         self.cfg = cfg
 
@@ -238,7 +238,7 @@ class TinkerGenerator:
                 panel_content = [
                     # f"Rewards: [bright_green][{rewards_str}][/bright_green]",
                     f"Run url: [cyan]{self.run_url}[/cyan]",
-                    f"Run cmd: [bright_blue]{self.cmd_str}[/bright_blue]",
+                    f"Run cmd: [bright_blue]{self.run_cmd}[/bright_blue]",
                 ]
                 if self.name_or_identifier:
                     panel_content.append(
