@@ -3,6 +3,7 @@ PyTorch trainer for Hugging Face Transformer (PEFT) models
 """
 
 import os
+import logging
 import sys
 from copy import deepcopy
 from typing import Any
@@ -29,6 +30,7 @@ from act_prm.replay_buffer import ReplayBuffer
 
 # from .generator import run_rollouts
 
+logger = logging.getLogger(__name__)
 console = Console()
 
 
@@ -127,6 +129,36 @@ class SftTrainer:
         rich_print(f"[bold]Run url: [link={self.run_url}]{self.run_url}[/link][/bold]")
         rich_print(f"[bold]Run cmd: [bright_cyan]{self.run_cmd}[/bright_cyan][/bold]")
 
+    def compute_loss(
+        self,
+        model: torch.nn.Module,
+        batch: dict[str, torch.Tensor],
+        ignore_index: int = -100,
+        fp32_loss: bool | None = None,
+    ) -> dict[str, torch.Tensor]:
+        """
+        Compute loss for a batch of model inputs
+        -> Simple mini-batch cross-entropy loss (no weights)
+        """
+        fp32_loss = fp32_loss or self.fp32_loss
+        device = model.device
+        model_inputs = {
+            k: v.to(device) for k, v in batch.items()
+            if k in ["input_ids", "attention_mask"]
+        }
+        weight = batch.get("weight", 1.0)  # ignored but report it
+        logits = model(**model_inputs, use_cache=False).logits[:, :-1, :]
+        labels = batch["labels"][:, 1:]
+        batch_size, seq_len_m1, vocab_size = logits.shape
+        loss = torch.nn.functional.cross_entropy(
+            logits.view(-1, vocab_size).to(dtype=torch.float32 if fp32_loss else logits.dtype),
+            labels.view(-1).to(device),
+            reduction="mean",
+            ignore_index=ignore_index,
+        ).to(dtype=logits.dtype)
+        ppl = torch.exp(loss).detach().cpu()
+        return {"loss": loss, "ppl": ppl, "weight": weight}
+
     def _compute_env_loss(
         self, 
         model: torch.nn.Module,
@@ -215,6 +247,14 @@ class SftTrainer:
         mini_batch_size = mini_batch_size or cfg.mini_batch_size
         grad_accum_step = gradient_accumulation_steps or cfg.gradient_accumulation_steps or 1
         dataloader_batch_size = mini_batch_size // grad_accum_step
+
+        try:
+            assert grad_accum_step <= mini_batch_size, (
+                f"gradient_accumulation_steps ({grad_accum_step}) must be "
+                "less than or equal to mini_batch_size ({mini_batch_size})"
+            )
+        except AssertionError as e:
+            logger.error(f"AssertionError: {e}")
 
         # 2. Create dataloaders
         for split in dataloaders.keys():
@@ -327,6 +367,7 @@ class SftTrainer:
                         "eval/gen_step_act_acc": gen_eval_step_acc,
                         "eval/gen_task_success": gen_eval_success,
                         "eval/gen_task_longest": gen_eval_longest,
+                        "eval/eval_idx": eval_idx,
                     }
                     eval_ppl = eval_metrics["eval/ppl"]
                     if eval_ppl < self.best_ppl:
@@ -368,8 +409,8 @@ class SftTrainer:
 
             llm.model.train()
             # loss, ppl = self.compute_loss(llm.model, batch, cfg)
-            loss_metrics = env.compute_loss(llm.model, batch, fp32_loss=self.fp32_loss)
-            # loss_metrics = self.compute_loss(llm.model, batch, fp32_loss=self.fp32_loss)
+            # loss_metrics = env.compute_loss(llm.model, batch, fp32_loss=self.fp32_loss)
+            loss_metrics = self.compute_loss(llm.model, batch, fp32_loss=self.fp32_loss)
             loss = loss_metrics["loss"]
             # ppl  = loss_metrics["ppl"]
             loss = loss / grad_accum_step

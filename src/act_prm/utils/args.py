@@ -54,6 +54,14 @@ def get_args() -> argparse.Namespace:
         default=None,
         help="Don't evaluate on the first step",
     )
+    parser.add_argument(
+        "--gradient_accumulation_steps",
+        type=int,
+        help=(
+            "Number of steps to accumulate gradients before updating the model. "
+            "Should be <= mini_batch_size",
+        )
+    )
 
     ## Environment
     parser.add_argument(

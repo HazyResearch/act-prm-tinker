@@ -79,6 +79,7 @@ class ActionLmEnv(Environment):
         frac_train_tasks: int = 0.8,
         frac_eval_tasks: int = 0.2,
         fp32_loss: bool = False,
+        max_input_id_len: int | None = None,
         seed: int = 0,
         split: str = "train",
         system_prompt: str = "You are a helpful assistant.",
@@ -95,6 +96,7 @@ class ActionLmEnv(Environment):
         self.best_actions_only = best_actions_only
         self.best_halves_only = best_halves_only
         self.max_timestep = max_timestep
+        self.max_input_id_len = max_input_id_len
 
         self.target_thoughts_eval = target_thoughts_eval  # if True, we compute inference metrics over thought tokens too
 
@@ -243,7 +245,7 @@ class ActionLmEnv(Environment):
             df = df[df["best_half"]]
         # Filter for samples corresponding to max timestep
         if self.max_timestep is not None:
-            df = df[df[self.timestep_name] <= self.max_timestep]
+            df = df[df[self.timestep_name] < self.max_timestep]
 
         # Separate into train and eval splits (no test for SFT evals)
         unique_sample_ids = df[self.sample_id_name].unique()
@@ -268,6 +270,11 @@ class ActionLmEnv(Environment):
             load_from_cache_file=True,
             desc="Tokenizing SFT train split",
         )
+        ds_train = ds_train.map(partial(self._preprocess_sample, target_thoughts=True), remove_columns=ds_train.column_names,
+            # load_from_cache_file=False,
+            load_from_cache_file=True,
+            desc="Tokenizing SFT train split",
+        )
         ds_eval = ds_eval.map(
             partial(self._preprocess_sample, target_thoughts=False),  # labels include actions only
             remove_columns=ds_eval.column_names,
@@ -275,6 +282,17 @@ class ActionLmEnv(Environment):
             load_from_cache_file=True,
             desc="Tokenizing SFT eval split",
         )
+        # Filter out samples too long
+        if self.max_input_id_len is not None:
+            max_input_id_len = max(len(x["input_ids"]) for x in ds_train)
+            breakpoint()
+            ds_train = ds_train.filter(lambda x: len(x["input_ids"]) <= self.max_input_id_len)
+            ds_eval  = ds_eval.filter(lambda x: len(x["input_ids"]) <= self.max_input_id_len)
+            print(f"Filtered out {len(ds_train)} train samples and {len(ds_eval)} eval samples")
+            # print(f"Train samples length: {len(ds_train[0]['input_ids'])}")
+            # print(f"Eval samples length: {len(ds_eval[0]['input_ids'])}")
+            breakpoint()
+
         datasets = DatasetDict({
             "train": ds_train.with_format("torch"),
             "eval":  ds_eval.with_format("torch"),
@@ -698,11 +716,20 @@ class ActionLmEnv(Environment):
             if rollout_success > 0:
                 longest_success += 1
 
+            if self.streamer is not None:
+                # _target_act = self.tokenizer.apply_chat_template(
+                #     [{"role": "user", "content": action_true}],
+                #     add_generation_prompt=False, tools=sample["tools"], tokenize=False,
+                # )
+                _target_act = f"{self.action_bos}\n{action_true}\n{self.action_eos}"
+                _colour = f"bold {"bright_green" if action_correct else "bright_red"}"
+                rich_print(f"\n[{_colour}]**Target Action**\n{_target_act}[/{_colour}]")
+
             pbar.set_postfix({
-                "target_action": action_true,
-                "step_correct": rollout_step_correct,
-                "step_total": rollout_step_total,
-                "step_acc": rollout_step_correct / max(rollout_step_total, 1),
+                # "target_action": action_true,
+                "correct": rollout_step_correct,
+                "total": rollout_step_total,
+                "acc": rollout_step_correct / max(rollout_step_total, 1),
                 "success": int(rollout_success),
                 "longest_success": longest_success,
             })
