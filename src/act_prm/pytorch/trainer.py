@@ -383,13 +383,14 @@ class SftTrainer:
                 step_idx += 1
                 eval_already = False
                 save_already = False
+                pbar.update(1)
 
             loss_metrics = {
                 f"train/{k}": v.detach().cpu().item() for k, v in loss_metrics.items()
                 if v.numel() == 1  # only keep scalar metrics
             }
             metrics.update(loss_metrics)
-            pbar.update(1)
+            # pbar.update(1)
             pbar.set_postfix(**loss_metrics)
 
             # Log metrics

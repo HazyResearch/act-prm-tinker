@@ -147,7 +147,8 @@ class ActionLmEnv(Environment):
         Load size of RL dataset split
         """
         # return len(self.datasets[self.split])
-        return len(self.datasets_rl[self.split])
+        # self.datasets_rl[self.split] is a tuple of (training data tasks, messages tasks) 
+        return len(self.datasets_rl[self.split][1])
 
     def _add_group_metrics(self, df: pd.DataFrame, metric: str = "advantage") -> pd.DataFrame:
         """
