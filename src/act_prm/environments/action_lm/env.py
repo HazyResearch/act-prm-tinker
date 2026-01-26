@@ -528,7 +528,7 @@ class ActionLmEnv(Environment):
             })
         return out
 
-    def eval_rollout_lm(
+    def eval_lm(
         self,
         model: PreTrainedModel,
         sample_idx: int,
@@ -623,7 +623,7 @@ class ActionLmEnv(Environment):
             "rollout_action_timestep": rollout_action_timesteps,
         }
 
-    def eval_rollout_gen(
+    def eval_gen(
         self,
         model: PreTrainedModel,
         sample_idx: int,

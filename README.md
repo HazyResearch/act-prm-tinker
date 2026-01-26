@@ -31,7 +31,38 @@ WANDB_ENTITY="hazy-research"
 
 If you haven't already, add this `.env` file to your `.gitignore` file to avoid leaking keys and committing it to the repository.
 
+### PyTorch
+
+We're also implementing the sufficient training and generation code in PyTorch. See files in `src/act_prm/pytorch/`.
+
+#### FlashAttention-2
+
+To train with the wonderful [FlashAttention-2](https://github.com/Dao-AILab/flash-attention), simply run the following after running `uv sync` (or just launch an example command, which will automatically install all other dependencies first).
+
+```bash
+uv pip install flash-attn --no-build-isolation-package flash-attn
+```
+
 ## Example Commands
+
+### Motivating Example: TextWorld
+
+```bash
+# SFT on thoughts, actions, and observations
+# (base) mzhang@hazy1:/scr/mzhang/projects/act-prm-tinker$ tmux attach -t aprm0
+CUDA_VISIBLE_DEVICES=0 \
+uv run python main.py \
+--is_async \
+--env_config act_prm/textworld_coin_collector \
+--eval_env_config textworld/coin_collector \
+--generator_config default \
+--trainer_config qwen3_4b_sft200_rl200 \
+--replay_buffer_config default \
+--log_path ./logs \
+--model_name Qwen/Qwen3-4B-Instruct-2507 \
+--lora_rank 32 \
+--seed 42 --replicate 5 --verbose
+```
 
 ### Motivating Example: HotpotQA Generated
 

@@ -102,8 +102,14 @@ class SftTrainer:
             "train_eval_idx": [],
             "rollout_task_idx": [],
         }  # fill in the rest of the columns below
+        self.eval_gen_data_actions: dict[str, list[int | float]] = {
+            "train_step_idx": [],
+            "train_eval_idx": [],
+            "rollout_task_idx": [],
+        }  # fill in the rest of the columns below
         log_path = log_path or cfg.log_path
         self.eval_data_path = os.path.join(log_path, "eval_action_metrics.csv")
+        self.eval_gen_data_path = os.path.join(log_path, "eval_gen_action_metrics.csv")
 
     def _check_model_inputs(
         self,
@@ -209,8 +215,10 @@ class SftTrainer:
         cfg: DictConfig | None = None,
         env: Environment | None = None,
         eval_env: Environment | None = None,
-        do_rollout_eval: bool | None = None,
+        # do_rollout_eval: bool | None = None,
         eval_every: int | None = None,
+        eval_gen_every: int | None = None,
+        eval_rollout_every: int | None = None,
         # Specify training duration
         num_steps: int | None = None,
         mini_batch_size: int | None = None,
@@ -237,7 +245,8 @@ class SftTrainer:
         # Evaluation
         hf_tokenizer = self.hf_tokenizer
         eval_every = eval_every or cfg.eval_every
-        do_rollout_eval = do_rollout_eval or cfg.do_rollout_eval
+        eval_gen_every = eval_gen_every or cfg.eval_gen_every
+        eval_rollout_every = eval_rollout_every or cfg.eval_rollout_every
 
         # Prepare SFT dataloaders from `env.datasets` for each train/eval split
         dataloaders = {"train": None, "eval": None}
@@ -285,12 +294,15 @@ class SftTrainer:
                 save_lora(llm.model, f"{self.checkpoint_path}/step_{step_idx:03d}")
                 save_already = True
 
-            # Evaluate 
+            # Evaluate
+            last_step = step_idx == num_steps - 1
+            eval_gen_step = ((step_idx + 1) % eval_gen_every == 0 or last_step) and eval_gen_every > 0
+            eval_rollout_step = ((step_idx + 1) % eval_rollout_every == 0 or last_step) and eval_rollout_every > 0
             if (
                 not eval_already and eval_every > 0
                 and (
                     (step_idx + 1) % eval_every == 0
-                    or step_idx == num_steps - 1
+                    or last_step
                     or (step_idx == 0 and not cfg.no_initial_eval)
                 )
             ):
@@ -311,14 +323,18 @@ class SftTrainer:
                     success_per_task: list[float] = []
                     longest_per_task: list[float] = []  # longest subsequence of successful steps
 
-                    # Generation-based metrics
-                    gen_step_acc_per_task: list[float] = []
-                    gen_success_per_task: list[float] = []
-                    gen_longest_per_task: list[float] = []
-                    
+                    # # Generation-based metrics
+                    # gen_step_acc_per_task: list[float] = []
+                    # gen_success_per_task: list[float] = []
+                    # gen_longest_per_task: list[float] = []
+                    gen_eval_metrics: dict[str, list[float]] = {
+                        "step_acc_per_task": [],
+                        "success_per_task": [],
+                        "longest_per_task": [],
+                    }
                     for task_idx in range(num_eval_samples):
                         # Language modeling / evaluation-based metrics
-                        eval_metrics = env.eval_rollout_lm(llm.model, task_idx, fp32_loss=self.fp32_loss)
+                        eval_metrics = env.eval_lm(llm.model, task_idx, fp32_loss=self.fp32_loss)
                         nll_per_task.append(eval_metrics["rollout_nll"])
                         ppl_per_task.append(eval_metrics["rollout_ppl"])
                         step_acc_per_task.append(eval_metrics["rollout_step_acc"])
@@ -326,25 +342,44 @@ class SftTrainer:
                         longest_per_task.append(eval_metrics["longest_success"])
 
                         # Generation-based metrics
-                        gen_eval_metrics = env.eval_rollout_gen(llm.model, task_idx)
-                        gen_step_acc_per_task.append(gen_eval_metrics["rollout_step_acc"])
-                        gen_success_per_task.append(gen_eval_metrics["rollout_success"])
-                        gen_longest_per_task.append(gen_eval_metrics["longest_success"])
-                        eval_metrics.update({f"gen_{k}": v for k, v in gen_eval_metrics.items()})
+                        if eval_gen_step:
+                            gen_eval_metrics = env.eval_gen(llm.model, task_idx)
+                            # gen_step_acc_per_task.append(gen_eval_metrics["rollout_step_acc"])
+                            # gen_success_per_task.append(gen_eval_metrics["rollout_success"])
+                            # gen_longest_per_task.append(gen_eval_metrics["longest_success"])
+                            gen_eval_metrics["step_acc_per_task"].append(gen_eval_metrics["rollout_step_acc"])
+                            gen_eval_metrics["success_per_task"].append(gen_eval_metrics["rollout_success"])
+                            gen_eval_metrics["longest_per_task"].append(gen_eval_metrics["longest_success"])
+                            eval_metrics.update({f"gen_{k}": v for k, v in gen_eval_metrics.items()})
                         
                         # MZ 1/23/26 TODO: Figure out how best to save action-wise metrics
                         for k in eval_metrics.keys():
+                            # Populate action-level metric keys
                             if k not in self.eval_data_actions and k.startswith("rollout_action_"):
-                                self.eval_data_actions[k] = []  # populate action-level metric keys
+                                self.eval_data_actions[k] = []
+                            if k not in self.eval_gen_data_actions and k.startswith("gen_rollout_action_"):
+                                self.eval_gen_data_actions[k] = []
+
                         # Fill in action-level metrics by action timestep
                         for _t in eval_metrics["rollout_action_timestep"]:
                             self.eval_data_actions["train_step_idx"].append(step_idx)
                             self.eval_data_actions["train_eval_idx"].append(eval_idx)
                             self.eval_data_actions["rollout_task_idx"].append(task_idx)
                             for k in self.eval_data_actions.keys():
-                                if k.startswith("rollout_action_") or k.startswith("gen_rollout_action_"):
+                                if k.startswith("rollout_action_"):  #  or k.startswith("gen_rollout_action_"):
                                     self.eval_data_actions[k].append(eval_metrics[k][_t])
                         pd.DataFrame(self.eval_data_actions).to_csv(self.eval_data_path, index=False)
+
+                        # MZ 1/26/26 TODO: Make modular / reuse the above
+                        if eval_gen_step:
+                            for _t in gen_eval_metrics["rollout_action_timestep"]:
+                                self.eval_gen_data_actions["train_step_idx"].append(step_idx)
+                                self.eval_gen_data_actions["train_eval_idx"].append(eval_idx)
+                                self.eval_gen_data_actions["rollout_task_idx"].append(task_idx)
+                                for k in self.eval_gen_data_actions.keys():
+                                    if k.startswith("gen_rollout_action_"): 
+                                        self.eval_gen_data_actions[k].append(gen_eval_metrics[k][_t])
+                            pd.DataFrame(self.eval_gen_data_actions).to_csv(self.eval_gen_data_path, index=False)
 
                     eval_nll = sum(nll_per_task) / max(len(nll_per_task), 1)
                     eval_ppl = np.exp(eval_nll).item()
@@ -353,10 +388,9 @@ class SftTrainer:
                     eval_success  = sum(success_per_task) / max(len(success_per_task), 1)
                     eval_longest  = sum(longest_per_task) / max(len(longest_per_task), 1)
 
-                    gen_eval_step_acc = sum(gen_step_acc_per_task) / max(len(gen_step_acc_per_task), 1)
-                    gen_eval_success  = sum(gen_success_per_task) / max(len(gen_success_per_task), 1)
-                    gen_eval_longest  = sum(gen_longest_per_task) / max(len(gen_longest_per_task), 1)
-
+                    # gen_eval_step_acc = sum(gen_step_acc_per_task) / max(len(gen_step_acc_per_task), 1)
+                    # gen_eval_success  = sum(gen_success_per_task) / max(len(gen_success_per_task), 1)
+                    # gen_eval_longest  = sum(gen_longest_per_task) / max(len(gen_longest_per_task), 1)
                     eval_metrics = {
                         "eval/nll": eval_nll,
                         "eval/ppl": eval_ppl,
@@ -364,11 +398,17 @@ class SftTrainer:
                         "eval/step_act_acc": eval_step_acc,
                         "eval/task_success": eval_success,
                         "eval/task_longest": eval_longest,
-                        "eval/gen_step_act_acc": gen_eval_step_acc,
-                        "eval/gen_task_success": gen_eval_success,
-                        "eval/gen_task_longest": gen_eval_longest,
+                        # "eval/gen_step_act_acc": gen_eval_step_acc,
+                        # "eval/gen_task_success": gen_eval_success,
+                        # "eval/gen_task_longest": gen_eval_longest,
                         "eval/eval_idx": eval_idx,
                     }
+                    if eval_gen_step:
+                        gen_eval_metrics = {
+                            f"eval/gen_{k}": sum(v) / max(len(v), 1) for k, v in gen_eval_metrics.items()
+                        }
+                        eval_metrics.update(gen_eval_metrics)
+
                     eval_ppl = eval_metrics["eval/ppl"]
                     if eval_ppl < self.best_ppl:
                         self.best_ppl = eval_ppl
