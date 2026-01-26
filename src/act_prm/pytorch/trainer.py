@@ -296,8 +296,8 @@ class SftTrainer:
 
             # Evaluate
             last_step = step_idx == num_steps - 1
-            eval_gen_step = ((step_idx + 1) % eval_gen_every == 0 or last_step) and eval_gen_every > 0
-            eval_rollout_step = ((step_idx + 1) % eval_rollout_every == 0 or last_step) and eval_rollout_every > 0
+            eval_gen_step = eval_gen_every > 0 and ((step_idx + 1) % eval_gen_every == 0 or last_step)
+            eval_rollout_step = eval_rollout_every > 0 and ((step_idx + 1) % eval_rollout_every == 0 or last_step)
             if (
                 not eval_already and eval_every > 0
                 and (
@@ -423,7 +423,7 @@ class SftTrainer:
                     display_metrics(eval_metrics, title=f"LM Eval Metrics, Step {step_idx}", style="bright_green")
 
                     # Do rollout or sampling-based evaluation on the eval_env
-                    if do_rollout_eval:
+                    if eval_rollout_step:
                         # See _eval_rollout function for concepts of a plan
                         raise NotImplementedError("Rollout evaluation not implemented yet")
                         
