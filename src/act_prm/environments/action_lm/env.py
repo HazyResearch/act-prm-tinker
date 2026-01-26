@@ -71,6 +71,7 @@ class ActionLmEnv(Environment):
         build_full_states: bool = False,  # if True, do an extra step of filling in past observations for samples
         best_actions_only: bool = False,
         best_halves_only: bool = False,
+        success_only: bool = True,
         max_timestep: int | None = None,
         target_thoughts_eval: bool = False,
         action_bos: str = "<tool_call>",
@@ -95,6 +96,8 @@ class ActionLmEnv(Environment):
         self.build_full_states = build_full_states
         self.best_actions_only = best_actions_only
         self.best_halves_only = best_halves_only
+        self.success_only = success_only
+
         self.max_timestep = max_timestep
         self.max_input_id_len = max_input_id_len
 
@@ -173,6 +176,10 @@ class ActionLmEnv(Environment):
 
         unique_sample_ids = df[self.sample_id_name].unique()
         dfs_by_sample_update = []  # keep track of updated dfs for each sample here (heinous copy)
+
+        if self.generation_id_name not in df.columns:
+            # MZ 1/25/26: hack, but if we don't have generation ids assume it's all 0
+            df[self.generation_id_name] = 0
         
         for sample_id in unique_sample_ids:
             df_by_sample = df[df[self.sample_id_name] == sample_id]
@@ -236,6 +243,7 @@ class ActionLmEnv(Environment):
         # We want to process this datasets into sequences of trajectories, also their timesteps,
         # -> So that we can then split them into train and eval splits based on the tasks
         df = ds.to_pandas()  # easier to work with
+        df = df[df["return_"] > 0] if self.success_only else df
         df = self._maybe_build_full_states(df)
 
         # Filter for samples corresponding to best actions or best-half of actions
@@ -266,11 +274,6 @@ class ActionLmEnv(Environment):
         ds_train = ds_train.map(
             partial(self._preprocess_sample, target_thoughts=True),   # labels include thoughts
             remove_columns=ds_train.column_names,
-            # load_from_cache_file=False,
-            load_from_cache_file=True,
-            desc="Tokenizing SFT train split",
-        )
-        ds_train = ds_train.map(partial(self._preprocess_sample, target_thoughts=True), remove_columns=ds_train.column_names,
             # load_from_cache_file=False,
             load_from_cache_file=True,
             desc="Tokenizing SFT train split",
