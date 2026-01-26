@@ -6,9 +6,6 @@ dataset_config:
   cache_dir: "/scr/mzhang/data/"
   split: "train"
 
-sample_id_name: "sample_idx"
-timestep_name: "timestep"
-
 fp32_loss: false  # keep in bf16
 
 actions_only: false
