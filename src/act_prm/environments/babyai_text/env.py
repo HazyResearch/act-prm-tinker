@@ -142,7 +142,7 @@ class BabyAiTextEnv(Environment):
             f"Your goal is to {mission}.\n"
             f"Available actions are {actions}.\n"
             f"{desc_text}\n"
-            "On your turn, simply type your message.\n"
+            "On your turn, call one of the available tools to take an action.\n"
         )
         if self.max_turns:
             prompt += f"The game lasts for {self.max_turns} turns in total.\n"
