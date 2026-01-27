@@ -300,13 +300,13 @@ class ActionLmEnv(Environment):
         # Filter out samples too long
         if self.max_input_id_len is not None:
             max_input_id_len = max(len(x["input_ids"]) for x in ds_train)
-            breakpoint()
+            print(f"Max input id length: {max_input_id_len}")
             ds_train = ds_train.filter(lambda x: len(x["input_ids"]) <= self.max_input_id_len)
             ds_eval  = ds_eval.filter(lambda x: len(x["input_ids"]) <= self.max_input_id_len)
-            print(f"Filtered out {len(ds_train)} train samples and {len(ds_eval)} eval samples")
+            print(f"Filtered to {len(ds_train)} train samples and {len(ds_eval)} eval samples")
             # print(f"Train samples length: {len(ds_train[0]['input_ids'])}")
             # print(f"Eval samples length: {len(ds_eval[0]['input_ids'])}")
-            breakpoint()
+            # breakpoint()
 
         datasets = DatasetDict({
             "train": ds_train.with_format("torch"),
