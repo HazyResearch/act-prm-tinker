@@ -207,9 +207,11 @@ class ActionLmEnv(Environment):
                 # df_by_sample_step["state_full_obs"] = [_state[:-1] for _state in all_full_states]
                 if self.build_full_states:  # Update the original state to include full observations
                     # df_by_sample_step["state"] = [_state[:-1] for _state in all_full_states]
-                    df_by_sample_step["state"] = [
-                        self.maybe_hide_observations(_state[:-1]) for _state in all_full_states
-                    ]
+                    try:
+                        df_by_sample_step["state"] = [self.maybe_hide_observations(_state[:-1]) for _state in all_full_states]
+                    except Exception as e:
+                        print(f"{e.__class__.__name__}: {e}")
+                        breakpoint()
                 # Otherwise, will should also do something where we just hide the prior observations
                 # if t > 0:
                 #     for _idx, msg in enumerate(df_by_sample_step["state"][0]): print(_idx, msg)
@@ -242,10 +244,17 @@ class ActionLmEnv(Environment):
         """
         ds = load_dataset(**self.dataset_config)
 
+        filter_actions = self.best_actions_only or self.best_halves_only
+
         # We want to process this datasets into sequences of trajectories, also their timesteps,
         # -> So that we can then split them into train and eval splits based on the tasks
         df = ds.to_pandas()  # easier to work with
         df = df[df["return_"] > 0] if self.success_only else df
+        df = (
+            df[df[self.generation_id_name] == 0] 
+            if self.generation_id_name in df.columns and not filter_actions 
+            else df
+        )
         df = self._maybe_build_full_states(df)
 
         # Filter for samples corresponding to best actions or best-half of actions
@@ -253,6 +262,7 @@ class ActionLmEnv(Environment):
             df = df[df["best_action"]]
         elif self.best_halves_only:
             df = df[df["best_half"]]
+        
         # Filter for samples corresponding to max timestep
         if self.max_timestep is not None:
             df = df[df[self.timestep_name] < self.max_timestep]
@@ -290,13 +300,13 @@ class ActionLmEnv(Environment):
         # Filter out samples too long
         if self.max_input_id_len is not None:
             max_input_id_len = max(len(x["input_ids"]) for x in ds_train)
-            breakpoint()
+            print(f"Max input id length: {max_input_id_len}")
             ds_train = ds_train.filter(lambda x: len(x["input_ids"]) <= self.max_input_id_len)
             ds_eval  = ds_eval.filter(lambda x: len(x["input_ids"]) <= self.max_input_id_len)
-            print(f"Filtered out {len(ds_train)} train samples and {len(ds_eval)} eval samples")
+            print(f"Filtered to {len(ds_train)} train samples and {len(ds_eval)} eval samples")
             # print(f"Train samples length: {len(ds_train[0]['input_ids'])}")
             # print(f"Eval samples length: {len(ds_eval[0]['input_ids'])}")
-            breakpoint()
+            # breakpoint()
 
         datasets = DatasetDict({
             "train": ds_train.with_format("torch"),
