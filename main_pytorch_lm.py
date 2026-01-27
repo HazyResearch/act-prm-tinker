@@ -18,6 +18,7 @@ uv run python main_pytorch_sft.py \
 
 import argparse
 import logging
+import sys
 from typing import Any
 
 from dotenv import load_dotenv
@@ -154,6 +155,16 @@ def main() -> None:
     eval_env.tokenizer = llm.tokenizer
     if base_env is not None:
         base_env.tokenizer = llm.tokenizer
+
+    # Make identifiers identifiable
+    cfg.run_url = ml_logger.get_logger_url() if ml_logger is not None else None
+    cfg.run_cmd = " ".join(sys.argv)
+    # Add to environments
+    all_envs = [env, eval_env, base_env]
+    for attr in ["run_url", "run_cmd"]:
+        for _idx, _env in enumerate(all_envs):
+            if _env is not None:
+                setattr(all_envs[_idx], attr, cfg.get(attr))
 
     # Training loop
     trainer = SftTrainer(
