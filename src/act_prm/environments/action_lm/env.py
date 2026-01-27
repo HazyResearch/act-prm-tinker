@@ -415,14 +415,23 @@ class ActionLmEnv(Environment):
             continue_final_message=True,
         )
         # Full model input (state, thought, action)
-        model_input_ids = _tokenize(messages + [think_act_msg], add_generation_prompt=False)
+        model_input_kwargs = {"add_generation_prompt": False, "return_dict": True}
+        if target_thoughts:
+            # allow us to easily train on past assistant messages
+            model_input_kwargs["return_assistant_tokens_mask"] = True
+        model_inputs = _tokenize(messages + [think_act_msg], **model_input_kwargs)
+        model_input_ids = model_inputs["input_ids"]
         state_len = len(state_ids)
         state_thought_len = len(state_thought_ids)
 
         # Finally get model training inputs and labels
         labels = copy(model_input_ids)
         if target_thoughts:  # compute cross-entropy loss for thought and action tokens
-            labels[:state_len] = [-100] * state_len
+            # labels[:state_len] = [-100] * state_len
+            assistant_mask = np.array(model_inputs["assistant_masks"])
+            labels = np.array(labels)
+            labels[assistant_mask == 0] = -100  # note that this does not include eos tokens
+            labels = labels.tolist()
         else:  # only compute cross-entropy loss for action tokens
             labels[:state_thought_len] = [-100] * state_thought_len
 
