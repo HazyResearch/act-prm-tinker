@@ -136,7 +136,7 @@ class ActionLmEnv(Environment):
         # We'll use the DataFrames for trajectory-specific evaluation
         self.datasets, self.df_train, self.df_eval = self.init_data()
         self.datasets_rl: dict[str, tuple[list[HFDataset], list[HFDataset]]] = {
-            "train": self.init_rl_data(self.df_train, split="train"),
+            # "train": self.init_rl_data(self.df_train, split="train"),
             "eval":  self.init_rl_data(self.df_eval,  split="eval"),
         }
 
