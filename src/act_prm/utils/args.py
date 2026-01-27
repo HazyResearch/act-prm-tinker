@@ -205,6 +205,9 @@ def get_args() -> argparse.Namespace:
 
     ## Miscellaneous
     parser.add_argument("--eval_every", type=int, help="Iters to evaluate, 0 = disabled")
+    parser.add_argument("--eval_gen_every", type=int, help="Iters to evaluate generation, 0 = disabled")
+    parser.add_argument("--eval_rollout_every", type=int, help="Iters to evaluate rollouts, 0 = disabled")
+    
     parser.add_argument("--save_every", type=int, help="Iters to save checkpoint, 0 = disabled")
     parser.add_argument("--save_rollouts_every", type=int, help="Iters to save rollouts, 0 = disabled")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")

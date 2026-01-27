@@ -159,11 +159,12 @@ def main() -> None:
     # Make identifiers identifiable
     cfg.run_url = ml_logger.get_logger_url() if ml_logger is not None else None
     cfg.run_cmd = " ".join(sys.argv)
-
+    # Add to environments
+    all_envs = [env, eval_env, base_env]
     for attr in ["run_url", "run_cmd"]:
-        for env in [env, eval_env, base_env]:
-            if env is not None:
-                setattr(env, attr, cfg.get(attr))
+        for _idx, _env in enumerate(all_envs):
+            if _env is not None:
+                setattr(all_envs[_idx], attr, cfg.get(attr))
 
     # Training loop
     trainer = SftTrainer(

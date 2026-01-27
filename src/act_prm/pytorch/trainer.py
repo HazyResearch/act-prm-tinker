@@ -80,7 +80,8 @@ class SftTrainer:
 
         self.run_name = cfg.run_name
         self.run_url = ml_logger.get_logger_url() if ml_logger is not None else None
-        self.run_cmd = f"uv run python main.py {" ".join(sys.argv[1:])}"
+        # self.run_cmd = f"uv run python main.py {" ".join(sys.argv[1:])}"
+        self.run_cmd = " ".join(sys.argv)
 
         # Checkpointing and best metrics
         self.checkpoint_path = checkpoint_path or cfg.checkpoint_path
@@ -327,7 +328,7 @@ class SftTrainer:
                     # gen_step_acc_per_task: list[float] = []
                     # gen_success_per_task: list[float] = []
                     # gen_longest_per_task: list[float] = []
-                    gen_eval_metrics: dict[str, list[float]] = {
+                    gen_eval_metrics_per_task: dict[str, list[float]] = {
                         "step_acc_per_task": [],
                         "success_per_task": [],
                         "longest_per_task": [],
@@ -347,9 +348,9 @@ class SftTrainer:
                             # gen_step_acc_per_task.append(gen_eval_metrics["rollout_step_acc"])
                             # gen_success_per_task.append(gen_eval_metrics["rollout_success"])
                             # gen_longest_per_task.append(gen_eval_metrics["longest_success"])
-                            gen_eval_metrics["step_acc_per_task"].append(gen_eval_metrics["rollout_step_acc"])
-                            gen_eval_metrics["success_per_task"].append(gen_eval_metrics["rollout_success"])
-                            gen_eval_metrics["longest_per_task"].append(gen_eval_metrics["longest_success"])
+                            gen_eval_metrics_per_task["step_acc_per_task"].append(gen_eval_metrics["rollout_step_acc"])
+                            gen_eval_metrics_per_task["success_per_task"].append(gen_eval_metrics["rollout_success"])
+                            gen_eval_metrics_per_task["longest_per_task"].append(gen_eval_metrics["longest_success"])
                             eval_metrics.update({f"gen_{k}": v for k, v in gen_eval_metrics.items()})
                         
                         # MZ 1/23/26 TODO: Figure out how best to save action-wise metrics
@@ -405,7 +406,7 @@ class SftTrainer:
                     }
                     if eval_gen_step:
                         gen_eval_metrics = {
-                            f"eval/gen_{k}": sum(v) / max(len(v), 1) for k, v in gen_eval_metrics.items()
+                            f"eval/gen_{k}": sum(v) / max(len(v), 1) for k, v in gen_eval_metrics_per_task.items()
                         }
                         eval_metrics.update(gen_eval_metrics)
 
