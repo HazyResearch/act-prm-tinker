@@ -37,11 +37,11 @@ We're also implementing the sufficient training and generation code in PyTorch. 
 
 #### FlashAttention-2
 
-To train with the wonderful [FlashAttention-2](https://github.com/Dao-AILab/flash-attention), simply run the following after running `uv sync` (or just launch an example command, which will automatically install all other dependencies first).
+To use the wonderful [FlashAttention-2](https://github.com/Dao-AILab/flash-attention), simply do the following:  
 
-```bash
-uv pip install flash-attn --no-build-isolation-package flash-attn
-```
+1. Install other dependencies as usual with `uv sync` (or just running an example command, which automatically installs dependencies in `pyproject.toml` as needed).  
+
+2. Install FlashAttention-2 with `uv pip install flash-attn --no-build-isolation-package flash-attn`
 
 ## Example Commands
 

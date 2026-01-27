@@ -1,0 +1,34 @@
+# HotpotQA MC demonstrations with only actions
+name: "act_prm"
+is_async: false
+# Source of successful demonstrations
+dataset_config:
+  path: "mzio/aprm-snorkelai_agent_finance_reasoning"
+  cache_dir: "/scr/mzhang/data/act_prm_data"
+  split: "train"
+
+success_rollouts_only: true
+actions_only: true
+
+hide_observations: false
+hidden_obs_content: "..."
+first_obs_to_show: 2
+last_obs_to_show: 1
+
+num_fewshot_prompts: 0
+action_bos: "<tool_call>"
+action_eos: "</tool_call>"
+final_answer_bos: "Final Answer: "
+
+num_train_samples: 147
+num_val_samples: 20
+num_test_samples: 0
+
+max_turns: 20
+num_tries: 1
+seed: 0
+split: "train"
+system_prompt: "You are a helpful assistant that infers reasoning thoughts behind your own observed actions."
+original_system_prompt: "You are a helpful assistant."
+truncation_message: "Sorry, you have reached the maximum number of steps. Please try again."
+verbose: false
