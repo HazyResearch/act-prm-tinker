@@ -5,27 +5,33 @@ BabyAI-Text environment for ACT-PRM
 from __future__ import annotations
 
 import json
+import re
 import logging
 from copy import copy, deepcopy
 from typing import Any, Annotated
 
 from pydantic import ConfigDict, Field, SkipValidation
 
+# Compat shim for gym 0.26.x on NumPy >= 2.0 (np.bool8 removed)
+import numpy as np
+if not hasattr(np, "bool8"):
+    np.bool8 = np.bool_
+
 try:
     import gym
 except ImportError as exc:
     raise ImportError(
-        "gym-minigrid package is required for BabyAI-Text. "
+        "gym is required for BabyAI-Text. "
         "See https://github.com/flowersteam/Grounding_LLMs_with_online_RL/tree/main/babyai-text"
     ) from exc
 
 try:
-    import babyai_text  # noqa: F401  # used by gym.make
+    import babyai_text  # noqa: F401  # registers BabyAI-* envs with gym
     from babyai.bot import Bot
 except ImportError as exc:
     raise ImportError(
-        "babyai_text package is required for BabyAI-Text. "
-        "See https://github.com/flowersteam/Grounding_LLMs_with_online_RL/tree/main/babyai-text"
+        "babyai_text and babyai are required for BabyAI-Text. "
+        "Install from https://github.com/flowersteam/Grounding_LLMs_with_online_RL/tree/main/babyai-text"
     ) from exc
 
 from ..base import Environment
@@ -264,7 +270,7 @@ class BabyAiTextEnv(Environment):
             new_messages=messages,
             model_response=None,
             prior_messages=[],
-            tools=self.tool_descriptions,
+            tools=[],  # disable tokenizer tool injection; we format tool calls explicitly
             action_space=self.action_space,
             action_trajectory=action_trajectory,
             sample_env=env,
@@ -313,6 +319,20 @@ class BabyAiTextEnv(Environment):
             if action.type == "function_call":
                 tool_name = action.name or ""
                 action_text = self.tool_helper(tool_name=tool_name)
+                call_id = action.call_id
+            elif action.type in ["message", "reasoning"]:
+                if action_idx + 1 == len(parsed_actions):
+                    env_messages.append({
+                        "role": "user",
+                        "content": "Sad! You must persist and call tools to complete the task.",
+                    })
+                    done = True
+                    truncated = True
+                    if not updated_try_step:
+                        try_step += 1
+                        updated_try_step = True
+                continue
+            if action.type == "function_call":
                 if action_text not in self.action_space:
                     stdout = (
                         "Invalid tool call. "
@@ -340,23 +360,11 @@ class BabyAiTextEnv(Environment):
                 env_messages.append({
                     "role": "tool",
                     "type": "function_call_output",
-                    "call_id": action.call_id,
+                    "call_id": call_id,
                     "output": stdout,
                 })
 
                 if tool_call_error:
-                    done = True
-                    truncated = True
-                    if not updated_try_step:
-                        try_step += 1
-                        updated_try_step = True
-
-            elif action.type in ["message", "reasoning"]:
-                if action_idx + 1 == len(parsed_actions):
-                    env_messages.append({
-                        "role": "user",
-                        "content": "Sad! You must persist and call tools to complete the task.",
-                    })
                     done = True
                     truncated = True
                     if not updated_try_step:
