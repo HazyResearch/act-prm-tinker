@@ -216,6 +216,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--replicate", type=str, default="0", help="Unique identifier for run")
     parser.add_argument("--verbose", action="store_true", default=False, help="Extra details")
+    parser.add_argument("--streamer", action="store_true", help="Stream generations (for PyTorch)")
 
     args = parser.parse_args()
 
