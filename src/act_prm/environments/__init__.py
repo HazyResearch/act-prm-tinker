@@ -5,7 +5,7 @@ Environments
 from typing import Any
 
 from .base import Environment
-from .types import EnvironmentState, EnvironmentStateWithAnswer
+from .types import EnvironmentState, EnvironmentStateWithAnswer, EnvironmentStepResult
 
 
 def get_env(name: str, is_async: bool = False, **kwargs: Any) -> Environment:
@@ -86,4 +86,5 @@ __all__ = [
     "Environment",
     "EnvironmentState",
     "EnvironmentStateWithAnswer",
+    "EnvironmentStepResult",
 ]

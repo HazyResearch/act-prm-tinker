@@ -527,8 +527,12 @@ class SftTrainer:
                 "success_per_task": [],
                 "longest_per_task": [],
             }
-            eval_data_actions: dict[str, list[Any]] = {"task_idx": []}
-
+            eval_data_actions: dict[str, list[Any]] = {
+                "task_idx": [],
+                "train_step_idx": [],
+                "train_eval_idx": [],
+                "rollout_task_idx": [],
+            }
             for task_idx in range(num_eval_samples):
                 eval_metrics = env.eval_lm(llm.model, task_idx, fp32_loss=self.fp32_loss)
                 eval_metrics_per_task["nll_per_task"].append(eval_metrics["rollout_nll"])
@@ -542,12 +546,12 @@ class SftTrainer:
                     if k not in eval_data_actions and k.startswith("rollout_action_"):
                         eval_data_actions[k] = []
                 for _t in eval_metrics["rollout_action_timestep"]:
+                    eval_data_actions["task_idx"].append(task_idx)  # redundant but sanity check
                     eval_data_actions["train_step_idx"].append(step_idx)
                     eval_data_actions["train_eval_idx"].append(eval_idx)
                     eval_data_actions["rollout_task_idx"].append(task_idx)
                     for k in eval_data_actions.keys():
                         eval_data_actions[k].append(eval_metrics[k][_t])
-                    eval_data_actions["task_idx"].append(task_idx)  # redundant but sanity check
 
         # Get metrics for logging via ml_logger
         def _get_metric_key(k: str) -> str:
@@ -613,8 +617,12 @@ class SftTrainer:
                 "success_per_task": [],
                 "longest_per_task": [],
             }
-            eval_data_actions: dict[str, list[Any]] = {"task_idx": []}
-
+            eval_data_actions: dict[str, list[Any]] = {
+                "task_idx": [],
+                "train_step_idx": [],
+                "train_eval_idx": [],
+                "rollout_task_idx": [],
+            }
             for task_idx in range(num_eval_samples):
                 eval_metrics = env.eval_gen(llm.model, task_idx, fp32_loss=self.fp32_loss)
                 eval_metrics_per_task["step_acc_per_task"].append(eval_metrics["rollout_step_acc"])
@@ -626,12 +634,13 @@ class SftTrainer:
                     if k not in eval_data_actions and k.startswith("rollout_action_"):
                         eval_data_actions[k] = []
                 for _t in eval_metrics["rollout_action_timestep"]:
+                    eval_data_actions["task_idx"].append(task_idx)  # redundant but sanity check
                     eval_data_actions["train_step_idx"].append(step_idx)
                     eval_data_actions["train_eval_idx"].append(eval_idx)
                     eval_data_actions["rollout_task_idx"].append(task_idx)
                     for k in eval_data_actions.keys():
                         eval_data_actions[k].append(eval_metrics[k][_t])
-                    eval_data_actions["task_idx"].append(task_idx)  # redundant but sanity check
+                    
         # Get metrics for logging via ml_logger
         def _get_metric_key(k: str) -> str:
             k = k.replace("_per_task", "")
