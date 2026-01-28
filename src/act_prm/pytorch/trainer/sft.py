@@ -73,6 +73,7 @@ class SftTrainer:
         self.cfg = cfg
         self.llm = llm
         self.optimizer = optimizer
+        self.generator_cfg = generator_cfg
         self.replay_buffer = replay_buffer
         self.env = env
         self.eval_env = eval_env
@@ -88,7 +89,7 @@ class SftTrainer:
         # RL / Evaluation generator: does standard rollouts, see act_prm/generator/default.py
         self.rl_generator_constructor = self.get_generator_constructor(
             name="default",
-            verbose=generator_cfg.verbose,
+            verbose=self.generator_cfg.verbose,
         )
 
         # Checkpointing and best metrics

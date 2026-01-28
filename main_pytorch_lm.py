@@ -72,12 +72,14 @@ def main() -> None:
     seed_everything(args.seed)
     load_dotenv()  # Setup environment variables from .env file
 
-    # Get default configs
+    # Get default configs and experiment attributes
+    args.generator_config = args.generator_config or "default"
+    args.replay_buffer_config = args.replay_buffer_config or "default"
+
     model_cfg         = OmegaConf.load(f"./configs/model/{args.model_config}.yaml")
     lora_cfg          = OmegaConf.load(f"./configs/lora/{args.lora_config}.yaml")
     env_cfg           = OmegaConf.load(f"./configs/environments/{args.env_config}.yaml")
-    # generator_cfg     = OmegaConf.load(f"./configs/generator/{args.generator_config}.yaml")
-    generator_cfg     = None
+    generator_cfg     = OmegaConf.load(f"./configs/generator/{args.generator_config}.yaml")
     trainer_cfg       = OmegaConf.load(f"./configs/trainer/{args.trainer_config}.yaml")
     replay_buffer_cfg = OmegaConf.load(f"./configs/replay_buffer/{args.replay_buffer_config}.yaml")
     
@@ -171,6 +173,7 @@ def main() -> None:
         cfg=cfg,
         llm=llm,
         optimizer=optimizer,
+        generator_cfg=generator_cfg,
         replay_buffer=replay_buffer,
         env=env,
         eval_env=eval_env,
