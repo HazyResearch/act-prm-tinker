@@ -24,13 +24,16 @@ num_steps: 1000
 gradient_accumulation_steps: 32
 
 # Checkpointing
+save_every: 10
+best_ro_metric: "final_reward"
+
+# Evaluation
 no_initial_eval: false
 eval_every: 5
-save_every: 10
-# do_rollout_eval: false
-eval_gen_every: 5
+eval_gen_every: 0
 eval_rollout_every: 0
-best_ro_metric: "final_reward"
+num_eval_gen_samples: null
+num_eval_rollout_samples: null
 
 # Other miscellaneous
 base_url: null
