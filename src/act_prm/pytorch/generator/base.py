@@ -21,6 +21,7 @@ from act_prm.llm_handlers.action_utils import get_actions
 from act_prm.replay_buffer.types import (
     EpisodeStep, Trajectory, TrajectoryGroup, MeanCenteredTrajectoryGroup
 )
+from act_prm.utils.display import RichTextStreamer
 
 
 def get_response_content(msg: dict[str, Any]) -> str:
@@ -81,6 +82,7 @@ def get_batch_model_inputs(
     hf_tokenizer: PreTrainedTokenizerBase,
     padding_side: str = "left",
     enable_thinking: bool = False,
+    is_train: bool = True,
 ) -> tuple[dict[str, Any], list[int], bool]:
     """
     Get model_inputs (input_ids, attention_mask, etc.) from a batch of input messages
@@ -109,7 +111,7 @@ def get_batch_model_inputs(
         )
         for b_idx in range(len(input_messages))
     ]
-    if len(batch_model_texts) == 1:
+    if len(batch_model_texts) == 1 and is_train:
         # For logprobs/inference, HF Transformers can treat padding / batch_size >1
         # differently..., so we add dummy message to be consistent (always pad)
         batch_model_texts.append({"role": "assistant", "content": ""})
@@ -191,6 +193,7 @@ class HuggingFaceGenerator:
         enable_thinking: bool | None = None,  # default to HF template, but often set to False 
         ml_logger: ml_log.Logger | None = None,
         name_or_identifier: str | None = None,
+        streamer: bool = False,
     ) -> None:
         self.llm = llm
         self.hf_tokenizer = hf_tokenizer
@@ -202,6 +205,13 @@ class HuggingFaceGenerator:
         # self.run_cmd = f"uv run python main.py {" ".join(sys.argv[1:])}"
         self.run_cmd = cfg.get("run_cmd", " ".join(sys.argv))
         self.name_or_identifier = name_or_identifier
+
+        # Silly streaming
+        self.streamer = RichTextStreamer(
+            self.hf_tokenizer,
+            skip_prompt=True,
+            skip_special_tokens=True,
+        ) if streamer else None
 
     def _get_messages_from_state(
         self,
@@ -247,20 +257,7 @@ class HuggingFaceGenerator:
             # 1. Computing mean-centered final rewards: final_reward - mean(final_rewards)
             # 2. Optionally apply step-wise discounting to these values
             return MeanCenteredTrajectoryGroup(**kwargs)
-        return TrajectoryGroup(**kwargs)
-
-    # Run rollouts
-        # # batch_size = tasks_per_update or len(env)  # len(env) is the number of tasks or problems
-        # all_eval_metrics = {}
-        # keys_for_correct = []
-        # eval_metric_keys = [
-        #     "final_reward", "first_return", "action_prob", "last_state_len",
-        #     "timesteps", "correct", "total",
-        # ]
-        # # Store new trajectories to return
-        # new_trajectories: dict[str, list[Trajectory]] = {}
-
-    
+        return TrajectoryGroup(**kwargs)    
 
     def do_group_rollout(
         self,
@@ -345,6 +342,7 @@ class HuggingFaceGenerator:
                     hf_tokenizer=hf_tokenizer,
                     padding_side="left",
                     enable_thinking=self.enable_thinking,
+                    is_train=split == "train",
                 )
                 state_input_len_left_padded = batch_state_inputs["input_ids"].shape[1]
 
@@ -357,7 +355,9 @@ class HuggingFaceGenerator:
                     num_return_sequences=1,
                     pad_token_id=hf_tokenizer.pad_token_id,
                     # output_scores=True,  # returns logprobs, but we'll recompute for training match
-                    output_logprobs=True,  # MZ I can't tell if above supported though, so just use logprobs
+                    output_logprobs=True,  # MZ: I can't tell if above supported though, so just use logprobs
+                    # Silly streaming only supports batch_size == 1
+                    streamer=self.streamer if len(state_input_lens) == 1 else None,
                 )
                 # Decode and convert tokens to messages
                 decoded_texts = hf_tokenizer.batch_decode(
@@ -387,6 +387,7 @@ class HuggingFaceGenerator:
                     hf_tokenizer=hf_tokenizer,
                     padding_side="right",
                     enable_thinking=self.enable_thinking,
+                    is_train=split == "train",
                 )
                 # -> 2. Compute model inference logprobs (matches those at training time)
                 logits = llm.model(**batch_state_action_inputs.to(device), use_cache=False).logits
