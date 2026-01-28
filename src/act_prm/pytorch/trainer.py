@@ -5,7 +5,7 @@ PyTorch trainer for Hugging Face Transformer (PEFT) models
 import os
 import logging
 import sys
-from copy import deepcopy
+from copy import copy, deepcopy
 from typing import Any
 
 from omegaconf import DictConfig
@@ -98,7 +98,7 @@ class SftTrainer:
         self.best_ro_metric_step = 0
 
         # Save action-wise metrics
-        self.eval_data_actions: dict[str, list[int | float]] = {
+        self.eval_lm_data_actions: dict[str, list[int | float]] = {
             "train_step_idx": [],
             "train_eval_idx": [],
             "rollout_task_idx": [],
@@ -109,7 +109,7 @@ class SftTrainer:
             "rollout_task_idx": [],
         }  # fill in the rest of the columns below
         log_path = log_path or cfg.log_path
-        self.eval_data_path = os.path.join(log_path, "eval_action_metrics.csv")
+        self.eval_lm_data_path  = os.path.join(log_path, "eval_lm_action_metrics.csv")
         self.eval_gen_data_path = os.path.join(log_path, "eval_gen_action_metrics.csv")
 
     def _check_model_inputs(
@@ -224,6 +224,8 @@ class SftTrainer:
         num_steps: int | None = None,
         mini_batch_size: int | None = None,
         gradient_accumulation_steps: int | None = None,  # 1 if not specified here or in cfg
+        num_eval_gen_samples: int | None = None,
+        num_eval_rollout_samples: int | None = None,
         **kwargs: Any,
     ) -> HuggingFaceLLM:
         """
@@ -245,9 +247,15 @@ class SftTrainer:
         eval_env = eval_env or self.eval_env
         # Evaluation
         hf_tokenizer = self.hf_tokenizer
+        # Batch iterations to evaluate on
         eval_every = eval_every or cfg.eval_every
         eval_gen_every = eval_gen_every or cfg.eval_gen_every
         eval_rollout_every = eval_rollout_every or cfg.eval_rollout_every
+        # Number of offline eval samples to evaluate on
+        num_eval_lm_samples = len(env)
+        num_eval_gen_samples = num_eval_gen_samples or cfg.get("num_eval_gen_samples", 5)
+        # Number of online eval samples to evaluate on
+        num_eval_rollout_samples = num_eval_rollout_samples or cfg.get("num_eval_rollout_samples", 5)
 
         # Prepare SFT dataloaders from `env.datasets` for each train/eval split
         dataloaders = {"train": None, "eval": None}
@@ -297,141 +305,73 @@ class SftTrainer:
 
             # Evaluate
             last_step = step_idx == num_steps - 1
-            eval_gen_step = eval_gen_every > 0 and ((step_idx + 1) % eval_gen_every == 0 or last_step)
-            eval_rollout_step = eval_rollout_every > 0 and ((step_idx + 1) % eval_rollout_every == 0 or last_step)
-            if (
-                not eval_already and eval_every > 0
-                and (
+            do_lm_eval = (
+                eval_every > 0 and (
                     (step_idx + 1) % eval_every == 0
                     or last_step
                     or (step_idx == 0 and not cfg.no_initial_eval)
                 )
-            ):
+            )
+            do_gen_eval = eval_gen_every > 0 and ((step_idx + 1) % eval_gen_every == 0 or last_step)
+            do_rollout_eval = eval_rollout_every > 0 and ((step_idx + 1) % eval_rollout_every == 0 or last_step)
+            if not eval_already:
+                llm.model.eval()  # redundant but just in case
+                env.split = "eval"
                 if loss_metrics is not None:
                     display_metrics(loss_metrics, title=f"Train Metrics, Step {step_idx}")
-                
+
                 # Do perplexity-based and inference-based evaluation on the eval set data
-                # MZ TODO 1/24/26: Move this code to its own function so it's not a heinous block
-                with torch.no_grad():
-                    llm.model.eval()
-                    env.split = "eval"
-                    num_eval_samples = len(env)
-                    # Each eval sample corresponds to a single task, and consists of an HFDataset
-                    # of steps in a single task rollout
-                    nll_per_task: list[float] = []
-                    ppl_per_task: list[float] = []
-                    step_acc_per_task: list[float] = []
-                    success_per_task: list[float] = []
-                    longest_per_task: list[float] = []  # longest subsequence of successful steps
+                if do_lm_eval:
+                    _eval_lm_metrics = self._eval_offline_lm(
+                        llm, env, step_idx, eval_idx, self.eval_data_path, num_eval_lm_samples
+                    )
+                    eval_lm_metrics, eval_lm_metrics_per_task, eval_lm_data_actions = _eval_lm_metrics
+                    metrics.update(eval_lm_metrics)                    
+                    pbar.set_postfix(**eval_lm_metrics)
+                    display_metrics(eval_lm_metrics, title=f"LM Eval Metrics, Step {step_idx}", style="bright_green")
+                    # Save action-level metrics
+                    for k, v in eval_lm_data_actions.items():
+                        if k not in self.eval_lm_data_actions:
+                            self.eval_lm_data_actions[k] = []
+                        self.eval_lm_data_actions[k].extend(v)
+                    pd.DataFrame(self.eval_lm_data_actions).to_csv(self.eval_lm_data_path, index=False)
+                    logger.info(
+                        f"LM EVAL (Step {step_idx}, Eval {eval_idx}): "
+                        f"Saved offline LM eval metrics to {self.eval_lm_data_path}!"
+                    )
 
-                    # # Generation-based metrics
-                    # gen_step_acc_per_task: list[float] = []
-                    # gen_success_per_task: list[float] = []
-                    # gen_longest_per_task: list[float] = []
-                    gen_eval_metrics_per_task: dict[str, list[float]] = {
-                        "step_acc_per_task": [],
-                        "success_per_task": [],
-                        "longest_per_task": [],
-                    }
-                    for task_idx in range(num_eval_samples):
-                        # Language modeling / evaluation-based metrics
-                        eval_metrics = env.eval_lm(llm.model, task_idx, fp32_loss=self.fp32_loss)
-                        nll_per_task.append(eval_metrics["rollout_nll"])
-                        ppl_per_task.append(eval_metrics["rollout_ppl"])
-                        step_acc_per_task.append(eval_metrics["rollout_step_acc"])
-                        success_per_task.append(eval_metrics["rollout_success"])
-                        longest_per_task.append(eval_metrics["longest_success"])
+                if do_gen_eval:
+                    _eval_gen_metrics = self._eval_offline_gen(
+                        llm, env, step_idx, eval_idx, self.eval_gen_data_path, num_eval_gen_samples
+                    )
+                    eval_gen_metrics, eval_gen_metrics_per_task, eval_gen_data_actions = _eval_gen_metrics
+                    metrics.update(eval_gen_metrics)
+                    # pbar.set_postfix(**eval_gen_metrics)
+                    display_metrics(eval_gen_metrics, title=f"Gen Eval Metrics, Step {step_idx}", style="bright_blue")
+                    # Save action-level metrics
+                    for k, v in eval_gen_data_actions.items():
+                        if k not in self.eval_gen_data_actions:
+                            self.eval_gen_data_actions[k] = []
+                        self.eval_gen_data_actions[k].extend(v)
+                    pd.DataFrame(self.eval_gen_data_actions).to_csv(self.eval_gen_data_path, index=False)
+                    logger.info(
+                        f"Gen EVAL (Step {step_idx}, Eval {eval_idx}): "
+                        f"Saved offline Gen eval metrics to {self.eval_gen_data_path}!"
+                    )
 
-                        # Generation-based metrics
-                        if eval_gen_step:
-                            gen_eval_metrics = env.eval_gen(llm.model, task_idx)
-                            # gen_step_acc_per_task.append(gen_eval_metrics["rollout_step_acc"])
-                            # gen_success_per_task.append(gen_eval_metrics["rollout_success"])
-                            # gen_longest_per_task.append(gen_eval_metrics["longest_success"])
-                            gen_eval_metrics_per_task["step_acc_per_task"].append(gen_eval_metrics["rollout_step_acc"])
-                            gen_eval_metrics_per_task["success_per_task"].append(gen_eval_metrics["rollout_success"])
-                            gen_eval_metrics_per_task["longest_per_task"].append(gen_eval_metrics["longest_success"])
-                            eval_metrics.update({f"gen_{k}": v for k, v in gen_eval_metrics.items()})
-                        
-                        # MZ 1/23/26 TODO: Figure out how best to save action-wise metrics
-                        for k in eval_metrics.keys():
-                            # Populate action-level metric keys
-                            if k not in self.eval_data_actions and k.startswith("rollout_action_"):
-                                self.eval_data_actions[k] = []
-                            if k not in self.eval_gen_data_actions and k.startswith("gen_rollout_action_"):
-                                self.eval_gen_data_actions[k] = []
-
-                        # Fill in action-level metrics by action timestep
-                        for _t in eval_metrics["rollout_action_timestep"]:
-                            self.eval_data_actions["train_step_idx"].append(step_idx)
-                            self.eval_data_actions["train_eval_idx"].append(eval_idx)
-                            self.eval_data_actions["rollout_task_idx"].append(task_idx)
-                            for k in self.eval_data_actions.keys():
-                                if k.startswith("rollout_action_"):  #  or k.startswith("gen_rollout_action_"):
-                                    self.eval_data_actions[k].append(eval_metrics[k][_t])
-                        pd.DataFrame(self.eval_data_actions).to_csv(self.eval_data_path, index=False)
-
-                        # MZ 1/26/26 TODO: Make modular / reuse the above
-                        if eval_gen_step:
-                            for _t in gen_eval_metrics["rollout_action_timestep"]:
-                                self.eval_gen_data_actions["train_step_idx"].append(step_idx)
-                                self.eval_gen_data_actions["train_eval_idx"].append(eval_idx)
-                                self.eval_gen_data_actions["rollout_task_idx"].append(task_idx)
-                                for k in self.eval_gen_data_actions.keys():
-                                    if k.startswith("gen_rollout_action_"): 
-                                        self.eval_gen_data_actions[k].append(gen_eval_metrics[k][_t])
-                            pd.DataFrame(self.eval_gen_data_actions).to_csv(self.eval_gen_data_path, index=False)
-
-                    eval_nll = sum(nll_per_task) / max(len(nll_per_task), 1)
-                    eval_ppl = np.exp(eval_nll).item()
-                    eval_probs = np.exp(-eval_nll).item()
-                    eval_step_acc = sum(step_acc_per_task) / max(len(step_acc_per_task), 1)
-                    eval_success  = sum(success_per_task) / max(len(success_per_task), 1)
-                    eval_longest  = sum(longest_per_task) / max(len(longest_per_task), 1)
-
-                    # gen_eval_step_acc = sum(gen_step_acc_per_task) / max(len(gen_step_acc_per_task), 1)
-                    # gen_eval_success  = sum(gen_success_per_task) / max(len(gen_success_per_task), 1)
-                    # gen_eval_longest  = sum(gen_longest_per_task) / max(len(gen_longest_per_task), 1)
-                    eval_metrics = {
-                        "eval/nll": eval_nll,
-                        "eval/ppl": eval_ppl,
-                        "eval/probs": eval_probs,
-                        "eval/step_act_acc": eval_step_acc,
-                        "eval/task_success": eval_success,
-                        "eval/task_longest": eval_longest,
-                        # "eval/gen_step_act_acc": gen_eval_step_acc,
-                        # "eval/gen_task_success": gen_eval_success,
-                        # "eval/gen_task_longest": gen_eval_longest,
-                        "eval/eval_idx": eval_idx,
-                    }
-                    if eval_gen_step:
-                        gen_eval_metrics = {
-                            f"eval/gen_{k}": sum(v) / max(len(v), 1) for k, v in gen_eval_metrics_per_task.items()
-                        }
-                        eval_metrics.update(gen_eval_metrics)
-
-                    eval_ppl = eval_metrics["eval/ppl"]
-                    if eval_ppl < self.best_ppl:
-                        self.best_ppl = eval_ppl
-                        self.best_ppl_step = step_idx
-                        # torch.save(llm.model.state_dict(), self.best_lm_checkpoint_path)
-                        save_lora(llm.model, self.best_lm_checkpoint_path)
-                    eval_metrics.update({
-                        "eval/best_ppl": self.best_ppl, "eval/best_ppl_step": self.best_ppl_step,
-                    })
-                    metrics.update(eval_metrics)
-                    pbar.set_postfix(**eval_metrics)
-                    display_metrics(eval_metrics, title=f"LM Eval Metrics, Step {step_idx}", style="bright_green")
-
-                    # Do rollout or sampling-based evaluation on the eval_env
-                    if eval_rollout_step:
-                        # See _eval_rollout function for concepts of a plan
-                        raise NotImplementedError("Rollout evaluation not implemented yet")
+                if do_rollout_eval:
+                    eval_env.split = "eval"
+                    # _eval_rollout_metrics = self._eval_offline_rollout(
+                    #     llm, eval_env, step_idx, eval_idx, self.eval_rollout_data_path, num_eval_rollout_samples
+                    # )
+                    # eval_rollout_metrics, eval_rollout_metrics_per_task, eval_rollout_data_actions = _eval_rollout_metrics
                         
                 eval_already = True
                 eval_idx += 1
 
-                del eval_metrics
+                del eval_lm_metrics, eval_lm_metrics_per_task, eval_lm_data_actions
+                del eval_gen_metrics, eval_gen_metrics_per_task, eval_gen_data_actions
+                # del eval_rollout_metrics, eval_rollout_metrics_per_task, eval_rollout_data_actions
                 torch.cuda.empty_cache()
             
             # Loop through training batches
@@ -493,6 +433,187 @@ class SftTrainer:
         # Load best model checkpoint
         llm.model = load_lora(llm.model, self.best_lm_checkpoint_path)
         return llm
+
+
+    def _eval_offline_lm(
+        self,
+        llm: HuggingFaceLLM,
+        env: Environment,
+        step_idx: int,
+        eval_idx: int,  # number of times we've evaluated so far
+        eval_data_save_path: str,
+        num_eval_samples: int | None = None,
+    ) -> tuple[dict[str, float], dict[str, list[float]], dict[str, list[Any]]]:
+        """
+        Do offline language modeling evaluation
+        - For given ground-truth trajectory, at each timestep evaluate the model's
+          inference-based language modeling over the ground-truth action tokens
+
+        Returns:
+        - eval_metrics_to_log: dict[str, float] - metrics for logging via ml_logger
+        - eval_metrics_per_task: dict[str, list[float]] - metrics per task
+        - eval_data_actions: dict[str, list[Any]] - action-level metrics
+        """
+        with torch.no_grad():
+            llm.model.eval()
+            orig_env_split = copy(env.split)
+            env.split = "eval"  # ensure we use "eval" samples / tasks
+            # Get samples as minimum of len(env) or specified num_eval_samples
+            num_eval_samples = num_eval_samples or len(env)
+            num_eval_samples = min(num_eval_samples, len(env))
+
+            eval_metrics_per_task: dict[list[float]] = {
+                "nll_per_task": [],
+                "ppl_per_task": [],
+                "step_acc_per_task": [],
+                "success_per_task": [],
+                "longest_per_task": [],
+            }
+            eval_data_actions: dict[str, list[Any]] = {"task_idx": []}
+
+            for task_idx in range(num_eval_samples):
+                eval_metrics = env.eval_lm(llm.model, task_idx, fp32_loss=self.fp32_loss)
+                eval_metrics_per_task["nll_per_task"].append(eval_metrics["rollout_nll"])
+                eval_metrics_per_task["ppl_per_task"].append(eval_metrics["rollout_ppl"])
+                eval_metrics_per_task["step_acc_per_task"].append(eval_metrics["rollout_step_acc"])
+                eval_metrics_per_task["success_per_task"].append(eval_metrics["rollout_success"])
+                eval_metrics_per_task["longest_per_task"].append(eval_metrics["longest_success"])
+
+                # Fill in action-level metrics by action timestep
+                for k in eval_metrics.keys():
+                    if k not in eval_data_actions and k.startswith("rollout_action_"):
+                        eval_data_actions[k] = []
+                for _t in eval_metrics["rollout_action_timestep"]:
+                    eval_data_actions["train_step_idx"].append(step_idx)
+                    eval_data_actions["train_eval_idx"].append(eval_idx)
+                    eval_data_actions["rollout_task_idx"].append(task_idx)
+                    for k in eval_data_actions.keys():
+                        eval_data_actions[k].append(eval_metrics[k][_t])
+                    eval_data_actions["task_idx"].append(task_idx)  # redundant but sanity check
+                # pd.DataFrame(eval_data_actions).to_csv(eval_data_save_path, index=False)
+                # logger.info(
+                #     f"LM EVAL (Step {step_idx}, Eval {eval_idx}): Saved offline LM eval metrics "
+                #     f"for task {task_idx} to {eval_data_save_path}"
+                # )
+
+        # Get metrics for logging via ml_logger
+        def _get_metric_key(k: str) -> str:
+            k = k.replace("_per_task", "")
+            return f"eval/lm_{k}"
+        eval_metrics_to_log = {
+            _get_metric_key(k): sum(v) / max(len(v), 1)
+            for k, v in eval_metrics_per_task.items()
+            if k not in ["ppl_per_task"]
+        }
+        # Save specific PPL and action prob metrics
+        eval_metrics_to_log.update({
+            "eval/lm_ppl": np.exp(eval_metrics_to_log["eval/lm_nll"]).item(),
+            "eval/lm_probs": np.exp(-eval_metrics_to_log["eval/lm_nll"]).item(),
+        })
+        # Update best metrics 
+        eval_ppl = eval_metrics_to_log["eval/lm_ppl"]
+        if eval_ppl < self.best_ppl:
+            self.best_ppl = eval_ppl
+            self.best_ppl_step = step_idx
+            # torch.save(llm.model.state_dict(), self.best_lm_checkpoint_path)
+            save_lora(llm.model, self.best_lm_checkpoint_path)
+            logger.info(
+                f"LM EVAL (Step {step_idx}, Eval {eval_idx}): "
+                f"Updated best LM PPL to {eval_ppl} at step {step_idx}"
+            )
+        eval_metrics_to_log.update({
+            "eval/lm_best_ppl": self.best_ppl, "eval/lm_best_ppl_step": self.best_ppl_step,
+        })
+        eval_metrics_to_log["actions_data_lm_save_path"] = eval_data_save_path
+        # metrics.update(eval_metrics)
+        # pbar.set_postfix(**eval_metrics)
+        # display_metrics(eval_metrics, title=f"LM Eval Metrics, Step {step_idx}", style="bright_green")            
+        env.split = orig_env_split
+        return eval_metrics_to_log, eval_metrics_per_task, eval_data_actions
+
+
+    def _eval_offline_gen(
+        self,
+        llm: HuggingFaceLLM,
+        env: Environment,
+        step_idx: int,
+        eval_idx: int,  # number of times we've evaluated so far
+        eval_data_save_path: str,
+        num_eval_samples: int | None = None,
+    ) -> tuple[dict[str, float], dict[str, list[float]], dict[str, list[Any]]]:
+        """
+        Do offline generation-based evaluation
+        - For given ground-truth trajectory, at each timestep evaluate the model's
+          generation from the input state, and compare to the ground-truth action
+
+        Returns:
+        - eval_metrics_to_log: dict[str, float] - metrics for logging via ml_logger
+        - eval_metrics_per_task: dict[str, list[float]] - metrics per task
+        - eval_data_actions: dict[str, list[Any]] - action-level metrics
+        """
+        # MZ 1/27/26 TODO: Def some code memoization / abstraction to do here
+        with torch.no_grad():
+            llm.model.eval()
+            orig_env_split = copy(env.split)
+            env.split = "eval"  # ensure we use "eval" samples / tasks
+            # Get samples as minimum of len(env) or specified num_eval_samples
+            num_eval_samples = num_eval_samples or len(env)
+            num_eval_samples = min(num_eval_samples, len(env))
+
+            eval_metrics_per_task: dict[list[float]] = {
+                "step_acc_per_task": [],
+                "success_per_task": [],
+                "longest_per_task": [],
+            }
+            eval_data_actions: dict[str, list[Any]] = {"task_idx": []}
+
+            for task_idx in range(num_eval_samples):
+                eval_metrics = env.eval_gen(llm.model, task_idx, fp32_loss=self.fp32_loss)
+                eval_metrics_per_task["step_acc_per_task"].append(eval_metrics["rollout_step_acc"])
+                eval_metrics_per_task["success_per_task"].append(eval_metrics["rollout_success"])
+                eval_metrics_per_task["longest_per_task"].append(eval_metrics["longest_success"])
+
+                # Fill in action-level metrics by action timestep
+                for k in eval_metrics.keys():
+                    if k not in eval_data_actions and k.startswith("rollout_action_"):
+                        eval_data_actions[k] = []
+                for _t in eval_metrics["rollout_action_timestep"]:
+                    eval_data_actions["train_step_idx"].append(step_idx)
+                    eval_data_actions["train_eval_idx"].append(eval_idx)
+                    eval_data_actions["rollout_task_idx"].append(task_idx)
+                    for k in eval_data_actions.keys():
+                        eval_data_actions[k].append(eval_metrics[k][_t])
+                    eval_data_actions["task_idx"].append(task_idx)  # redundant but sanity check
+                # pd.DataFrame(eval_data_actions).to_csv(eval_data_save_path, index=False)
+                # logger.info(
+                #     f"Gen EVAL (Step {step_idx}, Eval {eval_idx}): Saved offline Gen eval metrics "
+                #     f"for task {task_idx} to {eval_data_save_path}"
+                # )
+        # Get metrics for logging via ml_logger
+        def _get_metric_key(k: str) -> str:
+            k = k.replace("_per_task", "")
+            return f"eval/gen_{k}"
+        eval_metrics_to_log = {
+            _get_metric_key(k): sum(v) / max(len(v), 1)
+            for k, v in eval_metrics_per_task.items()
+            if k not in ["ppl_per_task"]
+        }
+        eval_metrics_to_log["actions_data_gen_save_path"] = eval_data_save_path
+        # For now, don't track these metrics to update best metrics 
+        # eval_gen_step_acc = eval_metrics_to_log["eval/gen_step_acc"]
+        # if eval_gen_step_acc > self.best_gen_step_acc:
+        #     self.best_gen_step_acc = eval_gen_step_acc
+        #     self.best_gen_step_acc_step = step_idx
+        #     save_lora(llm.model, self.best_gen_checkpoint_path)
+        #     logger.info(
+        #         f"Gen EVAL (Step {step_idx}, Eval {eval_idx}): "
+        #         f"Updated best Gen step accuracy to {eval_gen_step_acc} at step {step_idx}"
+        #     )
+        # eval_metrics_to_log.update({
+        #     "eval/gen_best_step_acc": self.best_gen_step_acc, "eval/gen_best_step_acc_step": self.best_gen_step_acc_step,
+        # })
+        env.split = orig_env_split
+        return eval_metrics_to_log, eval_metrics_per_task, eval_data_actions
 
 
 def _eval_rollout(
