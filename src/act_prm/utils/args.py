@@ -237,7 +237,7 @@ def get_args() -> argparse.Namespace:
     # Get run (i.e., experiment) name
     _ignore_args = [
         "base_url", "checkpoint_path", "log_path", "load_checkpoint_path", "lora_checkpoint_path",
-        "project_name", "verbose",
+        "project_name", "verbose", "streamer",
     ]
     _ignore_args.extend([argn for argn in vars(args).keys() if argn.endswith("_every")])
     if args.base_env_config is not None and args.base_env_config == args.env_config:

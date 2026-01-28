@@ -432,9 +432,9 @@ class SftTrainer:
                 eval_already = True
                 eval_idx += 1
 
-                del eval_lm_metrics, eval_lm_metrics_per_task, eval_lm_data_actions
-                del eval_gen_metrics, eval_gen_metrics_per_task, eval_gen_data_actions
-                # del eval_rollout_metrics, eval_rollout_metrics_per_task, eval_rollout_data_actions
+                # if do_lm_eval: del eval_lm_metrics, eval_lm_metrics_per_task, eval_lm_data_actions
+                # if do_gen_eval: del eval_gen_metrics, eval_gen_metrics_per_task, eval_gen_data_actions
+                # if do_rollout_eval: del eval_rollout_metrics
                 torch.cuda.empty_cache()
             
             # Loop through training batches
