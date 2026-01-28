@@ -129,12 +129,20 @@ class SftTrainer:
         _labels[_labels == -100] = 0  # -100 will cause tokenization errors
         decoded_labels = hf_tokenizer.batch_decode(_labels)
         for idx, decoded_input in enumerate(decoded_inputs):
-            rich_print(f"[cyan]Input {idx}:\n{decoded_input}\n[/cyan]")
-            rich_print(f"[green]Label {idx}:\n{decoded_labels[idx]}\n[/green]")
+            try:
+                rich_print(f"[cyan]Input {idx}:\n{decoded_input}\n[/cyan]")
+                rich_print(f"[green]Label {idx}:\n{decoded_labels[idx]}\n[/green]")
+            except Exception as e:
+                print(f"[cyan]Input {idx}:\n{decoded_input}\n[/cyan]")
+                print(f"[green]Label {idx}:\n{decoded_labels[idx]}\n[/green]")
             rich_print("=" * 100)
         # Keep run url and cmd in display
-        rich_print(f"[bold]Run url: [link={self.run_url}]{self.run_url}[/link][/bold]")
-        rich_print(f"[bold]Run cmd: [bright_cyan]{self.run_cmd}[/bright_cyan][/bold]")
+        try:
+            rich_print(f"[bold]Run url: [link={self.run_url}]{self.run_url}[/link][/bold]")
+            rich_print(f"[bold]Run cmd: [bright_cyan]{self.run_cmd}[/bright_cyan][/bold]")
+        except Exception as e:
+            print(f"Run url: {self.run_url}")
+            print(f"Run cmd: {self.run_cmd}")
 
     def compute_loss(
         self,
