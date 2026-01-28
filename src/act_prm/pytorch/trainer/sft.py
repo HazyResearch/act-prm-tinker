@@ -424,9 +424,9 @@ class SftTrainer:
                 eval_already = True
                 eval_idx += 1
 
-                del eval_lm_metrics, eval_lm_metrics_per_task, eval_lm_data_actions
-                del eval_gen_metrics, eval_gen_metrics_per_task, eval_gen_data_actions
-                # del eval_rollout_metrics, eval_rollout_metrics_per_task, eval_rollout_data_actions
+                # if do_lm_eval: del eval_lm_metrics, eval_lm_metrics_per_task, eval_lm_data_actions
+                # if do_gen_eval: del eval_gen_metrics, eval_gen_metrics_per_task, eval_gen_data_actions
+                # if do_rollout_eval: del eval_rollout_metrics
                 torch.cuda.empty_cache()
             
             # Loop through training batches
@@ -544,7 +544,8 @@ class SftTrainer:
                     eval_data_actions["train_eval_idx"].append(eval_idx)
                     eval_data_actions["rollout_task_idx"].append(task_idx)
                     for k in eval_data_actions.keys():
-                        eval_data_actions[k].append(eval_metrics[k][_t])
+                        if k in eval_metrics:
+                            eval_data_actions[k].append(eval_metrics[k][_t])
 
         # Get metrics for logging via ml_logger
         def _get_metric_key(k: str) -> str:
@@ -632,7 +633,8 @@ class SftTrainer:
                     eval_data_actions["train_eval_idx"].append(eval_idx)
                     eval_data_actions["rollout_task_idx"].append(task_idx)
                     for k in eval_data_actions.keys():
-                        eval_data_actions[k].append(eval_metrics[k][_t])
+                        if k in eval_metrics:
+                            eval_data_actions[k].append(eval_metrics[k][_t])
                     
         # Get metrics for logging via ml_logger
         def _get_metric_key(k: str) -> str:
