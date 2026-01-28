@@ -502,7 +502,7 @@ class HuggingFaceGenerator:
             all_trajectory_groups = [
                 self._get_trajectory_group(
                     trajectories=trajectories_in_group,
-                    final_reards=all_final_rewards,
+                    final_rewards=all_final_rewards,
                     discount_factor=discount_factor,
                 )
             ]
