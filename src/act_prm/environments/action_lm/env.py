@@ -350,7 +350,7 @@ class ActionLmEnv(Environment):
         # Get number of samples to evaluate
         num_eval_gen_samples = self.num_eval_gen_samples or len(unique_sample_ids)
         num_eval_rollout_samples = self.num_eval_rollout_samples or len(unique_sample_ids)
-        num_rl_samples = max(num_eval_gen_samples, num_eval_rollout_samples)
+        num_rl_samples = min(num_eval_gen_samples, num_eval_rollout_samples)
         
         pbar = tqdm(
             unique_sample_ids[:num_rl_samples],

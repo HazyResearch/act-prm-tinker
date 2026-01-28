@@ -260,7 +260,7 @@ class SftTrainer:
         eval_gen_every = eval_gen_every or cfg.eval_gen_every
         eval_rollout_every = eval_rollout_every or cfg.eval_rollout_every
         # Number of offline eval samples to evaluate on
-        num_eval_lm_samples = len(env)
+        num_eval_lm_samples = len(env.datasets["eval"])
         num_eval_gen_samples = num_eval_gen_samples or cfg.get("num_eval_gen_samples", 5)
         # Number of online eval samples to evaluate on
         num_eval_rollout_samples = num_eval_rollout_samples or cfg.get("num_eval_rollout_samples", 5)
