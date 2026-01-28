@@ -16,6 +16,7 @@ num_test_samples: 5
 
 max_turns: 25
 num_tries: 1
+eval_num_tries: 1
 seed: 0
 split: "train"
 system_prompt: "You are a helpful tool-calling assistant."

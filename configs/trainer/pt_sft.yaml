@@ -6,7 +6,9 @@ fp32_loss: false  # keep in bf16
 # # Generation (Sampling Rollouts)
 # num_batches: 200
 # num_tries: 1
+eval_num_tries: 1
 # eval_num_tries: 1
+eval_num_tries: 1
 # max_tokens: 1024
 # temperature: 1.0
 
