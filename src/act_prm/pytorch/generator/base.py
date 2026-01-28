@@ -6,12 +6,14 @@ import sys
 from copy import copy, deepcopy
 from typing import Any, Callable
 
-import torch
-import torch.nn.functional as F
-
 from omegaconf import DictConfig
+# from rich import print as rich_print
+from rich.console import Console
+from rich.panel import Panel
 from tqdm import tqdm
 
+import torch
+import torch.nn.functional as F
 from tinker_cookbook.utils import ml_log
 from transformers import PreTrainedTokenizerBase
 
@@ -22,6 +24,9 @@ from act_prm.replay_buffer.types import (
     EpisodeStep, Trajectory, TrajectoryGroup, MeanCenteredTrajectoryGroup
 )
 from act_prm.utils.display import RichTextStreamer
+
+
+console = Console()
 
 
 def get_response_content(msg: dict[str, Any]) -> str:
@@ -189,7 +194,9 @@ class HuggingFaceGenerator:
         hf_tokenizer: PreTrainedTokenizerBase,
         env: Environment,
         cfg: DictConfig,
-        enable_thinking: bool | None = None,  # default to HF template, but often set to False 
+        enable_thinking: bool | None = None,  # default to HF template, but often set to False
+        discount_factor: float | None = None,
+        mean_center: bool = False,
         ml_logger: ml_log.Logger | None = None,
         name_or_identifier: str | None = None,
         streamer: bool = False,
@@ -205,6 +212,8 @@ class HuggingFaceGenerator:
         # self.run_cmd = f"uv run python main.py {" ".join(sys.argv[1:])}"
         self.run_cmd = cfg.get("run_cmd", " ".join(sys.argv))
         self.name_or_identifier = name_or_identifier
+        self.discount_factor = discount_factor or cfg.get("discount_factor", 0.9)
+        self.mean_center = mean_center  # mean-center the advantages
 
         # Silly streaming
         self.streamer = RichTextStreamer(
@@ -270,6 +279,7 @@ class HuggingFaceGenerator:
         cfg: DictConfig | None = None,
         split: str = "train",
         try_step: int = 0,
+        discount_factor: float | None = None,
         # start_idx: int = 0,
         num_return_sequences: int | None = None,
         max_tokens: int | None = None,
@@ -286,6 +296,7 @@ class HuggingFaceGenerator:
         env = env or self.env
         cfg = cfg or self.cfg
         env.split = split  # Select task split
+        discount_factor = discount_factor or self.discount_factor or cfg.discount_factor
         
         was_training = llm.model.training
         llm.model.eval()
@@ -425,6 +436,13 @@ class HuggingFaceGenerator:
                     ]
                     for next_state in batch_next_states
                 ]
+                if self.verbose:
+                    max_to_display = 1  # hardcoded hack
+                    for _idx in range(len(batch_next_obs))[:max_to_display]:
+                        color = f"italic color({_idx % 8 + 8})"
+                        _header = f"Next Observation {_idx} (Timestep {batch_states[_idx].timestep})"
+                        print("\n")
+                        console.print(Panel(batch_next_obs[0][0]["content"], title=_header, style=color))
                 # MZ 1/27/26 NOTE: this is a bit heinous...
                 batch_episode_steps = [
                     EpisodeStep(
@@ -478,14 +496,14 @@ class HuggingFaceGenerator:
                     episode_steps=all_episode_steps[gen_id],
                     final_reward=all_final_rewards[gen_id],
                     try_step=try_step,
-                    discount_factor=cfg.discount_factor,
+                    discount_factor=discount_factor,
                 ) for gen_id in range(num_return_sequences)
             ]
             all_trajectory_groups = [
                 self._get_trajectory_group(
                     trajectories=trajectories_in_group,
                     final_reards=all_final_rewards,
-                    discount_factor=cfg.discount_factor,
+                    discount_factor=discount_factor,
                 )
             ]
         if was_training:  # assume single try for now

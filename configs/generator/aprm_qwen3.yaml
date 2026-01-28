@@ -4,7 +4,7 @@ reward_method: "em"
 discount_factor: 1.0
 mean_center: false
 verbose: false
-stream_generations: false
+streamer: false
 
 action_bos: "<tool_call>"
 action_eos: "</tool_call>"

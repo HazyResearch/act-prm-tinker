@@ -758,8 +758,8 @@ class ActionLmEnv(Environment):
                 _target_act = f"{self.action_bos}\n{action_true}\n{self.action_eos}"
                 _colour = f"bold {"bright_green" if action_correct else "bright_red"}"
                 rich_print(f"\n[{_colour}]**Target Action**\n{_target_act}[/{_colour}]")
-                rich_print(f"[bold]Run url:[link={self.run_url}]{self.run_url}[/link][/bold]")
-                rich_print(f"[bold]Run cmd:[bright_cyan]{self.run_cmd}[/bright_cyan][/bold]")
+                rich_print(f"[bold]Run url: [link={self.run_url}]{self.run_url}[/link][/bold]")
+                rich_print(f"[bold]Run cmd: [bright_cyan]{self.run_cmd}[/bright_cyan][/bold]")
 
             pbar.set_postfix({
                 # "target_action": action_true,

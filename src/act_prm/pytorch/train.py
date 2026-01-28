@@ -71,7 +71,7 @@ def run_rollouts(
             range(start_idx, start_idx + batch_size),
             desc=pbar_desc,
             colour="blue",
-            leave=False,
+            leave=True,
             position=pbar_position,
         )
         for _, sample_id in enumerate(sample_pbar):

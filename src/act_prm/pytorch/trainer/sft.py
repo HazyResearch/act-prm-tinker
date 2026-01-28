@@ -88,8 +88,9 @@ class SftTrainer:
 
         # RL / Evaluation generator: does standard rollouts, see act_prm/generator/default.py
         self.rl_generator_constructor = self.get_generator_constructor(
-            name="default",
-            verbose=self.generator_cfg.verbose,
+            # name="default",
+            # verbose=self.generator_cfg.verbose,
+            **self.generator_cfg,
         )
 
         # Checkpointing and best metrics

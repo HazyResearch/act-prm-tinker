@@ -29,6 +29,6 @@ def check_model_inputs(
         rich_print("=" * 100)
     # Keep run url and cmd in display
     if run_url is not None:
-        rich_print(f"[bold]Run url:[link={run_url}]{run_url}[/link][/bold]")
+        rich_print(f"[bold]Run url: [link={run_url}]{run_url}[/link][/bold]")
     if run_cmd is not None:
-        rich_print(f"[bold]Run cmd:[bright_cyan]{run_cmd}[/bright_cyan][/bold]")
+        rich_print(f"[bold]Run cmd: [bright_cyan]{run_cmd}[/bright_cyan][/bold]")
