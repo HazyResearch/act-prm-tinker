@@ -66,7 +66,6 @@ class TinkerGenerator:
     def _get_trajectory_group(self, **kwargs: Any) -> TrajectoryGroup:
         """
         Return trajectory group class
-        - Override in subclasses, e.g., to return MeanCenteredTrajectoryGroup
         """
         if self.mean_center:
             # Returns trajectory group where we compute advantages by:
