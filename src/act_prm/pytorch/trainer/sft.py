@@ -6,7 +6,7 @@ import os
 import logging
 import sys
 from copy import copy, deepcopy
-from typing import Any
+from typing import Any, Callable
 
 from omegaconf import DictConfig
 from rich import print as rich_print
@@ -28,7 +28,8 @@ from act_prm.llm_handlers import HuggingFaceLLM
 from act_prm.environments import Environment
 from act_prm.replay_buffer import ReplayBuffer
 
-# from .generator import run_rollouts
+from ..generator import get_generator_constructor, HuggingFaceGenerator
+from ..train import run_rollouts
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -59,6 +60,7 @@ class SftTrainer:
         cfg: DictConfig,
         llm: HuggingFaceLLM,
         optimizer: Optimizer | Any,  # or a HF one?
+        generator_cfg: DictConfig,
         replay_buffer: ReplayBuffer,
         env: Environment,
         eval_env: Environment,
@@ -82,6 +84,12 @@ class SftTrainer:
         self.run_url = ml_logger.get_logger_url() if ml_logger is not None else None
         # self.run_cmd = f"uv run python main.py {" ".join(sys.argv[1:])}"
         self.run_cmd = " ".join(sys.argv)
+
+        # RL / Evaluation generator: does standard rollouts, see act_prm/generator/default.py
+        self.rl_generator_constructor = self.get_generator_constructor(
+            name="default",
+            verbose=generator_cfg.verbose,
+        )
 
         # Checkpointing and best metrics
         self.checkpoint_path = checkpoint_path or cfg.checkpoint_path
@@ -109,8 +117,14 @@ class SftTrainer:
             "rollout_task_idx": [],
         }  # fill in the rest of the columns below
         log_path = log_path or cfg.log_path
-        self.eval_lm_data_path  = os.path.join(log_path, "eval_lm_action_metrics.csv")
+        self.eval_lm_data_path = os.path.join(log_path, "eval_lm_action_metrics.csv")
         self.eval_gen_data_path = os.path.join(log_path, "eval_gen_action_metrics.csv")
+
+    def get_generator_constructor(self, **kwargs: Any) -> Callable[..., HuggingFaceGenerator]:
+        """
+        Get a (partially initialized) Hugging Face Generator constructor by name
+        """
+        return get_generator_constructor(**kwargs, ml_logger=self.ml_logger, cfg=self.cfg)
 
     def _check_model_inputs(
         self,
@@ -226,6 +240,9 @@ class SftTrainer:
         gradient_accumulation_steps: int | None = None,  # 1 if not specified here or in cfg
         num_eval_gen_samples: int | None = None,
         num_eval_rollout_samples: int | None = None,
+        # Other identifiers
+        checkpoint_name: str | None = None,
+        name_or_identifier: str | None = None,
         **kwargs: Any,
     ) -> HuggingFaceLLM:
         """
@@ -323,12 +340,12 @@ class SftTrainer:
                 # Do perplexity-based and inference-based evaluation on the eval set data
                 if do_lm_eval:
                     _eval_lm_metrics = self._eval_offline_lm(
-                        llm, env, step_idx, eval_idx, self.eval_data_path, num_eval_lm_samples
+                        llm, env, step_idx, eval_idx, num_eval_lm_samples,
                     )
                     eval_lm_metrics, eval_lm_metrics_per_task, eval_lm_data_actions = _eval_lm_metrics
                     metrics.update(eval_lm_metrics)                    
                     pbar.set_postfix(**eval_lm_metrics)
-                    display_metrics(eval_lm_metrics, title=f"LM Eval Metrics, Step {step_idx}", style="bright_green")
+                    display_metrics(eval_lm_metrics, title=f"LM Eval Metrics, Step {step_idx}", style="bright_blue")
                     # Save action-level metrics
                     for k, v in eval_lm_data_actions.items():
                         if k not in self.eval_lm_data_actions:
@@ -342,12 +359,12 @@ class SftTrainer:
 
                 if do_gen_eval:
                     _eval_gen_metrics = self._eval_offline_gen(
-                        llm, env, step_idx, eval_idx, self.eval_gen_data_path, num_eval_gen_samples
+                        llm, env, step_idx, eval_idx, num_eval_gen_samples,
                     )
                     eval_gen_metrics, eval_gen_metrics_per_task, eval_gen_data_actions = _eval_gen_metrics
                     metrics.update(eval_gen_metrics)
                     # pbar.set_postfix(**eval_gen_metrics)
-                    display_metrics(eval_gen_metrics, title=f"Gen Eval Metrics, Step {step_idx}", style="bright_blue")
+                    display_metrics(eval_gen_metrics, title=f"Gen Eval Metrics, Step {step_idx}", style="bright_green")
                     # Save action-level metrics
                     for k, v in eval_gen_data_actions.items():
                         if k not in self.eval_gen_data_actions:
@@ -360,7 +377,28 @@ class SftTrainer:
                     )
 
                 if do_rollout_eval:
+                    rollout_checkpoint_name = (
+                        f"rollout_eval_{checkpoint_name}" if checkpoint_name else "rollout_eval"
+                    )
                     eval_env.split = "eval"
+                    eval_rollout_metrics, _ = run_rollouts(
+                        llm=llm,
+                        hf_tokenizer=hf_tokenizer,
+                        generator_constructor=self.rl_generator_constructor,
+                        env=eval_env,
+                        cfg=cfg,
+                        batch_id=batch_idx,
+                        checkpoint_name=rollout_checkpoint_name,
+                        split="eval",
+                        num_tries=cfg.eval_num_tries,
+                        # Just use all eval tasks
+                        start_idx=0,  
+                        tasks_per_update=len(eval_env),
+                        name_or_identifier=name_or_identifier,
+                    )
+                    metrics.update(eval_rollout_metrics)
+                    display_metrics(eval_rollout_metrics, title=f"Rollout Eval Metrics, Step {step_idx}", style="bright_red")
+                    
                     # _eval_rollout_metrics = self._eval_offline_rollout(
                     #     llm, eval_env, step_idx, eval_idx, self.eval_rollout_data_path, num_eval_rollout_samples
                     # )
@@ -441,7 +479,6 @@ class SftTrainer:
         env: Environment,
         step_idx: int,
         eval_idx: int,  # number of times we've evaluated so far
-        eval_data_save_path: str,
         num_eval_samples: int | None = None,
     ) -> tuple[dict[str, float], dict[str, list[float]], dict[str, list[Any]]]:
         """
@@ -524,7 +561,7 @@ class SftTrainer:
         eval_metrics_to_log.update({
             "eval/lm_best_ppl": self.best_ppl, "eval/lm_best_ppl_step": self.best_ppl_step,
         })
-        eval_metrics_to_log["actions_data_lm_save_path"] = eval_data_save_path
+        eval_metrics_to_log["actions_data_lm_save_path"] = self.eval_lm_data_path
         # metrics.update(eval_metrics)
         # pbar.set_postfix(**eval_metrics)
         # display_metrics(eval_metrics, title=f"LM Eval Metrics, Step {step_idx}", style="bright_green")            
@@ -538,7 +575,6 @@ class SftTrainer:
         env: Environment,
         step_idx: int,
         eval_idx: int,  # number of times we've evaluated so far
-        eval_data_save_path: str,
         num_eval_samples: int | None = None,
     ) -> tuple[dict[str, float], dict[str, list[float]], dict[str, list[Any]]]:
         """
@@ -598,7 +634,7 @@ class SftTrainer:
             for k, v in eval_metrics_per_task.items()
             if k not in ["ppl_per_task"]
         }
-        eval_metrics_to_log["actions_data_gen_save_path"] = eval_data_save_path
+        eval_metrics_to_log["actions_data_gen_save_path"] = self.eval_gen_data_path
         # For now, don't track these metrics to update best metrics 
         # eval_gen_step_acc = eval_metrics_to_log["eval/gen_step_acc"]
         # if eval_gen_step_acc > self.best_gen_step_acc:
@@ -614,41 +650,3 @@ class SftTrainer:
         # })
         env.split = orig_env_split
         return eval_metrics_to_log, eval_metrics_per_task, eval_data_actions
-
-
-def _eval_rollout(
-    self,
-    llm: HuggingFaceLLM,
-    hf_tokenizer: PreTrainedTokenizerBase,
-    eval_env: Environment,
-    cfg: DictConfig,
-    step_idx: int,
-) -> dict[str, Any]:
-    """
-    Do an RL-style sampling or rollout-based evaluation on the eval_env
-    """
-    raise NotImplementedError("Rollout evaluation not implemented yet")
-    # eval_metrics, eval_trajectories = run_rollouts(
-    #     llm,
-    #     hf_tokenizer=hf_tokenizer,
-    #     env=eval_env,
-    #     cfg=cfg,
-    #     batch_id=step_idx,
-    #     split="eval",
-    #     num_tries=cfg.eval_num_tries,
-    #     # Just use all eval tasks
-    #     start_idx=0, 
-    #     tasks_per_update=len(eval_env),
-    #     name_or_identifier=f"eval_{step_idx}",
-    # )
-    # metrics.update(eval_metrics)
-    # # Update best metrics
-    # ro_metric_avg = eval_metrics[cfg.eval_metric]
-    # if ro_metric_avg >= self.best_ro_metric:
-    #     self.best_ro_metric = ro_metric_avg
-    #     self.best_ro_metric_step = step_idx
-    #     save_lora(llm.model, self.best_ro_checkpoint_path)
-    # eval_metrics.update({
-    #     "best_ro_metric": self.best_ro_metric, "best_ro_metric_step": self.best_ro_metric_step,
-    # })
-    # display_metrics(eval_metrics, title=f"RO Eval Metrics, Step {step_idx}", style="bright_red")
