@@ -1,6 +1,7 @@
-# Default Tinker Generator
+# Generator with thinking explicitly disabled
 name: "default"
 enable_thinking: false
 discount_factor: 0.9
 mean_center: false
 verbose: false
+streamer: false

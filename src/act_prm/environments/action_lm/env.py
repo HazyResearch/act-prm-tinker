@@ -88,6 +88,8 @@ class ActionLmEnv(Environment):
         sample_id_name: str = "unique_data_sample_id",
         timestep_name: str = "timestep",
         generation_id_name: str = "generation_id",
+        num_eval_gen_samples: int | None = None,
+        num_eval_rollout_samples: int | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -106,6 +108,9 @@ class ActionLmEnv(Environment):
         self.sample_id_name = sample_id_name
         self.timestep_name = timestep_name
         self.generation_id_name = generation_id_name
+
+        self.num_eval_gen_samples = num_eval_gen_samples
+        self.num_eval_rollout_samples = num_eval_rollout_samples
         
         # Parse thoughts and actions from sample dataset
         self.action_bos = action_bos
@@ -207,9 +212,11 @@ class ActionLmEnv(Environment):
                 # df_by_sample_step["state_full_obs"] = [_state[:-1] for _state in all_full_states]
                 if self.build_full_states:  # Update the original state to include full observations
                     # df_by_sample_step["state"] = [_state[:-1] for _state in all_full_states]
-                    df_by_sample_step["state"] = [
-                        self.maybe_hide_observations(_state[:-1]) for _state in all_full_states
-                    ]
+                    try:
+                        df_by_sample_step["state"] = [self.maybe_hide_observations(_state[:-1]) for _state in all_full_states]
+                    except Exception as e:
+                        print(f"{e.__class__.__name__}: {e}")
+                        breakpoint()
                 # Otherwise, will should also do something where we just hide the prior observations
                 # if t > 0:
                 #     for _idx, msg in enumerate(df_by_sample_step["state"][0]): print(_idx, msg)
@@ -242,10 +249,17 @@ class ActionLmEnv(Environment):
         """
         ds = load_dataset(**self.dataset_config)
 
+        filter_actions = self.best_actions_only or self.best_halves_only
+
         # We want to process this datasets into sequences of trajectories, also their timesteps,
         # -> So that we can then split them into train and eval splits based on the tasks
         df = ds.to_pandas()  # easier to work with
         df = df[df["return_"] > 0] if self.success_only else df
+        df = (
+            df[df[self.generation_id_name] == 0] 
+            if self.generation_id_name in df.columns and not filter_actions 
+            else df
+        )
         df = self._maybe_build_full_states(df)
 
         # Filter for samples corresponding to best actions or best-half of actions
@@ -253,6 +267,7 @@ class ActionLmEnv(Environment):
             df = df[df["best_action"]]
         elif self.best_halves_only:
             df = df[df["best_half"]]
+        
         # Filter for samples corresponding to max timestep
         if self.max_timestep is not None:
             df = df[df[self.timestep_name] < self.max_timestep]
@@ -290,13 +305,13 @@ class ActionLmEnv(Environment):
         # Filter out samples too long
         if self.max_input_id_len is not None:
             max_input_id_len = max(len(x["input_ids"]) for x in ds_train)
-            breakpoint()
+            print(f"Max input id length: {max_input_id_len}")
             ds_train = ds_train.filter(lambda x: len(x["input_ids"]) <= self.max_input_id_len)
             ds_eval  = ds_eval.filter(lambda x: len(x["input_ids"]) <= self.max_input_id_len)
-            print(f"Filtered out {len(ds_train)} train samples and {len(ds_eval)} eval samples")
+            print(f"Filtered to {len(ds_train)} train samples and {len(ds_eval)} eval samples")
             # print(f"Train samples length: {len(ds_train[0]['input_ids'])}")
             # print(f"Eval samples length: {len(ds_eval[0]['input_ids'])}")
-            breakpoint()
+            # breakpoint()
 
         datasets = DatasetDict({
             "train": ds_train.with_format("torch"),
@@ -331,9 +346,14 @@ class ActionLmEnv(Environment):
 
         def get_action_from_msg(msg: dict[str, str]) -> str:
             return msg["content"].split(self.action_bos)[-1].split(self.action_eos)[0].strip()
+
+        # Get number of samples to evaluate
+        num_eval_gen_samples = self.num_eval_gen_samples or len(unique_sample_ids)
+        num_eval_rollout_samples = self.num_eval_rollout_samples or len(unique_sample_ids)
+        num_rl_samples = min(num_eval_gen_samples, num_eval_rollout_samples)
         
         pbar = tqdm(
-            unique_sample_ids,
+            unique_sample_ids[:num_rl_samples],
             desc=f"Initializing RL dataset for {split.title()} split",
             leave=True,
             colour="magenta",
@@ -405,14 +425,23 @@ class ActionLmEnv(Environment):
             continue_final_message=True,
         )
         # Full model input (state, thought, action)
-        model_input_ids = _tokenize(messages + [think_act_msg], add_generation_prompt=False)
+        model_input_kwargs = {"add_generation_prompt": False, "return_dict": True}
+        if target_thoughts:
+            # allow us to easily train on past assistant messages
+            model_input_kwargs["return_assistant_tokens_mask"] = True
+        model_inputs = _tokenize(messages + [think_act_msg], **model_input_kwargs)
+        model_input_ids = model_inputs["input_ids"]
         state_len = len(state_ids)
         state_thought_len = len(state_thought_ids)
 
         # Finally get model training inputs and labels
         labels = copy(model_input_ids)
         if target_thoughts:  # compute cross-entropy loss for thought and action tokens
-            labels[:state_len] = [-100] * state_len
+            # labels[:state_len] = [-100] * state_len
+            assistant_mask = np.array(model_inputs["assistant_masks"])
+            labels = np.array(labels)
+            labels[assistant_mask == 0] = -100  # note that this does not include eos tokens
+            labels = labels.tolist()
         else:  # only compute cross-entropy loss for action tokens
             labels[:state_thought_len] = [-100] * state_thought_len
 
@@ -729,8 +758,8 @@ class ActionLmEnv(Environment):
                 _target_act = f"{self.action_bos}\n{action_true}\n{self.action_eos}"
                 _colour = f"bold {"bright_green" if action_correct else "bright_red"}"
                 rich_print(f"\n[{_colour}]**Target Action**\n{_target_act}[/{_colour}]")
-                rich_print(f"[bold]Run url:[link={self.run_url}]{self.run_url}[/link][/bold]")
-                rich_print(f"[bold]Run cmd:[bright_cyan]{self.run_cmd}[/bright_cyan][/bold]")
+                rich_print(f"[bold]Run url: [link={self.run_url}]{self.run_url}[/link][/bold]")
+                rich_print(f"[bold]Run cmd: [bright_cyan]{self.run_cmd}[/bright_cyan][/bold]")
 
             pbar.set_postfix({
                 # "target_action": action_true,
