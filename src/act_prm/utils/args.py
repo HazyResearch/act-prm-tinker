@@ -203,16 +203,20 @@ def get_args() -> argparse.Namespace:
         )
     )
 
-    ## Miscellaneous
+    ## More Evaluation
     parser.add_argument("--eval_every", type=int, help="Iters to evaluate, 0 = disabled")
     parser.add_argument("--eval_gen_every", type=int, help="Iters to evaluate generation, 0 = disabled")
     parser.add_argument("--eval_rollout_every", type=int, help="Iters to evaluate rollouts, 0 = disabled")
+    parser.add_argument("--num_eval_gen_samples", type=int, help="Number of samples to evaluate generation")
+    parser.add_argument("--num_eval_rollout_samples", type=int, help="Number of samples to evaluate rollouts")
     
+    ## Miscellaneous
     parser.add_argument("--save_every", type=int, help="Iters to save checkpoint, 0 = disabled")
     parser.add_argument("--save_rollouts_every", type=int, help="Iters to save rollouts, 0 = disabled")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--replicate", type=str, default="0", help="Unique identifier for run")
     parser.add_argument("--verbose", action="store_true", default=False, help="Extra details")
+    parser.add_argument("--streamer", action="store_true", help="Stream generations (for PyTorch)")
 
     args = parser.parse_args()
 
@@ -233,7 +237,7 @@ def get_args() -> argparse.Namespace:
     # Get run (i.e., experiment) name
     _ignore_args = [
         "base_url", "checkpoint_path", "log_path", "load_checkpoint_path", "lora_checkpoint_path",
-        "project_name", "verbose",
+        "project_name", "verbose", "streamer",
     ]
     _ignore_args.extend([argn for argn in vars(args).keys() if argn.endswith("_every")])
     if args.base_env_config is not None and args.base_env_config == args.env_config:

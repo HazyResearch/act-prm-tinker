@@ -88,6 +88,8 @@ class ActionLmEnv(Environment):
         sample_id_name: str = "unique_data_sample_id",
         timestep_name: str = "timestep",
         generation_id_name: str = "generation_id",
+        num_eval_gen_samples: int | None = None,
+        num_eval_rollout_samples: int | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -106,6 +108,9 @@ class ActionLmEnv(Environment):
         self.sample_id_name = sample_id_name
         self.timestep_name = timestep_name
         self.generation_id_name = generation_id_name
+
+        self.num_eval_gen_samples = num_eval_gen_samples
+        self.num_eval_rollout_samples = num_eval_rollout_samples
         
         # Parse thoughts and actions from sample dataset
         self.action_bos = action_bos
@@ -341,9 +346,14 @@ class ActionLmEnv(Environment):
 
         def get_action_from_msg(msg: dict[str, str]) -> str:
             return msg["content"].split(self.action_bos)[-1].split(self.action_eos)[0].strip()
+
+        # Get number of samples to evaluate
+        num_eval_gen_samples = self.num_eval_gen_samples or len(unique_sample_ids)
+        num_eval_rollout_samples = self.num_eval_rollout_samples or len(unique_sample_ids)
+        num_rl_samples = min(num_eval_gen_samples, num_eval_rollout_samples)
         
         pbar = tqdm(
-            unique_sample_ids,
+            unique_sample_ids[:num_rl_samples],
             desc=f"Initializing RL dataset for {split.title()} split",
             leave=True,
             colour="magenta",
@@ -748,8 +758,8 @@ class ActionLmEnv(Environment):
                 _target_act = f"{self.action_bos}\n{action_true}\n{self.action_eos}"
                 _colour = f"bold {"bright_green" if action_correct else "bright_red"}"
                 rich_print(f"\n[{_colour}]**Target Action**\n{_target_act}[/{_colour}]")
-                rich_print(f"[bold]Run url:[link={self.run_url}]{self.run_url}[/link][/bold]")
-                rich_print(f"[bold]Run cmd:[bright_cyan]{self.run_cmd}[/bright_cyan][/bold]")
+                rich_print(f"[bold]Run url: [link={self.run_url}]{self.run_url}[/link][/bold]")
+                rich_print(f"[bold]Run cmd: [bright_cyan]{self.run_cmd}[/bright_cyan][/bold]")
 
             pbar.set_postfix({
                 # "target_action": action_true,

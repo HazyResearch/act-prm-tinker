@@ -1,16 +1,12 @@
-# BrowseComp Search Demonstrations
+# TextWorld demonstrations
 name: "action_lm"
 is_async: false
 dataset_config:
-  path: "mzio/rb_last-cql-mc_oai_gpt5_med-ec_browsecomp_plus_search-ds_train-spp4-gbs1-s0-r_1"
+  path: "mzio/aprm-snorkelai_multi_turn_insurance_underwriting"
   cache_dir: "/scr/mzhang/data/"
   split: "train"
 
-max_input_id_len: 8192
-
-sample_id_name: "data_sample_id"
-timestep_name: "timestep"
-generation_id_name: "generation_id"
+max_input_id_len: 4096
 
 fp32_loss: false  # keep in bf16
 
