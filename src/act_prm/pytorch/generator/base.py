@@ -80,6 +80,7 @@ def get_batch_model_inputs(
     tools: list[list[dict[str, str]] | None],
     hf_tokenizer: PreTrainedTokenizerBase,
     padding_side: str = "left",
+    enable_thinking: bool = False,
 ) -> tuple[dict[str, Any], list[int], bool]:
     """
     Get model_inputs (input_ids, attention_mask, etc.) from a batch of input messages
@@ -102,7 +103,7 @@ def get_batch_model_inputs(
             input_messages[b_idx],
             tools=tools[b_idx],
             add_generation_prompt=True,
-            enable_thinking=False,
+            enable_thinking=enable_thinking,
             padding=False,
             tokenize=False,
         )
@@ -197,9 +198,9 @@ class HuggingFaceGenerator:
         self.cfg = cfg
 
         self.enable_thinking = enable_thinking
-        self.run_url = ml_logger.get_logger_url() if ml_logger is not None else None
+        self.run_url = ml_logger.get_logger_url() if ml_logger is not None else cfg.get("run_url", None)
         # self.run_cmd = f"uv run python main.py {" ".join(sys.argv[1:])}"
-        self.run_cmd = " ".join(sys.argv)
+        self.run_cmd = cfg.get("run_cmd", " ".join(sys.argv))
         self.name_or_identifier = name_or_identifier
 
     def _get_messages_from_state(
@@ -259,6 +260,8 @@ class HuggingFaceGenerator:
         # # Store new trajectories to return
         # new_trajectories: dict[str, list[Trajectory]] = {}
 
+    
+
     def do_group_rollout(
         self,
         sample_id: int,
@@ -268,8 +271,9 @@ class HuggingFaceGenerator:
         env: Environment | None = None,
         cfg: DictConfig | None = None,
         split: str = "train",
-        num_tries: int = 1,
-        # start_idx: int = 0, 
+        try_step: int = 0,
+        # start_idx: int = 0,
+        num_return_sequences: int | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
         pbar_position: int = 0,
@@ -278,7 +282,6 @@ class HuggingFaceGenerator:
         Run rollouts for a single batch, e.g., by generating rollouts and grading them
 
         Returns:
-        - final_metrics: Metrics for the batch, keyed by "{split}/{try_idx}/{metric}"
         - new_trajectories: Trajectories for the batch, keyed by an identifier (default "policy")
         """
         llm = llm or self.llm
@@ -301,10 +304,10 @@ class HuggingFaceGenerator:
         # Generation parameters
         max_tokens = max_tokens or cfg.max_tokens
         temperature = temperature or cfg.temperature
-        num_return_sequences = cfg.group_size if split == "train" else cfg.eval_group_size
+        num_return_sequences = num_return_sequences or (
+            cfg.group_size if split == "train" else cfg.eval_group_size
+        )
 
-        assert num_tries == 1, "For this project, we only support one try 😊"
-        try_idx = 0  # for try_idx in range(num_tries):  # assume this is 1 for now
         with torch.no_grad():
             # Generate rollouts
             # -> We generate until the last generation is done, keeping track of:
@@ -315,18 +318,18 @@ class HuggingFaceGenerator:
             
             all_gen_ids = list(range(num_return_sequences))  # this is fixed, i.e., [1, 2, 3, ...]
             gen_ids_todo = list(range(num_return_sequences))  # this can get smaller
-            unique_data_sample_ids = [sample_id * num_return_sequences + gen_id for gen_id in all_gen_ids]
+            # unique_data_sample_ids = [sample_id * num_return_sequences + gen_id for gen_id in all_gen_ids]
             num_todo = len(gen_ids_todo)
 
             batch_states: list[EnvironmentState] = [
-                env.reset(sample_idx=sample_id, generation_idx=gen_idx, try_step=try_idx)
+                env.reset(sample_idx=sample_id, generation_idx=gen_idx, try_step=try_step)
                 for _, gen_idx in enumerate(gen_ids_todo)
             ]
 
             pbar_task = tqdm(
                 total=num_return_sequences,
-                desc=f"Generating rollouts (try {try_idx})",
-                colour="yellow",
+                desc=f"Generating rollout 0 / {num_return_sequences - 1} ({num_todo} left)",
+                colour="cyan",
                 leave=False,
                 position=pbar_position,
             )
@@ -341,6 +344,7 @@ class HuggingFaceGenerator:
                     tools=[state.tools for state in batch_states],
                     hf_tokenizer=hf_tokenizer,
                     padding_side="left",
+                    enable_thinking=self.enable_thinking,
                 )
                 state_input_len_left_padded = batch_state_inputs["input_ids"].shape[1]
 
@@ -382,6 +386,7 @@ class HuggingFaceGenerator:
                     tools=[state.tools for state in batch_states],
                     hf_tokenizer=hf_tokenizer,
                     padding_side="right",
+                    enable_thinking=self.enable_thinking,
                 )
                 # -> 2. Compute model inference logprobs (matches those at training time)
                 logits = llm.model(**batch_state_action_inputs.to(device), use_cache=False).logits
@@ -435,7 +440,8 @@ class HuggingFaceGenerator:
                         timestep=batch_states[_idx].timestep,
                         try_step=batch_states[_idx].try_step,
                         batch_id=batch_id,
-                        unique_data_sample_id=unique_data_sample_ids[_idx],
+                        # unique_data_sample_id=unique_data_sample_ids[_idx],
+                        unique_data_sample_id=sample_id,
                         generation_id=gen_id,
                         split=split,
                     )
@@ -461,12 +467,15 @@ class HuggingFaceGenerator:
                 num_done = num_todo - len(gen_ids_todo)
                 num_todo = len(gen_ids_todo)
                 pbar_task.update(num_done)
+                pbar_task.set_description(
+                    f"Generating rollout {num_done} / {num_return_sequences - 1} ({num_todo} left)"
+                )
 
             trajectories_in_group = [
                 Trajectory(
                     episode_steps=all_episode_steps[gen_id],
                     final_reward=all_final_rewards[gen_id],
-                    try_step=try_idx,
+                    try_step=try_step,
                     discount_factor=cfg.discount_factor,
                 ) for gen_id in range(num_return_sequences)
             ]

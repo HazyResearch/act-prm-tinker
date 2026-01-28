@@ -28,6 +28,8 @@ action_bos: "<tool_call>"
 action_eos: "</tool_call>"
 final_answer_bos: "Final Answer: "
 
+num_eval_gen_samples: null
+num_eval_rollout_samples: null
 frac_train_tasks: 0.8
 frac_eval_tasks: 0.2
 
