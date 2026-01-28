@@ -552,7 +552,8 @@ class SftTrainer:
                     eval_data_actions["train_eval_idx"].append(eval_idx)
                     eval_data_actions["rollout_task_idx"].append(task_idx)
                     for k in eval_data_actions.keys():
-                        eval_data_actions[k].append(eval_metrics[k][_t])
+                        if k in eval_metrics:
+                            eval_data_actions[k].append(eval_metrics[k][_t])
 
         # Get metrics for logging via ml_logger
         def _get_metric_key(k: str) -> str:
@@ -584,7 +585,6 @@ class SftTrainer:
         eval_metrics_to_log["actions_data_lm_save_path"] = self.eval_lm_data_path
         env.split = orig_env_split
         return eval_metrics_to_log, eval_metrics_per_task, eval_data_actions
-
 
     def _eval_offline_gen(
         self,
@@ -640,7 +640,8 @@ class SftTrainer:
                     eval_data_actions["train_eval_idx"].append(eval_idx)
                     eval_data_actions["rollout_task_idx"].append(task_idx)
                     for k in eval_data_actions.keys():
-                        eval_data_actions[k].append(eval_metrics[k][_t])
+                        if k in eval_metrics:
+                            eval_data_actions[k].append(eval_metrics[k][_t])
                     
         # Get metrics for logging via ml_logger
         def _get_metric_key(k: str) -> str:
