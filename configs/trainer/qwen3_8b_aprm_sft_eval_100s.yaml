@@ -9,7 +9,6 @@ sft_eval_kwargs:
   num_substeps_per_epoch: null
   inner_eval_every: 20
   inner_eval_num_tries: 1
-eval_num_tries: 1
   eval_best_metric: "accuracy"
 
 model_name: "Qwen/Qwen3-8B"
@@ -25,8 +24,6 @@ tool_call_kwargs:
 # Generation (Sampling Rollouts)
 num_batches: 1000
 num_tries: 1
-eval_num_tries: 1
-eval_num_tries: 1
 eval_num_tries: 1
 max_tokens: 512
 temperature: 1.0

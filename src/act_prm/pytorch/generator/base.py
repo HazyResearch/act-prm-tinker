@@ -121,7 +121,6 @@ def get_batch_model_inputs(
     batch_model_inputs = hf_tokenizer(
         batch_model_texts,
         padding=True,
-        return_dict=True,
         return_tensors="pt"
     )
     input_lens = [attn_mask.sum().item() for attn_mask in batch_model_inputs["attention_mask"]]
@@ -194,6 +193,7 @@ class HuggingFaceGenerator:
         ml_logger: ml_log.Logger | None = None,
         name_or_identifier: str | None = None,
         streamer: bool = False,
+        verbose: bool = False,
     ) -> None:
         self.llm = llm
         self.hf_tokenizer = hf_tokenizer
@@ -212,6 +212,7 @@ class HuggingFaceGenerator:
             skip_prompt=True,
             skip_special_tokens=True,
         ) if streamer else None
+        self.verbose = verbose
 
     def _get_messages_from_state(
         self,
@@ -355,7 +356,7 @@ class HuggingFaceGenerator:
                     num_return_sequences=1,
                     pad_token_id=hf_tokenizer.pad_token_id,
                     # output_scores=True,  # returns logprobs, but we'll recompute for training match
-                    output_logprobs=True,  # MZ: I can't tell if above supported though, so just use logprobs
+                    # output_logprobs=True,  # MZ: I can't tell if above supported though, so just use logprobs
                     # Silly streaming only supports batch_size == 1
                     streamer=self.streamer if len(state_input_lens) == 1 else None,
                 )
@@ -372,7 +373,7 @@ class HuggingFaceGenerator:
                     else text
                     for text in decoded_texts
                 ]
-                batch_model_messages = [
+                batch_model_messages: list[list[dict[str, str]]] = [
                     [{"role": "assistant", "content": text}] for text in decoded_texts
                 ]
                 batch_state_action_messages = [
@@ -428,7 +429,7 @@ class HuggingFaceGenerator:
                 batch_episode_steps = [
                     EpisodeStep(
                         state=batch_state_messages[_idx],
-                        action=batch_model_messages[_idx],
+                        action=batch_model_messages[_idx][0],  # dict[str, str]
                         next_obs=batch_next_obs[_idx],
                         tools=batch_states[_idx].tools,
                         state_action_tokens=batch_state_inputs["input_ids"][_idx],
@@ -487,8 +488,8 @@ class HuggingFaceGenerator:
                     discount_factor=cfg.discount_factor,
                 )
             ]
-            if was_training:  # assume single try for now
-                llm.model.train()
+        if was_training:  # assume single try for now
+            llm.model.train()
                 
         hf_tokenizer.padding_side = og_tokenizer_padding_side     
         return {"policy": all_trajectory_groups}
