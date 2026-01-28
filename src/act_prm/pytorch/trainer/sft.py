@@ -398,7 +398,23 @@ class SftTrainer:
                     )
                     metrics.update(eval_rollout_metrics)
                     display_metrics(eval_rollout_metrics, title=f"Rollout Eval Metrics, Step {step_idx}", style="bright_red")
-                    
+
+                    # Update best metrics
+                    ro_metric_name = [k for k in eval_rollout_metrics.keys() if cfg.best_ro_metric in k][0]
+                    eval_ro_metric = eval_rollout_metrics[ro_metric_name]
+                    if eval_ro_metric > self.best_ro_metric:
+                        self.best_ro_metric = eval_ro_metric
+                        self.best_ro_metric_step = step_idx
+                        save_lora(llm.model, self.best_ro_checkpoint_path)
+                        logger.info(
+                            f"RO EVAL (Step {step_idx}, Eval {eval_idx}): "
+                            f"Updated best RO metric to {eval_ro_metric} at step {step_idx}"
+                        )
+                    metrics.update({
+                        f"eval/ro_{ro_metric_name}": eval_ro_metric,
+                        f"eval/ro_{ro_metric_name}_best": self.best_ro_metric,
+                        f"eval/ro_{ro_metric_name}_best_step": self.best_ro_metric_step,
+                    })
                     # _eval_rollout_metrics = self._eval_offline_rollout(
                     #     llm, eval_env, step_idx, eval_idx, self.eval_rollout_data_path, num_eval_rollout_samples
                     # )
@@ -450,14 +466,11 @@ class SftTrainer:
                 if v.numel() == 1  # only keep scalar metrics
             }
             metrics.update(loss_metrics)
-            # pbar.update(1)
             pbar.set_postfix(**loss_metrics)
 
             # Log metrics
             try:
-                # self.ml_logger.log_metrics(metrics, step=step_idx)
-                self.ml_logger.log_metrics(metrics)  # incremets each time
-
+                self.ml_logger.log_metrics(metrics)  # increments each time
             except Exception as e:
                 _error_class = e.__class__.__name__
                 _error_message = str(e)
@@ -527,11 +540,6 @@ class SftTrainer:
                     for k in eval_data_actions.keys():
                         eval_data_actions[k].append(eval_metrics[k][_t])
                     eval_data_actions["task_idx"].append(task_idx)  # redundant but sanity check
-                # pd.DataFrame(eval_data_actions).to_csv(eval_data_save_path, index=False)
-                # logger.info(
-                #     f"LM EVAL (Step {step_idx}, Eval {eval_idx}): Saved offline LM eval metrics "
-                #     f"for task {task_idx} to {eval_data_save_path}"
-                # )
 
         # Get metrics for logging via ml_logger
         def _get_metric_key(k: str) -> str:
@@ -552,7 +560,6 @@ class SftTrainer:
         if eval_ppl < self.best_ppl:
             self.best_ppl = eval_ppl
             self.best_ppl_step = step_idx
-            # torch.save(llm.model.state_dict(), self.best_lm_checkpoint_path)
             save_lora(llm.model, self.best_lm_checkpoint_path)
             logger.info(
                 f"LM EVAL (Step {step_idx}, Eval {eval_idx}): "
@@ -562,9 +569,6 @@ class SftTrainer:
             "eval/lm_best_ppl": self.best_ppl, "eval/lm_best_ppl_step": self.best_ppl_step,
         })
         eval_metrics_to_log["actions_data_lm_save_path"] = self.eval_lm_data_path
-        # metrics.update(eval_metrics)
-        # pbar.set_postfix(**eval_metrics)
-        # display_metrics(eval_metrics, title=f"LM Eval Metrics, Step {step_idx}", style="bright_green")            
         env.split = orig_env_split
         return eval_metrics_to_log, eval_metrics_per_task, eval_data_actions
 
@@ -620,11 +624,6 @@ class SftTrainer:
                     for k in eval_data_actions.keys():
                         eval_data_actions[k].append(eval_metrics[k][_t])
                     eval_data_actions["task_idx"].append(task_idx)  # redundant but sanity check
-                # pd.DataFrame(eval_data_actions).to_csv(eval_data_save_path, index=False)
-                # logger.info(
-                #     f"Gen EVAL (Step {step_idx}, Eval {eval_idx}): Saved offline Gen eval metrics "
-                #     f"for task {task_idx} to {eval_data_save_path}"
-                # )
         # Get metrics for logging via ml_logger
         def _get_metric_key(k: str) -> str:
             k = k.replace("_per_task", "")
