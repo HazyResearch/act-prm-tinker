@@ -14,6 +14,10 @@ def get_generator_constructor(name: str, **kwargs: Any) -> Callable[..., Hugging
     """
     if name == "default":
         return partial(HuggingFaceGenerator, **kwargs)
+
+    elif name == "action_prompt_act_prm":
+        from .act_prm import ActionPromptActPrmGenerator
+        return partial(ActionPromptActPrmGenerator, **kwargs)
     
     else:
         raise NotImplementedError(f"Generator {name} not implemented")

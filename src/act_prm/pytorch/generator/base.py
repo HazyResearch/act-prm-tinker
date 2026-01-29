@@ -27,6 +27,7 @@ from act_prm.utils.display import RichTextStreamer
 
 
 console = Console()
+ROYGBIV = ["#FF0000", "#FF7F00", "#FFFF00", "#00FF00", "#0000FF", "#4B0082", "#9400D3"]
 
 
 def get_response_content(msg: dict[str, Any]) -> str:
@@ -36,13 +37,13 @@ def get_response_content(msg: dict[str, Any]) -> str:
     return msg["output"] if msg.get("output", None) else msg["content"]
 
 
-def get_action_logprobs(
+def get_action_logprobs_and_state_action_tokens(
     logits: torch.FloatTensor,
     input_ids: torch.LongTensor,
-    attention_mask: torch.BoolTensor,
+    attention_mask: torch.BoolTensor,  # should be, but may be LongTensor
     state_lens: list[int],
     **kwargs: Any,
-) -> list[list[float]]:
+) -> tuple[list[list[float]], list[list[int]]]:
     """
     Get action logprobs from logits and input_ids (i.e., labels or target token ids)
     
@@ -57,8 +58,21 @@ def get_action_logprobs(
     """
     logprobs = F.log_softmax(logits, dim=-1) # (batch_size, seq_len, vocab_size) -> (B, L, V)
     labels = input_ids  # convenience alias
-    # we linearized the chungus among u
-    # e linearized the chungus among us
+    attention_mask = attention_mask.bool()
+    # Tmask: 1111111111111111111111111111111111
+    # state: we linear (state_len = 9)
+    # total: we linearized the chungus among us 
+    # input: we linearized the chungus among u `total[:-1]`
+    # label: e linearized the chungus among us `total[1:]`
+    # start: --------ized the chungus among us `label[Tmask[1:]][state_len - 1:]`
+    # state: every (state_len = 5)
+    # Tmask: 1111111111111111111111000000000000
+    # total: everything is chungus.xxxxxxxxxxxx
+    # input: everything is chungus.xxxxxxxxxxx `total[:-1]`
+    # label: verything is chungus.xxxxxxxxxxxx `total[1:]`
+    # Lmask: 111111111111111111111000000000000 `Tmask[1:]`
+    # label: verything is chungus.             `label[Tmask[1:]]`
+    # start: ----thing is chungus.             `label[Tmask[1:]][state_len - 1:]`
     shift_logits = logits[:, :-1, :]
     shift_labels = labels[:, 1:]
     logprobs = F.log_softmax(shift_logits, dim=-1)
@@ -67,23 +81,23 @@ def get_action_logprobs(
     # Get logprobs for action tokens only
     a_starts = [state_len - 1 for state_len in state_lens]
     logprobs = [
-        logprobs[b_idx][attention_mask[b_idx]][start_idx:].tolist()
+        logprobs[b_idx][attention_mask[b_idx, 1:]][start_idx:].tolist()  # mask matches targets
         for b_idx, start_idx in enumerate(a_starts)
     ]
     # MZ 1/27/26: maybe more clear to keep separate?
     # logprobs = [logprobs[b_idx][attn_mask] for b_idx, attn_mask in enumerate(attention_mask)]
     # logprobs = [logprobs[b_idx][start_idx:] for b_idx, start_idx in enumerate(a_starts)]
-    return logprobs
-    # action_starts = [state_len - 1 for state_len in state_lens]
-    # logprobs = [logprobs[start_ix:] for start_ix in action_starts]
-    # act_mask = [labels[start_ix:] != pad_token_id for start_ix in action_starts]
-    # logprobs = [logprobs[b_idx][act_mask[b_idx]].tolist() for b_idx in range(len(logprobs))]
-    # return logprobs
+    state_action_tokens = [
+        # input_ids[b_idx][attention_mask[b_idx]][start_idx:].tolist()
+        input_ids[b_idx][attention_mask[b_idx]].tolist()
+        for b_idx, start_idx in enumerate(a_starts)
+    ]  # inputs should be action_tokens[b_idx][:-1], targets action_tokens[b_idx][1:]
+    return logprobs, state_action_tokens
 
 
 def get_batch_model_inputs(
     input_messages: list[list[dict[str, str]]],
-    tools: list[list[dict[str, str]] | None],
+    tools: list[list[dict[str, str]]] | None,
     hf_tokenizer: PreTrainedTokenizerBase,
     padding_side: str = "left",
     enable_thinking: bool = False,
@@ -108,7 +122,7 @@ def get_batch_model_inputs(
     batch_model_texts = [
         hf_tokenizer.apply_chat_template(
             input_messages[b_idx],
-            tools=tools[b_idx],
+            tools=tools[b_idx] if tools is not None else None,
             add_generation_prompt=True,
             enable_thinking=enable_thinking,
             padding=False,
@@ -342,6 +356,16 @@ class HuggingFaceGenerator:
                 leave=False,
                 position=pbar_position,
             )
+            rollout_pbars = [
+                tqdm(
+                    total=env.max_turns,
+                    desc=f"Generating rollout {gen_id}",
+                    colour=ROYGBIV[gen_id % len(ROYGBIV)],
+                    leave=True,
+                    position=pbar_position + gen_id + 1,
+                )
+                for gen_id in gen_ids_todo
+            ]
             # while not all(batch_dones):
             while len(gen_ids_todo) > 0:
                 batch_state_messages = [
@@ -409,11 +433,13 @@ class HuggingFaceGenerator:
                     for k, v in batch_state_action_inputs.items():
                         setattr(batch_state_action_inputs, k, v[:-1])
                 
-                logprobs: list[list[float]] = get_action_logprobs(  # batch_size x action_len
+                act_logps_and_state_act_toks = get_action_logprobs_and_state_action_tokens(
                     logits=logits,
                     state_lens=state_input_lens,
                     **batch_state_action_inputs.to(device),  # input_ids, attention_mask
                 )
+                act_logprobs: list[list[float]] = act_logps_and_state_act_toks[0]       # batch_size x action_len
+                state_action_tokens: list[list[int]] = act_logps_and_state_act_toks[1]  # batch_size x (state_len + action_len)
 
                 # Transition to next states
                 # -> Parse to consistent ActionFromLLM format
@@ -450,9 +476,9 @@ class HuggingFaceGenerator:
                         action=batch_model_messages[_idx][0],  # dict[str, str]
                         next_obs=batch_next_obs[_idx],
                         tools=batch_states[_idx].tools,
-                        state_action_tokens=batch_state_inputs["input_ids"][_idx],
-                        state_len=len(batch_state_inputs["input_ids"][_idx]),
-                        old_logprobs=logprobs[_idx],
+                        state_action_tokens=state_action_tokens[_idx],
+                        state_len=state_input_lens[_idx],
+                        old_logprobs=act_logprobs[_idx],
                         temperature=temperature,
                         reward=batch_env_step_results[_idx].reward,
                         done=batch_env_step_results[_idx].done,
@@ -472,12 +498,19 @@ class HuggingFaceGenerator:
                     all_episode_steps[gen_id].append(batch_episode_steps[_idx])
                     all_final_rewards[gen_id] = batch_rewards[_idx]  # Overwrite til last reward
 
-                # Update gen_ids_todo to only include non-done generations
-                gen_ids_todo = [
-                    gen_id
-                    for _idx, gen_id in enumerate(gen_ids_todo)
-                    if not batch_env_step_results[_idx].done
-                ]
+                # Update pbars and finished rollouts
+                for _idx, gen_id in enumerate(gen_ids_todo):
+                    rollout_pbars[_idx].update(1)
+                    if batch_env_step_results[_idx].done:
+                        rollout_pbars[_idx].close()
+                        rollout_pbars.pop(_idx)
+                        gen_ids_todo.pop(_idx)
+                # # Update gen_ids_todo to only include non-done generations
+                # gen_ids_todo = [
+                #     gen_id
+                #     for _idx, gen_id in enumerate(gen_ids_todo)
+                #     if not batch_env_step_results[_idx].done
+                # ]
                 # Move to next state
                 batch_states = [
                     next_state
@@ -490,6 +523,7 @@ class HuggingFaceGenerator:
                 pbar_task.set_description(
                     f"Generating rollout {num_done} / {num_return_sequences - 1} ({num_todo} left)"
                 )
+                
 
             trajectories_in_group = [
                 Trajectory(

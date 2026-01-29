@@ -4,21 +4,24 @@ Main script for training + evaluating LLMs using PyTorch
 Example command:
 ```bash
 uv run python main_pytorch.py \
---is_async \
---env_config hotpotqa_mc/fewshot2 \
---generator_config default \
---trainer_config qwen3_4b_pg \
+--env_config act_prm/snorkel_finance_fs1 \
+--model_config hf_qwen3_4b_inst_2507 \
+--lora_config r16_a32_qkvo \
+--generator_config aprm_qwen3_ap \
+--trainer_config aprm_for_sft100 \
 --replay_buffer_config default \
 --log_path ./logs \
---model_name Qwen/Qwen3-4B-Instruct-2507 \
---lora_rank 32 \
+--actions_only --hide_observations \
+--batch_size 16 --group_size 8 \
+--learning_rate 4e-5 \
+--num_substeps 1 \
 --seed 42 --replicate 0 --verbose
 ```
 """
 
 import argparse
-import asyncio
 import logging
+import sys
 from typing import Any
 
 from dotenv import load_dotenv
@@ -30,11 +33,10 @@ from tinker_cookbook.utils import ml_log  # still use nice logging
 from act_prm.environments import get_env
 from act_prm.llm_handlers import load_llm
 from act_prm.llm_handlers.huggingface import HuggingFaceLLM
-from act_prm.lora import get_lora_model, save_lora
-from act_prm.pytorch import get_optimizer, SftTrainer
+from act_prm.lora import display_trainable_parameter_count, get_lora_model
+from act_prm.pytorch import get_optimizer, get_trainer
 from act_prm.replay_buffer import get_replay_buffer
 from act_prm.utils import get_args, print_config, seed_everything
-# from act_prm.trainer import get_trainer
 
 
 logger = logging.getLogger(__name__)
@@ -51,12 +53,19 @@ def update_configs(
     for config in configs:
         if config is not None:
             for argname, argval in vars(args).items():
-                if argval is not None and argname in config:
+                if argval is not None and argname in config and argname != "model_config":
                     config[argname] = argval
     return configs
 
 
-async def main() -> None:
+def get_param_color(param_name: str) -> str:
+    if "self_attn" in param_name:
+        return "yellow"
+    elif "mlp" in param_name:
+        return "cyan"
+
+
+def main() -> None:
     """
     Main training function
     """
@@ -65,7 +74,10 @@ async def main() -> None:
     seed_everything(args.seed)
     load_dotenv()  # Setup environment variables from .env file
 
-    # Get default configs
+    # Get default configs and experiment attributes
+    args.generator_config = args.generator_config or "default"
+    args.replay_buffer_config = args.replay_buffer_config or "default"
+
     model_cfg         = OmegaConf.load(f"./configs/model/{args.model_config}.yaml")
     lora_cfg          = OmegaConf.load(f"./configs/lora/{args.lora_config}.yaml")
     env_cfg           = OmegaConf.load(f"./configs/environments/{args.env_config}.yaml")
@@ -96,6 +108,10 @@ async def main() -> None:
     # Get updated config variables
     model_cfg, lora_cfg = updated_cfgs[:2]
     env_cfg, eval_env_cfg, base_env_cfg, generator_cfg, trainer_cfg, replay_buffer_cfg = updated_cfgs[2:]
+    # Make env_cfg tokenizers consistent with llm.tokenizer
+    env_cfg.pretrained_model_config = model_cfg.model_config
+    eval_env_cfg.pretrained_model_config = model_cfg.model_config
+    
     cfg = trainer_cfg  # Main config to reference (has all Tinker training attributes)
     cfg.run_name = args.run_name
     cfg.lora_checkpoint_path = args.lora_checkpoint_path
@@ -121,11 +137,15 @@ async def main() -> None:
     llm.model = get_lora_model(llm.model, **lora_cfg)
     # save_lora(llm.model, cfg.lora_checkpoint_path)
     optimizer = get_optimizer(llm.model, learning_rate=cfg.learning_rate)  # simple for now
+    
     if args.verbose:  # Display trainable parameters
         _params_text = "Trainable parameters:\n"
         _param_names = [n for n, p in llm.model.named_parameters() if p.requires_grad]
-        _params_text += "\n".join(f"├── [cyan]{n}[/cyan]" for n in _param_names)
+        _params_text += "\n".join(
+            f"├── [{get_param_color(n)}]{n}[/{get_param_color(n)}]" for n in _param_names
+        )
         rich_print(_params_text)
+    display_trainable_parameter_count(llm.model)
     
     replay_buffer = get_replay_buffer(**replay_buffer_cfg)
 
@@ -135,17 +155,35 @@ async def main() -> None:
     # Reuse env if eval_env not specified; we always specify the split for loading new tasks
     eval_env = get_env(**eval_env_cfg) if args.eval_env_config else env
 
+    env.tokenizer = llm.tokenizer
+    eval_env.tokenizer = llm.tokenizer
+    if base_env is not None:
+        base_env.tokenizer = llm.tokenizer
+
+    # Make identifiers identifiable
+    cfg.run_url = ml_logger.get_logger_url() if ml_logger is not None else None
+    cfg.run_cmd = " ".join(sys.argv)
+    # Add to environments
+    all_envs = [env, eval_env, base_env]
+    for attr in ["run_url", "run_cmd"]:
+        for _idx, _env in enumerate(all_envs):
+            if _env is not None:
+                setattr(all_envs[_idx], attr, cfg.get(attr))
+
     # Training loop
-    trainer = SftTrainer(
+    trainer = get_trainer(
+        cfg.trainer_name,
         cfg=cfg,
         llm=llm,
         optimizer=optimizer,
+        generator_cfg=generator_cfg,
         replay_buffer=replay_buffer,
         env=env,
         eval_env=eval_env,
         ml_logger=ml_logger,
         hf_tokenizer=llm.tokenizer,
         checkpoint_path=cfg.lora_checkpoint_path,
+        log_path=cfg.log_path,
     )
     trainer.train()
 
@@ -155,4 +193,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
