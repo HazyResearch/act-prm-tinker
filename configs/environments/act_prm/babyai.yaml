@@ -1,0 +1,30 @@
+# BabyAI demonstrations (Act-PRM wrapper over a base env)
+name: "act_prm_with_base_env"
+is_async: false
+dataset_config: null
+
+success_rollouts_only: true
+actions_only: false
+
+hide_observations: false
+hidden_obs_content: "..."
+first_obs_to_show: 2
+last_obs_to_show: 1
+
+num_fewshot_prompts: 0
+action_bos: "<tool_call>"
+action_eos: "</tool_call>"
+final_answer_bos: "Final Answer: "
+
+num_train_samples: 1
+num_val_samples: 1
+num_test_samples: 1
+
+max_turns: null
+num_tries: 1
+seed: 0
+split: "train"
+system_prompt: "You are a helpful assistant that infers reasoning thoughts behind observed actions."
+original_system_prompt: "You are a helpful assistant that can answer questions and call tools."
+truncation_message: "Sorry, you have reached the maximum number of steps. Please try again."
+verbose: false
