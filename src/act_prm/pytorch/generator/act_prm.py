@@ -50,16 +50,24 @@ def get_act_logprobs_and_state_act_tokens_from_messages(
     """
     og_padding_side = copy(hf_tokenizer.padding_side)
     hf_tokenizer.padding_side = "right"
-    state_attn_masks: list[list[int]] = hf_tokenizer.apply_chat_template(
-        state_messages,
-        add_generation_prompt=False if state_continue_final_message else True,
-        continue_final_message=state_continue_final_message,
-        padding=True,
-        tokenize=True,
-        return_dict=True,
-    )["attention_mask"]
-    state_lens = [sum(attn_mask) for attn_mask in state_attn_masks]
-
+    # state_attn_masks: list[list[int]] = hf_tokenizer.apply_chat_template(
+    #     state_messages,
+    #     add_generation_prompt=False if state_continue_final_message else True,
+    #     continue_final_message=state_continue_final_message,
+    #     padding=True,
+    #     tokenize=True,
+    #     return_dict=True,
+    # )["attention_mask"]
+    # state_lens = [sum(attn_mask) for attn_mask in state_attn_masks]
+    state_lens = [
+        len(hf_tokenizer.apply_chat_template(
+            _state_messages,
+            add_generation_prompt=False if state_continue_final_message else True,
+            continue_final_message=state_continue_final_message,
+            padding=False,
+            tokenize=True,
+        )) for _state_messages in state_messages
+    ]
     state_action_inputs = hf_tokenizer.apply_chat_template(
         state_action_messages,
         add_generation_prompt=False,
@@ -126,6 +134,8 @@ class ActionPromptActPrmGenerator(HuggingFaceGenerator):
         prompt for the thought
         """
         hf_tokenizer = hf_tokenizer or self.hf_tokenizer
+        og_padding_side = copy(hf_tokenizer.padding_side)
+        hf_tokenizer.padding_side = "left"
         # Prompt for thoughts, e.g., of the form <action_bos>(action)</action_eos><thought_bos>
         state_messages = deepcopy(state_messages)
         state_messages, action_target = get_action_prompted_completion(
@@ -145,6 +155,7 @@ class ActionPromptActPrmGenerator(HuggingFaceGenerator):
             # return_dict=True,  # Just return the (1, state_len) torch.Tensor 
             return_tensors="pt",
         )
+        hf_tokenizer.padding_side = og_padding_side
         return state_messages, input_ids
 
     def _parse_thoughts(self, response_text: str) -> str:
@@ -258,11 +269,10 @@ class ActionPromptActPrmGenerator(HuggingFaceGenerator):
                 # Generate model responses and step through the environment
                 # state_messages should be [obs, action, ..., obs, action]
                 state_messages: list[dict[str, Any]] = self._get_messages_from_state(state) 
-                # Prompt for thoughts
+                # Prompt for thoughts (tokenizer should be left-padded, but should not matter?)
                 act_prompt_state_messages, input_ids = self._get_thought_prompt(state_messages)
                 # Generate `num_return_sequences` thoughts
                 batch_state_input_ids = input_ids.expand(num_return_sequences, -1)
-
                 state_input_len_left_padded = batch_state_input_ids.shape[1]
                 # Generate model responses
                 outputs = llm.model.generate(
@@ -317,7 +327,7 @@ class ActionPromptActPrmGenerator(HuggingFaceGenerator):
                     state_action_messages=state_thought_act_messages,
                     state_continue_final_message=True,
                 )
-                act_logprobs:           list[list[float]] = _state_thought_act_outputs[0]
+                act_logprobs: list[list[float]] = _state_thought_act_outputs[0]
                 # state_thought_act_toks: list[list[int]]   = _state_thought_act_outputs[1]
                 act_probs_in_group = [np.exp(sum(_logps) / len(_logps)) for _logps in act_logprobs]
                 rewards_in_group = self._compute_group_rewards(
@@ -394,11 +404,10 @@ class ActionPromptActPrmGenerator(HuggingFaceGenerator):
                 state_action_thought_messages_G = [
                     deepcopy(act_prompt_state_messages) for _ in range(num_return_sequences)
                 ]
-                for i, _thought_text in enumerate(decoded_texts):
+                for i, _thought_text in enumerate(thoughts_in_group):
                     state_action_thought_messages_G[i][-1]["content"] += _thought_text
                 
                 _state_messages_in_group = [act_prompt_state_messages] * num_return_sequences
-                _thoughts_in_group = [{"role": "assistant", "content": _thought_text} for _thought_text in decoded_texts]
                 _state_act_thought_outputs = get_act_logprobs_and_state_act_tokens_from_messages(
                     model=llm.model,
                     hf_tokenizer=hf_tokenizer,
@@ -409,9 +418,12 @@ class ActionPromptActPrmGenerator(HuggingFaceGenerator):
                 thought_logprobs:         list[list[float]] = _state_act_thought_outputs[0]
                 state_act_thought_tokens: list[list[int]]   = _state_act_thought_outputs[1]
 
+                _actions_in_group = [
+                    {"role": "assistant", "content": _thought_text} for _thought_text in thoughts_in_group
+                ]
                 state_act_thought_trajectory_group = _get_trajectory_group_from_generations(
                     state_messages_in_group=_state_messages_in_group,
-                    actions_in_group=_thoughts_in_group,  # list[dict[str, str]], not exactly what we want, but we get thru state_action_tokens_in_group
+                    actions_in_group=_actions_in_group,  # list[dict[str, str]], not exactly what we want, but we get thru state_action_tokens_in_group
                     state_len_in_group=[state_input_len_left_padded] * num_return_sequences,
                     state_action_tokens_in_group=state_act_thought_tokens,
                     old_logprobs_in_group=thought_logprobs,

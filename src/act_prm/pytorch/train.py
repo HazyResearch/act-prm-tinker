@@ -2,6 +2,7 @@
 Training and evaluation functions
 """
 
+# from copy import deepcopy
 from typing import Any, Callable
 
 from omegaconf import DictConfig
@@ -75,7 +76,10 @@ def run_rollouts(
         assert num_tries == 1, "For this project, we only support one try 😊"
         for try_idx in range(num_tries):
             all_trajectory_groups: list[dict[str, list[TrajectoryGroup]]] = []
-            pbar_desc = f"Generating rollouts: sample {start_idx} / {start_idx + batch_size - 1}"
+            pbar_desc = (
+                f"Generating {num_return_sequences} rollouts for "
+                f"sample {start_idx + 1} / {start_idx + batch_size}"
+            )
             sample_pbar = tqdm(
                 range(start_idx, start_idx + batch_size),
                 desc=pbar_desc,
@@ -97,7 +101,10 @@ def run_rollouts(
                         pbar_position=pbar_position + 1,
                     )
                 )
-                pbar_desc = f"Generating rollouts: sample {start_idx} / {start_idx + batch_size - 1}"
+                pbar_desc = (
+                    f"Generating {num_return_sequences} rollouts for "
+                    f"sample {start_idx + 1} / {start_idx + batch_size}"
+                )
                 sample_pbar.set_description(pbar_desc)
 
         # Save metrics and samples
@@ -147,6 +154,7 @@ def prepare_minibatch(
     new_trajectories: list[Trajectory],
     hf_tokenizer: PreTrainedTokenizerBase,
     batch_size: int = 2,
+    batch_idx: int = 0,  # for debugging
     **dataloader_kwargs: Any,
 ) -> tuple[DataLoader, dict[str, Any]]:
     """
@@ -158,22 +166,55 @@ def prepare_minibatch(
     for trajectory in new_trajectories:
         for episode_step in trajectory.episode_steps:
             sa_input_ids = episode_step.state_action_tokens
-            act_logprobs = episode_step.old_logprobs
+            act_logprobs = episode_step.old_logprobs  # 1. "full" action len, first token counts (maybe not)
             # input_tokens = sa_input_ids[:-1]
             # target_tokens = sa_input_ids[1:]
+            state_len = episode_step.state_len
             target_state_len = episode_step.state_len - 1
-
+            # 2. ^So target_state_len + len(act_logprobs) == len(sa_input_ids),  (maybe not)
+            #    a bit different from Tinker where they don't predict first action token.
             padded_logprobs = [0.0] * target_state_len + act_logprobs
             adv = episode_step.advantage
             padded_advantages = [0.0] * target_state_len + [adv] * len(act_logprobs)
             padded_mask = [0] * target_state_len + [1] * len(act_logprobs)
+            # Add labels to double-check
+            sa_labels = [-100] * state_len + sa_input_ids[state_len:]
+            # sa_labels = [-100] * target_state_len + sa_input_ids[target_state_len:]
+
+            # print(f"batch_idx: {batch_idx}")
+            # print("hf_tokenizer.decode(sa_input_ids[-len(act_logprobs):])")
+            # print(hf_tokenizer.decode(sa_input_ids[-len(act_logprobs):]))
+            # print("-" * 100)
+            # print("hf_tokenizer.decode(sa_input_ids[target_state_len:])")
+            # print(hf_tokenizer.decode(sa_input_ids[target_state_len:]))
+            # print("-" * 100)
+            try:
+                assert (
+                    len(sa_input_ids) - 1  # 3. not len(sa_input_ids) - 1
+                    == len(padded_logprobs)
+                    == len(padded_advantages)
+                    == len(padded_mask)
+                    == target_state_len + len(act_logprobs)
+                )
+            except AssertionError:
+                print("len(sa_input_ids) is 1 more than expected".upper())
+                print(f"len(sa_input_ids) - 1: {len(sa_input_ids) - 1}")
+                print(f"len(padded_logprobs): {len(padded_logprobs)}")
+                print(f"len(padded_advantages): {len(padded_advantages)}")
+                print(f"len(padded_mask): {len(padded_mask)}")
+                print(f"target_state_len: {target_state_len}")
+                print(f"len(act_logprobs): {len(act_logprobs)}")
+                breakpoint()
 
             data_dict.append({
                 "input_ids": sa_input_ids,
-                "attention_mask": [1] * len(sa_input_ids),
+                "attention_mask": [True] * len(sa_input_ids),
                 "advantages": padded_advantages,  # Note that advantages and logprobs are already 
                 "logprobs": padded_logprobs,      # shifted to account for next-token prediction
                 "label_mask": padded_mask,
+                "state_len": target_state_len,
+                "action_len": len(act_logprobs),
+                "labels": sa_labels,
             })
 
     dataset = HFDataset.from_list(data_dict)

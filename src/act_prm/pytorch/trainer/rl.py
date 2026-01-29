@@ -89,13 +89,15 @@ class RLTrainer(BaseTrainer):
         fp32_loss: bool | None = None,
     ) -> dict[str, torch.Tensor]:
         """
-        Compute policy gradient loss for a batch of model inputs 
+        Compute policy gradient loss for a batch of model inputs
+        -> Assumes there is always a non-zero "state" or "prefix" length, i.e.,
+           we compute loss on the first "action" or "target" token
         """
         fp32_loss = fp32_loss or self.fp32_loss
         device = model.device
         
-        # Get advantages and logprobs (advantages are 0 for non-label tokens)
-        # -> Both are also next-token shifted, see ../train.py prepare_minibatch()
+        # Get advantages, logprobs, label mask (advantages are 0 for non-label tokens)
+        # -> Next-token shifted as targets, see ../train.py prepare_minibatch()
         advantages = batch["advantages"].to(device)
         old_logprobs = batch["logprobs"].to(device)
         label_mask = batch["label_mask"].to(device)
@@ -106,23 +108,41 @@ class RLTrainer(BaseTrainer):
             if k in ["input_ids", "attention_mask"]
         }
         logits = model(**model_inputs, use_cache=False).logits[:, :-1, :]
-        labels = model_inputs["labels"][:, 1:]
+        labels = model_inputs["input_ids"][:, 1:]
+        # labels = model_inputs["labels"][:, 1:].to(device)  # sanity-check the losses are equivalent
         dtype = torch.float32 if fp32_loss else model.dtype
         # Xent needs (N, C, d) inputs and (N, d) labels,
         # -> So we transpose from (B, L-1, V) -> (B, V, L-1)
         new_logprobs = -F.cross_entropy(
             logits.transpose(1, 2).to(dtype=dtype), labels, reduction="none",
         ).to(dtype=logits.dtype)
+
+        # new_logprobs_2 = -F.cross_entropy(
+        #     logits.transpose(1, 2).to(dtype=dtype),
+        #     batch["labels"][:, 1:].to(device),
+        #     reduction="none",
+        # ).to(dtype=logits.dtype)
+
+        # print(new_logprobs * label_mask, new_logprobs_2)
+        # breakpoint()
         
         # Get importance-weighted loss; non-surrogate form for clarity
-        ratio = torch.exp(new_logprobs.detach() - old_logprobs.to(device))
+        try:
+            ratio = torch.exp(new_logprobs.detach() - old_logprobs.to(device))
+        except Exception as e:
+            print(f"{e.__class__.__name__}: {e}")
+            print(f"new_logprobs: {new_logprobs.shape}")
+            print(f"old_logprobs: {old_logprobs.shape}")
+            print(f"ratio: {ratio.shape}")
+            breakpoint()
         num_label_tokens = label_mask.sum().clamp_min(1)
         loss = -(ratio * new_logprobs * advantages).sum() / num_label_tokens
 
         # Compute additional logging metrics
         ppl = torch.exp(-(new_logprobs * label_mask).sum() / num_label_tokens).item()
         mean_advantage = (advantages.sum() / num_label_tokens).item()  # advantages already padded
-        num_gen_tokens = label_mask.sum(dim=-1).mean().item()
+        num_gen_tokens = label_mask.sum(dim=-1).tolist()     # average generated tokens per sample
+        num_gen_tokens = sum(num_gen_tokens) / len(num_gen_tokens)
 
         del advantages, old_logprobs, model_inputs, logits, labels, num_label_tokens
         torch.cuda.empty_cache()
@@ -277,6 +297,7 @@ class RLTrainer(BaseTrainer):
                 hf_tokenizer=hf_tokenizer,
                 batch_size=dataloader_batch_size,
                 shuffle=True,
+                batch_idx=batch_idx,  # for debugging
             )
             metrics.update(_minibatch_metrics)  # empty {} for now
 
@@ -302,7 +323,7 @@ class RLTrainer(BaseTrainer):
 
                 loss_metrics = {
                     f"train/{k}": get_item(v) for k, v in loss_metrics.items()
-                    if v.numel() == 1  # only keep scalar metrics
+                    # if v.numel() == 1  # manually ensure in compute_loss that these are scalars
                 }
                 metrics.update(loss_metrics)
                 pbar_dataloader.set_postfix(**loss_metrics)
