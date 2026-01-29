@@ -115,6 +115,7 @@ class RLTrainer(BaseTrainer):
         ).to(dtype=logits.dtype)
         
         # Get importance-weighted loss; non-surrogate form for clarity
+        breakpoint()
         ratio = torch.exp(new_logprobs.detach() - old_logprobs.to(device))
         num_label_tokens = label_mask.sum().clamp_min(1)
         loss = -(ratio * new_logprobs * advantages).sum() / num_label_tokens
