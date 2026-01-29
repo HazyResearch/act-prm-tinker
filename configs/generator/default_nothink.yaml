@@ -4,4 +4,4 @@ enable_thinking: false
 discount_factor: 0.9
 mean_center: false
 verbose: false
-stream_generations: false
+streamer: false

@@ -43,6 +43,10 @@ To use the wonderful [FlashAttention-2](https://github.com/Dao-AILab/flash-atten
 
 2. Install FlashAttention-2 with `uv pip install flash-attn --no-build-isolation-package flash-attn`
 
+### Environments
+
+Please see individual environment README files in `src/act_prm/environments/` for any additional setup instructions.
+
 ## Example Commands
 
 ### Motivating Example: TextWorld
@@ -62,6 +66,23 @@ uv run python main.py \
 --model_name Qwen/Qwen3-4B-Instruct-2507 \
 --lora_rank 32 \
 --seed 42 --replicate 5 --verbose
+```
+
+**New: PyTorch Implementation**
+```bash
+uv run python main_pytorch.py \
+--env_config act_prm/snorkel_finance_fs1 \
+--model_config hf_qwen3_4b_inst_2507 \
+--lora_config r16_a32_qkvo \
+--generator_config aprm_qwen3_ap \
+--trainer_config aprm_for_sft100 \
+--replay_buffer_config default \
+--log_path ./logs \
+--actions_only --hide_observations \
+--batch_size 16 --group_size 8 \
+--learning_rate 4e-5 \
+--num_substeps 1 \
+--seed 42 --replicate 0 --verbose --streamer
 ```
 
 ### Motivating Example: HotpotQA Generated

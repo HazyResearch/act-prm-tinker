@@ -6,12 +6,14 @@ import sys
 from copy import copy, deepcopy
 from typing import Any, Callable
 
-import torch
-import torch.nn.functional as F
-
 from omegaconf import DictConfig
+# from rich import print as rich_print
+from rich.console import Console
+from rich.panel import Panel
 from tqdm import tqdm
 
+import torch
+import torch.nn.functional as F
 from tinker_cookbook.utils import ml_log
 from transformers import PreTrainedTokenizerBase
 
@@ -24,6 +26,10 @@ from act_prm.replay_buffer.types import (
 from act_prm.utils.display import RichTextStreamer
 
 
+console = Console()
+ROYGBIV = ["#FF0000", "#FF7F00", "#FFFF00", "#00FF00", "#0000FF", "#4B0082", "#9400D3"]
+
+
 def get_response_content(msg: dict[str, Any]) -> str:
     """
     Get message content from an Environment response message
@@ -31,13 +37,13 @@ def get_response_content(msg: dict[str, Any]) -> str:
     return msg["output"] if msg.get("output", None) else msg["content"]
 
 
-def get_action_logprobs(
+def get_action_logprobs_and_state_action_tokens(
     logits: torch.FloatTensor,
     input_ids: torch.LongTensor,
-    attention_mask: torch.BoolTensor,
+    attention_mask: torch.BoolTensor,  # should be, but may be LongTensor
     state_lens: list[int],
     **kwargs: Any,
-) -> list[list[float]]:
+) -> tuple[list[list[float]], list[list[int]]]:
     """
     Get action logprobs from logits and input_ids (i.e., labels or target token ids)
     
@@ -52,6 +58,7 @@ def get_action_logprobs(
     """
     logprobs = F.log_softmax(logits, dim=-1) # (batch_size, seq_len, vocab_size) -> (B, L, V)
     labels = input_ids  # convenience alias
+    attention_mask = attention_mask.bool()
     # we linearized the chungus among u
     # e linearized the chungus among us
     shift_logits = logits[:, :-1, :]
@@ -62,13 +69,18 @@ def get_action_logprobs(
     # Get logprobs for action tokens only
     a_starts = [state_len - 1 for state_len in state_lens]
     logprobs = [
-        logprobs[b_idx][attention_mask[b_idx]][start_idx:].tolist()
+        logprobs[b_idx][attention_mask[b_idx, :-1]][start_idx:].tolist()  # mask matches logits
         for b_idx, start_idx in enumerate(a_starts)
     ]
     # MZ 1/27/26: maybe more clear to keep separate?
     # logprobs = [logprobs[b_idx][attn_mask] for b_idx, attn_mask in enumerate(attention_mask)]
     # logprobs = [logprobs[b_idx][start_idx:] for b_idx, start_idx in enumerate(a_starts)]
-    return logprobs
+    state_action_tokens = [
+        # input_ids[b_idx][attention_mask[b_idx]][start_idx:].tolist()
+        input_ids[b_idx][attention_mask[b_idx]].tolist()
+        for b_idx, start_idx in enumerate(a_starts)
+    ]  # inputs should be action_tokens[b_idx][:-1], targets action_tokens[b_idx][1:]
+    return logprobs, state_action_tokens
     # action_starts = [state_len - 1 for state_len in state_lens]
     # logprobs = [logprobs[start_ix:] for start_ix in action_starts]
     # act_mask = [labels[start_ix:] != pad_token_id for start_ix in action_starts]
@@ -78,7 +90,7 @@ def get_action_logprobs(
 
 def get_batch_model_inputs(
     input_messages: list[list[dict[str, str]]],
-    tools: list[list[dict[str, str]] | None],
+    tools: list[list[dict[str, str]]] | None,
     hf_tokenizer: PreTrainedTokenizerBase,
     padding_side: str = "left",
     enable_thinking: bool = False,
@@ -103,7 +115,7 @@ def get_batch_model_inputs(
     batch_model_texts = [
         hf_tokenizer.apply_chat_template(
             input_messages[b_idx],
-            tools=tools[b_idx],
+            tools=tools[b_idx] if tools is not None else None,
             add_generation_prompt=True,
             enable_thinking=enable_thinking,
             padding=False,
@@ -121,7 +133,6 @@ def get_batch_model_inputs(
     batch_model_inputs = hf_tokenizer(
         batch_model_texts,
         padding=True,
-        return_dict=True,
         return_tensors="pt"
     )
     input_lens = [attn_mask.sum().item() for attn_mask in batch_model_inputs["attention_mask"]]
@@ -190,10 +201,13 @@ class HuggingFaceGenerator:
         hf_tokenizer: PreTrainedTokenizerBase,
         env: Environment,
         cfg: DictConfig,
-        enable_thinking: bool | None = None,  # default to HF template, but often set to False 
+        enable_thinking: bool | None = None,  # default to HF template, but often set to False
+        discount_factor: float | None = None,
+        mean_center: bool = False,
         ml_logger: ml_log.Logger | None = None,
         name_or_identifier: str | None = None,
         streamer: bool = False,
+        verbose: bool = False,
     ) -> None:
         self.llm = llm
         self.hf_tokenizer = hf_tokenizer
@@ -205,6 +219,8 @@ class HuggingFaceGenerator:
         # self.run_cmd = f"uv run python main.py {" ".join(sys.argv[1:])}"
         self.run_cmd = cfg.get("run_cmd", " ".join(sys.argv))
         self.name_or_identifier = name_or_identifier
+        self.discount_factor = discount_factor or cfg.get("discount_factor", 0.9)
+        self.mean_center = mean_center  # mean-center the advantages
 
         # Silly streaming
         self.streamer = RichTextStreamer(
@@ -212,6 +228,7 @@ class HuggingFaceGenerator:
             skip_prompt=True,
             skip_special_tokens=True,
         ) if streamer else None
+        self.verbose = verbose
 
     def _get_messages_from_state(
         self,
@@ -269,6 +286,7 @@ class HuggingFaceGenerator:
         cfg: DictConfig | None = None,
         split: str = "train",
         try_step: int = 0,
+        discount_factor: float | None = None,
         # start_idx: int = 0,
         num_return_sequences: int | None = None,
         max_tokens: int | None = None,
@@ -285,6 +303,7 @@ class HuggingFaceGenerator:
         env = env or self.env
         cfg = cfg or self.cfg
         env.split = split  # Select task split
+        discount_factor = discount_factor or self.discount_factor or cfg.discount_factor
         
         was_training = llm.model.training
         llm.model.eval()
@@ -330,6 +349,16 @@ class HuggingFaceGenerator:
                 leave=False,
                 position=pbar_position,
             )
+            rollout_pbars = [
+                tqdm(
+                    total=env.max_turns,
+                    desc=f"Generating rollout {gen_id}",
+                    colour=ROYGBIV[gen_id % len(ROYGBIV)],
+                    leave=True,
+                    position=pbar_position + gen_id + 1,
+                )
+                for gen_id in gen_ids_todo
+            ]
             # while not all(batch_dones):
             while len(gen_ids_todo) > 0:
                 batch_state_messages = [
@@ -355,7 +384,7 @@ class HuggingFaceGenerator:
                     num_return_sequences=1,
                     pad_token_id=hf_tokenizer.pad_token_id,
                     # output_scores=True,  # returns logprobs, but we'll recompute for training match
-                    output_logprobs=True,  # MZ: I can't tell if above supported though, so just use logprobs
+                    # output_logprobs=True,  # MZ: I can't tell if above supported though, so just use logprobs
                     # Silly streaming only supports batch_size == 1
                     streamer=self.streamer if len(state_input_lens) == 1 else None,
                 )
@@ -372,7 +401,7 @@ class HuggingFaceGenerator:
                     else text
                     for text in decoded_texts
                 ]
-                batch_model_messages = [
+                batch_model_messages: list[list[dict[str, str]]] = [
                     [{"role": "assistant", "content": text}] for text in decoded_texts
                 ]
                 batch_state_action_messages = [
@@ -397,11 +426,13 @@ class HuggingFaceGenerator:
                     for k, v in batch_state_action_inputs.items():
                         setattr(batch_state_action_inputs, k, v[:-1])
                 
-                logprobs: list[list[float]] = get_action_logprobs(  # batch_size x action_len
+                act_logps_and_state_act_toks = get_action_logprobs_and_state_action_tokens(
                     logits=logits,
                     state_lens=state_input_lens,
                     **batch_state_action_inputs.to(device),  # input_ids, attention_mask
                 )
+                act_logprobs: list[list[float]] = act_logps_and_state_act_toks[0]       # batch_size x action_len
+                state_action_tokens: list[list[int]] = act_logps_and_state_act_toks[1]  # batch_size x (state_len + action_len)
 
                 # Transition to next states
                 # -> Parse to consistent ActionFromLLM format
@@ -424,16 +455,23 @@ class HuggingFaceGenerator:
                     ]
                     for next_state in batch_next_states
                 ]
+                if self.verbose:
+                    max_to_display = 1  # hardcoded hack
+                    for _idx in range(len(batch_next_obs))[:max_to_display]:
+                        color = f"italic color({_idx % 8 + 8})"
+                        _header = f"Next Observation {_idx} (Timestep {batch_states[_idx].timestep})"
+                        print("\n")
+                        console.print(Panel(batch_next_obs[0][0]["content"], title=_header, style=color))
                 # MZ 1/27/26 NOTE: this is a bit heinous...
                 batch_episode_steps = [
                     EpisodeStep(
                         state=batch_state_messages[_idx],
-                        action=batch_model_messages[_idx],
+                        action=batch_model_messages[_idx][0],  # dict[str, str]
                         next_obs=batch_next_obs[_idx],
                         tools=batch_states[_idx].tools,
-                        state_action_tokens=batch_state_inputs["input_ids"][_idx],
-                        state_len=len(batch_state_inputs["input_ids"][_idx]),
-                        old_logprobs=logprobs[_idx],
+                        state_action_tokens=state_action_tokens[_idx],
+                        state_len=state_input_lens[_idx],
+                        old_logprobs=act_logprobs[_idx],
                         temperature=temperature,
                         reward=batch_env_step_results[_idx].reward,
                         done=batch_env_step_results[_idx].done,
@@ -453,12 +491,19 @@ class HuggingFaceGenerator:
                     all_episode_steps[gen_id].append(batch_episode_steps[_idx])
                     all_final_rewards[gen_id] = batch_rewards[_idx]  # Overwrite til last reward
 
-                # Update gen_ids_todo to only include non-done generations
-                gen_ids_todo = [
-                    gen_id
-                    for _idx, gen_id in enumerate(gen_ids_todo)
-                    if not batch_env_step_results[_idx].done
-                ]
+                # Update pbars and finished rollouts
+                for _idx, gen_id in enumerate(gen_ids_todo):
+                    rollout_pbars[_idx].update(1)
+                    if batch_env_step_results[_idx].done:
+                        rollout_pbars[_idx].close()
+                        rollout_pbars.pop(_idx)
+                        gen_ids_todo.pop(_idx)
+                # # Update gen_ids_todo to only include non-done generations
+                # gen_ids_todo = [
+                #     gen_id
+                #     for _idx, gen_id in enumerate(gen_ids_todo)
+                #     if not batch_env_step_results[_idx].done
+                # ]
                 # Move to next state
                 batch_states = [
                     next_state
@@ -471,24 +516,25 @@ class HuggingFaceGenerator:
                 pbar_task.set_description(
                     f"Generating rollout {num_done} / {num_return_sequences - 1} ({num_todo} left)"
                 )
+                
 
             trajectories_in_group = [
                 Trajectory(
                     episode_steps=all_episode_steps[gen_id],
                     final_reward=all_final_rewards[gen_id],
                     try_step=try_step,
-                    discount_factor=cfg.discount_factor,
+                    discount_factor=discount_factor,
                 ) for gen_id in range(num_return_sequences)
             ]
             all_trajectory_groups = [
                 self._get_trajectory_group(
                     trajectories=trajectories_in_group,
-                    final_reards=all_final_rewards,
-                    discount_factor=cfg.discount_factor,
+                    final_rewards=all_final_rewards,
+                    discount_factor=discount_factor,
                 )
             ]
-            if was_training:  # assume single try for now
-                llm.model.train()
+        if was_training:  # assume single try for now
+            llm.model.train()
                 
         hf_tokenizer.padding_side = og_tokenizer_padding_side     
         return {"policy": all_trajectory_groups}
