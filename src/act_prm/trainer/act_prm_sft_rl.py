@@ -206,7 +206,7 @@ class ActPrmSftRlTrainer(RLTrainer):
                     save_env=env,
                     save_name_or_identifier="Stage 1: SFT Generation with Act-PRM LLM",
                     trajectory_key="think_act_policy",
-                    dataset_prefix="mzio/aprm_sft_thought_action_rollouts",
+                    dataset_prefix="mzio/aprm_sft_genthinkact",
                     dataset_suffix="-ap1_best",
                 )
             )
