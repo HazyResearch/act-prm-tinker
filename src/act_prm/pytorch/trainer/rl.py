@@ -106,7 +106,7 @@ class RLTrainer(BaseTrainer):
             if k in ["input_ids", "attention_mask"]
         }
         logits = model(**model_inputs, use_cache=False).logits[:, :-1, :]
-        labels = model_inputs["labels"][:, 1:]
+        labels = model_inputs["input_ids"][:, 1:]  # non-target tokens zero'd by attn or label_mask
         dtype = torch.float32 if fp32_loss else model.dtype
         # Xent needs (N, C, d) inputs and (N, d) labels,
         # -> So we transpose from (B, L-1, V) -> (B, V, L-1)
