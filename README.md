@@ -43,6 +43,10 @@ To use the wonderful [FlashAttention-2](https://github.com/Dao-AILab/flash-atten
 
 2. Install FlashAttention-2 with `uv pip install flash-attn --no-build-isolation-package flash-attn`
 
+### Environments
+
+Please see individual environment README files in `src/act_prm/environments/` for any additional setup instructions.
+
 ## Example Commands
 
 ### Motivating Example: TextWorld
