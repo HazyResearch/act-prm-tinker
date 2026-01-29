@@ -59,8 +59,20 @@ def get_action_logprobs_and_state_action_tokens(
     logprobs = F.log_softmax(logits, dim=-1) # (batch_size, seq_len, vocab_size) -> (B, L, V)
     labels = input_ids  # convenience alias
     attention_mask = attention_mask.bool()
-    # we linearized the chungus among u
-    # e linearized the chungus among us
+    # Tmask: 1111111111111111111111111111111111
+    # state: we linear (state_len = 9)
+    # total: we linearized the chungus among us 
+    # input: we linearized the chungus among u `total[:-1]`
+    # label: e linearized the chungus among us `total[1:]`
+    # start: --------ized the chungus among us `label[Tmask[1:]][state_len - 1:]`
+    # state: every (state_len = 5)
+    # Tmask: 1111111111111111111111000000000000
+    # total: everything is chungus.xxxxxxxxxxxx
+    # input: everything is chungus.xxxxxxxxxxx `total[:-1]`
+    # label: verything is chungus.xxxxxxxxxxxx `total[1:]`
+    # Lmask: 111111111111111111111000000000000 `Tmask[1:]`
+    # label: verything is chungus.             `label[Tmask[1:]]`
+    # start: ----thing is chungus.             `label[Tmask[1:]][state_len - 1:]`
     shift_logits = logits[:, :-1, :]
     shift_labels = labels[:, 1:]
     logprobs = F.log_softmax(shift_logits, dim=-1)
@@ -69,7 +81,7 @@ def get_action_logprobs_and_state_action_tokens(
     # Get logprobs for action tokens only
     a_starts = [state_len - 1 for state_len in state_lens]
     logprobs = [
-        logprobs[b_idx][attention_mask[b_idx, :-1]][start_idx:].tolist()  # mask matches logits
+        logprobs[b_idx][attention_mask[b_idx, 1:]][start_idx:].tolist()  # mask matches targets
         for b_idx, start_idx in enumerate(a_starts)
     ]
     # MZ 1/27/26: maybe more clear to keep separate?
@@ -81,11 +93,6 @@ def get_action_logprobs_and_state_action_tokens(
         for b_idx, start_idx in enumerate(a_starts)
     ]  # inputs should be action_tokens[b_idx][:-1], targets action_tokens[b_idx][1:]
     return logprobs, state_action_tokens
-    # action_starts = [state_len - 1 for state_len in state_lens]
-    # logprobs = [logprobs[start_ix:] for start_ix in action_starts]
-    # act_mask = [labels[start_ix:] != pad_token_id for start_ix in action_starts]
-    # logprobs = [logprobs[b_idx][act_mask[b_idx]].tolist() for b_idx in range(len(logprobs))]
-    # return logprobs
 
 
 def get_batch_model_inputs(

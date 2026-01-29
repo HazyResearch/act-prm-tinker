@@ -37,22 +37,29 @@ class DataCollatorForPolicyGradient(DataCollatorForLanguageModeling):
         ]
         batch = super().__call__(parent_features)
 
-        # Then handle logprobs, advantages / weights, and label_mask
-        for key in ["logprobs", "advantages", "weights", "label_mask"]:
-            if features[0].get(key, None) and key == "logprobs":
-                dtype = torch.float
-                padding_value = 1.0
-            elif features[0].get(key, None):  # key in ["advantages", "weights"]
-                dtype = torch.float
-                padding_value = 0.0
-            elif key == "label_mask":
-                dtype = torch.bool
-                padding_value = False
-            else:
-                continue
-            
+        # Then handle padding features
+        for key in ["logprobs", "advantages", "weights", "label_mask", "labels"]:
+            if features[0].get(key, None):
+                if key == "logprobs":
+                    dtype = torch.float
+                    padding_value = 1.0
+                elif key == "labels":
+                    dtype = torch.long
+                    padding_value = -100
+                elif key == "label_mask":
+                    dtype = torch.bool
+                    padding_value = False
+                else: # key in ["advantages", "weights"]
+                    dtype = torch.float
+                    padding_value = 0.0
+                values = [torch.tensor(f[key], dtype=dtype) for f in features]
+                values = pad_sequence(values, batch_first=True, padding_value=padding_value)
+                batch[key] = values
+
+        # Then handle scalars
+        for key in ["state_len", "action_len"]:
+            dtype = torch.int
             values = [torch.tensor(f[key], dtype=dtype) for f in features]
-            values = pad_sequence(values, batch_first=True, padding_value=padding_value)
             batch[key] = values
 
         # Reset padding side
