@@ -1,4 +1,4 @@
-# HotpotQA MC demonstrations with only actions
+# Snorkel Agent Finance Reasoning demonstrations
 name: "act_prm"
 is_async: false
 # Source of successful demonstrations

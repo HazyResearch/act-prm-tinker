@@ -1,4 +1,4 @@
-# HotpotQA MC demonstrations with only actions
+# Tau(2)-Bench Airline demonstrations with only actions
 name: "act_prm"
 is_async: false
 # Source of successful demonstrations

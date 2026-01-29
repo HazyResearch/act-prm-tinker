@@ -1,9 +1,9 @@
-# Snorkel Agent Finance Reasoning demonstrations with only actions
+# Snorkel Multi-turn Insurance Underwriting demonstrations with only actions
 name: "act_prm"
 is_async: false
 # Source of successful demonstrations
 dataset_config:
-  path: "mzio/aprm-snorkelai_agent_finance_reasoning"
+  path: "mzio/aprm-snorkelai_multi_turn_insurance_underwriting"
   cache_dir: "/scr/mzhang/data/act_prm_data"
   split: "train"
 
@@ -20,7 +20,7 @@ action_bos: "<tool_call>"
 action_eos: "</tool_call>"
 final_answer_bos: "Final Answer: "
 
-num_train_samples: 147
+num_train_samples: 276
 num_val_samples: 20
 num_test_samples: 0
 
