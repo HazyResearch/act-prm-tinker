@@ -126,7 +126,7 @@ class ActPrmSftRlTrainer(RLTrainer):
         eval_env: Environment | None = None,
         generator_constructor: Callable[..., TinkerGenerator] | None = None,
         checkpoint_name: str | None = None,
-    ) -> None:
+    ) -> str:
         """
         Implement fully synchronous on-policy training with Tinker
 
@@ -206,7 +206,7 @@ class ActPrmSftRlTrainer(RLTrainer):
                     save_env=env,
                     save_name_or_identifier="Stage 1: SFT Generation with Act-PRM LLM",
                     trajectory_key="think_act_policy",
-                    dataset_prefix="mzio/aprm_sft_genthinkact",
+                    dataset_prefix="mzio/aprm-sft_genthinkact",
                     dataset_suffix="-ap1_best",
                 )
             )
@@ -267,6 +267,8 @@ class ActPrmSftRlTrainer(RLTrainer):
                 f"{delim[:2].upper()}{self.run_name.split(delim)[-1].split("-")[0]}"
                 for delim in ["enco=", "geco=", "se=", "re="]  # env, generator, seed, replicate
             ])
+            if "joint" in self.run_name:
+                ds_identifier += "-joint"
             ds_name = f"{dataset_prefix}-{ds_identifier}"
             if len(ds_name) > 96:   # hacky patch
                 # HFValidationError: Repo id must use alphanumeric chars, '-', '_' or '.'. 

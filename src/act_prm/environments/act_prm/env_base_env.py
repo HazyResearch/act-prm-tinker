@@ -13,12 +13,17 @@ Based on the Generator, we do this via two setups:
     based on just the present state (i.e., it does not see the action as a hint).
 """
 
+import logging
 from copy import copy, deepcopy
 from typing import Any
+
+from rich import print as rich_print
 
 from ...llm_handlers import ActionFromLLM, get_actions
 from ..base import Environment
 from ..types import EnvironmentState, EnvironmentStepResult
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_MESSAGE = {
     "role": "system",
@@ -195,6 +200,7 @@ class AsyncActPrmEnvWithBaseEnv(Environment):
 
         # MZ 1/21/26 -> Make the few-shot prompts more seamless into the target task
         if self.num_fewshot_prompts > 0:
+            # "Great! Now do the same for the next task:\n\n## Next Task:\n\n"
             messages[0]["content"] = (
                 f"Great! Now do the same for the next task:\n\n"
                 f"## Next Task:\n\n{messages[0]["content"]}"
@@ -307,10 +313,15 @@ class AsyncActPrmEnvWithBaseEnv(Environment):
             # Add next_obs and next_action as new messages
             action_step_id += 1
             if action_step_id == len(action_trajectory):
+            # if base_env_step_result.done:
                 done = True
                 env_messages = next_base_env_state.new_messages
             else:
-                action_target = self._get_action_target(action_trajectory[action_step_id])
+                try:
+                    action_target = self._get_action_target(action_trajectory[action_step_id])
+                except IndexError:
+                    logger.warning(f"No action target found for step {action_step_id}")
+                    breakpoint()
                 env_messages: list[dict[str, str]] = (
                     next_base_env_state.new_messages
                     + [{"role": "assistant", "content": action_target}]
@@ -350,6 +361,10 @@ class AsyncActPrmEnvWithBaseEnv(Environment):
             # No interpretable thoughts generated, just ask to try again
             new_state = deepcopy(current_state)
             new_state.timestep = timestep
+
+        if done:
+            logger.info(f"Episode done at step {timestep} with reward {reward}")
+            rich_print(env_messages[-1])
             
         return ActionProcessRewardStepResult(
             state=new_state,

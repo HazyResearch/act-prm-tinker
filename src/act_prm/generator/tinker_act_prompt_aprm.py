@@ -306,6 +306,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 # model_response=model_messages,
                 current_state=state,
                 current_messages=state_messages,
+                reward=rewards_in_group[best_thought_idx],
             )
             next_state = env_step_result.state
             truncated  = env_step_result.truncated
