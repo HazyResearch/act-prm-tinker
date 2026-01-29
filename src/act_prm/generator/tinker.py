@@ -48,6 +48,7 @@ class TinkerGenerator:
         ml_logger: ml_log.Logger | None = None,
         name_or_identifier: str | None = None,
         cfg: DictConfig | None = None,  # access to training configs
+        streamer: bool = False,
     ) -> None:
         self.llm = llm
         self.env = env
@@ -58,14 +59,16 @@ class TinkerGenerator:
         self.mean_center = mean_center
         self.verbose = verbose
         self.run_url = ml_logger.get_logger_url() if ml_logger is not None else None
-        self.run_cmd = f"uv run python main.py {" ".join(sys.argv[1:])}"
+        # self.run_cmd = f"uv run python main.py {" ".join(sys.argv[1:])}"
+        self.run_cmd = " ".join(sys.argv)
         self.name_or_identifier = name_or_identifier
         self.cfg = cfg
+
+        self.streamer = None if streamer else None  # always None for TinkerGenerators
 
     def _get_trajectory_group(self, **kwargs: Any) -> TrajectoryGroup:
         """
         Return trajectory group class
-        - Override in subclasses, e.g., to return MeanCenteredTrajectoryGroup
         """
         if self.mean_center:
             # Returns trajectory group where we compute advantages by:

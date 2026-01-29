@@ -18,6 +18,7 @@ uv run python main_pytorch_sft.py \
 
 import argparse
 import logging
+import sys
 from typing import Any
 
 from dotenv import load_dotenv
@@ -71,12 +72,14 @@ def main() -> None:
     seed_everything(args.seed)
     load_dotenv()  # Setup environment variables from .env file
 
-    # Get default configs
+    # Get default configs and experiment attributes
+    args.generator_config = args.generator_config or "default"
+    args.replay_buffer_config = args.replay_buffer_config or "default"
+
     model_cfg         = OmegaConf.load(f"./configs/model/{args.model_config}.yaml")
     lora_cfg          = OmegaConf.load(f"./configs/lora/{args.lora_config}.yaml")
     env_cfg           = OmegaConf.load(f"./configs/environments/{args.env_config}.yaml")
-    # generator_cfg     = OmegaConf.load(f"./configs/generator/{args.generator_config}.yaml")
-    generator_cfg     = None
+    generator_cfg     = OmegaConf.load(f"./configs/generator/{args.generator_config}.yaml")
     trainer_cfg       = OmegaConf.load(f"./configs/trainer/{args.trainer_config}.yaml")
     replay_buffer_cfg = OmegaConf.load(f"./configs/replay_buffer/{args.replay_buffer_config}.yaml")
     
@@ -155,11 +158,22 @@ def main() -> None:
     if base_env is not None:
         base_env.tokenizer = llm.tokenizer
 
+    # Make identifiers identifiable
+    cfg.run_url = ml_logger.get_logger_url() if ml_logger is not None else None
+    cfg.run_cmd = " ".join(sys.argv)
+    # Add to environments
+    all_envs = [env, eval_env, base_env]
+    for attr in ["run_url", "run_cmd"]:
+        for _idx, _env in enumerate(all_envs):
+            if _env is not None:
+                setattr(all_envs[_idx], attr, cfg.get(attr))
+
     # Training loop
     trainer = SftTrainer(
         cfg=cfg,
         llm=llm,
         optimizer=optimizer,
+        generator_cfg=generator_cfg,
         replay_buffer=replay_buffer,
         env=env,
         eval_env=eval_env,

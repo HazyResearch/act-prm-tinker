@@ -59,6 +59,7 @@ def get_thought_and_actions(
             actions_msg["content"] = f"{final_answer_bos}{actions_str}"
 
         elif action_bos not in content:  # No action in this message, e.g., because invalid tool call
+            print(f"No action found in message:\n{content}")
             return thought_msg, None
 
         else:

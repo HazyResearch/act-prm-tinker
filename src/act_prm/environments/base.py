@@ -57,6 +57,10 @@ class Environment(ABC):
         self.first_obs_to_show = first_obs_to_show
         self.last_obs_to_show = last_obs_to_show
 
+        # Run identifiers
+        self.run_url: str | None = None
+        self.run_cmd: str | None = None
+
     def __len__(self) -> int:
         """
         Get the environment's number of sample tasks
