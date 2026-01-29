@@ -241,7 +241,6 @@ class ActPrmForSftTrainer(RLTrainer):
 
                 loss_metrics = {
                     f"train/{k}": get_item(v) for k, v in loss_metrics.items()
-                    if v.numel() == 1  # only keep scalar metrics
                 }
                 metrics.update(loss_metrics)
                 pbar_dataloader.set_postfix(**loss_metrics)
