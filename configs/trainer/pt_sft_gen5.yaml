@@ -5,14 +5,14 @@ fp32_loss: false  # keep in bf16
 
 # # Generation (Sampling Rollouts)
 # num_batches: 200
-# num_tries: 1
-# eval_num_tries: 1
-# max_tokens: 1024
-# temperature: 1.0
+num_tries: 1
+eval_num_tries: 1
+max_tokens: 1024
+temperature: 1.0
 
 # batch_size: 16
-# group_size: 8
-# eval_group_size: 1
+group_size: 8
+eval_group_size: 1
 
 # Training (Policy Updates)
 learning_rate: 4e-5
@@ -24,13 +24,16 @@ num_steps: 1000
 gradient_accumulation_steps: 32
 
 # Checkpointing
+save_every: 10
+best_ro_metric: "final_reward"
+
+# Evaluation
 no_initial_eval: false
 eval_every: 5
-save_every: 10
-# do_rollout_eval: false
-eval_gen_every: 5
+eval_gen_every: 0
 eval_rollout_every: 0
-best_ro_metric: "final_reward"
+num_eval_gen_samples: null
+num_eval_rollout_samples: null
 
 # Other miscellaneous
 base_url: null

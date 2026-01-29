@@ -1,0 +1,57 @@
+# Act-PRM for SFT training config
+trainer_name: act_prm_for_sft
+advantage_threshold: null  # e.g., 0 if mean_center, high probability if not
+action_prompts: true
+save_rollouts_every: 10
+
+hide_observations: false
+hidden_obs_content: "..."
+first_obs_to_show: 2
+last_obs_to_show: 1
+
+# model_name: "Qwen/Qwen3-4B-Instruct-2507"
+# renderer_name: null
+# stop_condition: null
+# lora_rank: 32
+
+tool_call_kwargs:
+  tool_call_bos: "<tool_call>"
+  tool_call_eos: "</tool_call>"
+  tool_call_argname: "arguments"
+
+# Generation (Sampling Rollouts)
+num_batches: 100
+num_tries: 1
+eval_num_tries: 1
+max_tokens: 1024
+temperature: 1.0
+
+batch_size: 16
+group_size: 8
+eval_group_size: 1
+
+# Training (Policy Updates)
+learning_rate: 4e-5
+discount_factor: 1.0
+loss_fn: "importance_sampling"
+num_substeps: 1
+mini_batch_size: null
+
+compute_post_kl: false
+kl_penalty_coef: 0.0
+kl_discount_factor: 0.0
+
+# Checkpointing
+eval_every: 10
+save_every: 20
+best_metric: "final_reward"
+
+# Other miscellaneous
+base_url: null
+log_path: "./logs"
+load_checkpoint_path: null
+# Local parent dir for other checkpoints and data (e.g., replay buffer samples, etc.)
+checkpoint_path: "./checkpoints"
+
+wandb_project: null  # will set based on project_name
+wandb_name: null     # will set based on run name
