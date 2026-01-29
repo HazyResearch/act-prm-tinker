@@ -2,7 +2,7 @@
 
 Tinkering with Action Process Reward Models (Act-PRMs)
 
-![action_prompted_thought_demo](../assets/streamer_demo.gif){ .image50percent }
+![action_prompted_thought_demo](./assets/streamer_demo.gif)
 
 ## Setup
 
