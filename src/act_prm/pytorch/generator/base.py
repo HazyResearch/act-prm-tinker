@@ -40,7 +40,7 @@ def get_response_content(msg: dict[str, Any]) -> str:
 def get_action_logprobs_and_state_action_tokens(
     logits: torch.FloatTensor,
     input_ids: torch.LongTensor,
-    attention_mask: torch.BoolTensor,
+    attention_mask: torch.BoolTensor,  # should be, but may be LongTensor
     state_lens: list[int],
     **kwargs: Any,
 ) -> tuple[list[list[float]], list[list[int]]]:
@@ -58,6 +58,7 @@ def get_action_logprobs_and_state_action_tokens(
     """
     logprobs = F.log_softmax(logits, dim=-1) # (batch_size, seq_len, vocab_size) -> (B, L, V)
     labels = input_ids  # convenience alias
+    attention_mask = attention_mask.bool()
     # we linearized the chungus among u
     # e linearized the chungus among us
     shift_logits = logits[:, :-1, :]
@@ -68,7 +69,7 @@ def get_action_logprobs_and_state_action_tokens(
     # Get logprobs for action tokens only
     a_starts = [state_len - 1 for state_len in state_lens]
     logprobs = [
-        logprobs[b_idx][attention_mask[b_idx]][start_idx:].tolist()
+        logprobs[b_idx][attention_mask[b_idx, :-1]][start_idx:].tolist()  # mask matches logits
         for b_idx, start_idx in enumerate(a_starts)
     ]
     # MZ 1/27/26: maybe more clear to keep separate?

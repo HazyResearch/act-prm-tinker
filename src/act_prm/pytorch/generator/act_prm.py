@@ -2,23 +2,20 @@
 Base class for generation / rollout sampling for Hugging Face Transformers models
 """
 
-import sys
+import logging
 from copy import copy, deepcopy
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 from omegaconf import DictConfig
-# from rich import print as rich_print
 from rich.console import Console
 from rich.panel import Panel
-from tqdm import tqdm
 
 import numpy as np
 import torch
-import torch.nn.functional as F
-from tinker_cookbook.utils import ml_log
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
-from act_prm.environments import ActionProcessRewardState, Environment, EnvironmentState, EnvironmentStepResult
+from act_prm.environments import Environment, EnvironmentStepResult
+from act_prm.environments.act_prm import ActionProcessRewardState
 
 from act_prm.generator.tinker_act_prm import process_state_messages_for_metrics
 from act_prm.generator.tinker_act_prompt_aprm import get_action_prompted_completion
@@ -26,20 +23,18 @@ from act_prm.generator.tinker_act_prompt_aprm import get_action_prompted_complet
 from act_prm.llm_handlers import HuggingFaceLLM
 from act_prm.llm_handlers.action_utils import get_actions
 from act_prm.llm_handlers.types import ActionFromLLM
-from act_prm.replay_buffer.types import (
-    EpisodeStep, Trajectory, TrajectoryGroup, MeanCenteredTrajectoryGroup
-)
+from act_prm.replay_buffer.types import TrajectoryGroup
+from act_prm.utils.display import rich_print_messages
 
 from .base import (
-    get_response_content,
     get_action_logprobs_and_state_action_tokens,
-    get_batch_model_inputs,
     _get_trajectory_group_from_generations,
     HuggingFaceGenerator,
 )
 
 
 console = Console()
+logger = logging.getLogger(__name__)
 ROYGBIV = ["#FF0000", "#FF7F00", "#FFFF00", "#00FF00", "#0000FF", "#4B0082", "#9400D3"]
 
 
@@ -53,6 +48,8 @@ def get_act_logprobs_and_state_act_tokens_from_messages(
     """
     Get the action logprobs and state action tokens from the state messages and state action messages
     """
+    og_padding_side = copy(hf_tokenizer.padding_side)
+    hf_tokenizer.padding_side = "right"
     state_attn_masks: list[list[int]] = hf_tokenizer.apply_chat_template(
         state_messages,
         add_generation_prompt=False if state_continue_final_message else True,
@@ -73,14 +70,16 @@ def get_act_logprobs_and_state_act_tokens_from_messages(
         return_tensors="pt",
     )
     state_action_logits = model(**state_action_inputs.to(model.device), use_cache=False).logits
-    return get_action_logprobs_and_state_action_tokens(
+    action_logprobs, state_action_tokens = get_action_logprobs_and_state_action_tokens(
         logits=state_action_logits,
         state_lens=state_lens,
         **state_action_inputs.to(model.device),  # input_ids, attention_mask
     )
+    hf_tokenizer.padding_side = og_padding_side
+    return action_logprobs, state_action_tokens
 
 
-class ActPrmGenerator(HuggingFaceGenerator):
+class ActionPromptActPrmGenerator(HuggingFaceGenerator):
     """
     Compute rollouts using Hugging Face Transformers models
     """
@@ -263,6 +262,7 @@ class ActPrmGenerator(HuggingFaceGenerator):
                 act_prompt_state_messages, input_ids = self._get_thought_prompt(state_messages)
                 # Generate `num_return_sequences` thoughts
                 batch_state_input_ids = input_ids.expand(num_return_sequences, -1)
+
                 state_input_len_left_padded = batch_state_input_ids.shape[1]
                 # Generate model responses
                 outputs = llm.model.generate(
@@ -318,7 +318,7 @@ class ActPrmGenerator(HuggingFaceGenerator):
                     state_continue_final_message=True,
                 )
                 act_logprobs:           list[list[float]] = _state_thought_act_outputs[0]
-                state_thought_act_toks: list[list[int]]   = _state_thought_act_outputs[1]
+                # state_thought_act_toks: list[list[int]]   = _state_thought_act_outputs[1]
                 act_probs_in_group = [np.exp(sum(_logps) / len(_logps)) for _logps in act_logprobs]
                 rewards_in_group = self._compute_group_rewards(
                     rewards_in_group=act_probs_in_group,
@@ -346,6 +346,9 @@ class ActPrmGenerator(HuggingFaceGenerator):
                     } for msg in next_state.new_messages
                 ]
 
+                # rich_print_messages(hf_tokenizer.decode(batch_state_input_ids[0]))
+                # breakpoint()
+
                 # ---------- Save episode steps for each generation ----------
                 shared_kwargs = {
                     "next_obs": next_obs,
@@ -359,6 +362,7 @@ class ActPrmGenerator(HuggingFaceGenerator):
                     "unique_data_sample_id": sample_id,
                     "split": split,
                     "action_probs_in_group": act_probs_in_group,
+                    "discount_factor": discount_factor,
                 }
 
                 # 1. Save (state, thought, action) artifacts
@@ -409,7 +413,7 @@ class ActPrmGenerator(HuggingFaceGenerator):
                     state_messages_in_group=_state_messages_in_group,
                     actions_in_group=_thoughts_in_group,  # list[dict[str, str]], not exactly what we want, but we get thru state_action_tokens_in_group
                     state_len_in_group=[state_input_len_left_padded] * num_return_sequences,
-                    state_action_tokens_in_group=state_act_tokens,
+                    state_action_tokens_in_group=state_act_thought_tokens,
                     old_logprobs_in_group=thought_logprobs,
                     rewards_in_group=rewards_in_group,
                     generation_ids_in_group=range(num_return_sequences),
@@ -445,26 +449,43 @@ class ActPrmGenerator(HuggingFaceGenerator):
                                 f"SFT url: [cyan]{self.cfg.dataset_url_sft}[/cyan]"
                             )
                         panel_content = "\n".join(panel_content)
-                        self.display_state_action_next_obs(
-                            state_messages=standard_chat,
-                            action_messages=thought_act_messages[i],
-                            next_obs_messages=[],
-                            hf_tokenizer=hf_tokenizer,
-                            tools=state.tools,
-                            header_text=f"SFT trajectory:\n{header_text}",
-                            panel_content=panel_content,
-                            generation_id=i,
+
+                        state_thought_act_text = hf_tokenizer.decode(
+                            state_thought_act_tokens[i],
+                            skip_special_tokens=False,
+                            clean_up_tokenization_spaces=True,
                         )
-                        self.display_state_action_next_obs(
-                            state_messages=act_prompt_state_messages,
-                            action_messages=model_messages,
-                            next_obs_messages=[],
-                            hf_tokenizer=hf_tokenizer,
-                            tools=state.tools,
-                            header_text=f"Action-prompt Completion:\n{header_text}",
-                            panel_content=panel_content,
-                            generation_id=i,
+                        state_act_thought_text = hf_tokenizer.decode(
+                            state_act_thought_tokens[i],
+                            skip_special_tokens=False,
+                            clean_up_tokenization_spaces=True,
                         )
+                        try:
+                            rich_print_messages(
+                                msg_text=state_thought_act_text,
+                                bos_token="<|im_start|>",  # hardcoded for Qwen models
+                                eos_token="<|im_end|>\n",
+                                assistant_color=ROYGBIV[i % len(ROYGBIV)],
+                            )
+                            console.print(Panel(panel_content, title=header_text, style="bold"))
+                        except Exception as e:
+                            logger.error(f"{e.__class__.__name__}: {e}")
+                            print(state_thought_act_text)
+                            print(f"{"-" * 50} {header_text} {"-" * 50}")
+                            print(panel_content)
+                        try:
+                            rich_print_messages(
+                                msg_text=state_act_thought_text,
+                                bos_token="<|im_start|>",
+                                eos_token="<|im_end|>\n",
+                                assistant_color=ROYGBIV[i % len(ROYGBIV)],
+                            )
+                            console.print(Panel(panel_content, title=header_text, style="bold"))
+                        except Exception as e:
+                            logger.error(f"{e.__class__.__name__}: {e}")
+                            print(state_act_thought_text)
+                            print(f"{"-" * 50} {header_text} {"-" * 50}")
+                            print(panel_content)
         
         if was_training:  # assume single try for now
             llm.model.train()
