@@ -1,0 +1,31 @@
+# BrowseComp-Plus demonstrations with only actions
+name: "act_prm"
+is_async: false
+# Source of successful demonstrations
+dataset_config:
+  path: "mzio/rb_last-cql-mc_oai_gpt5_med-ec_browsecomp_plus_search-ds_train-spp4-gbs1-s0-r_1"
+  cache_dir: "/scr/mzhang/data/act_prm_data"
+  split: "train"
+
+success_rollouts_only: true
+actions_only: true
+max_messages: 20
+
+num_fewshot_prompts: 1
+action_bos: "<tool_call>"
+action_eos: "</tool_call>"
+final_answer_bos: "Final Answer: "
+
+num_train_samples: 700
+num_val_samples: 50
+num_test_samples: 10
+
+max_turns: 20
+num_tries: 1
+eval_num_tries: 1
+seed: 0
+split: "train"
+system_prompt: "You are a helpful assistant that infers reasoning thoughts behind your own observed actions."
+original_system_prompt: "You are a helpful assistant."
+truncation_message: "Sorry, you have reached the maximum number of steps. Please try again."
+verbose: false
