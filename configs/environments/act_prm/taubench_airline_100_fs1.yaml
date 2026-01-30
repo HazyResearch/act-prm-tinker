@@ -1,0 +1,35 @@
+# Tau(2)-Bench Airline demonstrations with only actions
+name: "act_prm"
+is_async: false
+# Source of successful demonstrations
+dataset_config:
+  path: "mzio/aprm-amityco_apigen_tau_bench_split_turn"
+  cache_dir: "/scr/mzhang/data/"
+  split: "airline"
+
+success_rollouts_only: true
+actions_only: true
+
+hide_observations: false
+hidden_obs_content: "..."
+first_obs_to_show: 2
+last_obs_to_show: 1
+
+num_fewshot_prompts: 1
+action_bos: "<tool_call>"
+action_eos: "</tool_call>"
+final_answer_bos: "Final Answer: "
+
+num_train_samples: 100
+num_val_samples: 10
+num_test_samples: 0
+
+max_turns: 20
+num_tries: 1
+eval_num_tries: 1
+seed: 0
+split: "train"
+system_prompt: "You are a helpful assistant that infers reasoning thoughts behind your own observed actions."
+original_system_prompt: "You are a helpful assistant."
+truncation_message: "Sorry, you have reached the maximum number of steps. Please try again."
+verbose: false
