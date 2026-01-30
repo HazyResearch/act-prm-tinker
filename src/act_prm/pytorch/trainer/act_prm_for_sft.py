@@ -99,6 +99,8 @@ class ActPrmForSftTrainer(RLTrainer):
         num_steps = num_steps or cfg.get("num_steps", None) or cfg.num_batches
         num_substeps = num_substeps or cfg.num_substeps  # number of effective gradient updates per sampling batch
         dataloader_batch_size = 1 if cfg.get("group_size", 1) == 1 else 2  # HF behavior w/ batches and padding, also GPU poor
+        # Hardcode one for now (maybe the logprobs will be off...)
+        dataloader_batch_size = 1
         # mini_batch_size = mini_batch_size or cfg.mini_batch_size
         # grad_accum_step = gradient_accumulation_steps or cfg.gradient_accumulation_steps or 1
         # dataloader_batch_size = mini_batch_size // grad_accum_step

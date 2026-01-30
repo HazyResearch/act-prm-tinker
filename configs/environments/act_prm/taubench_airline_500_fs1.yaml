@@ -1,11 +1,11 @@
-# Tau(2)-Bench Retail demonstrations with only actions
+# Tau(2)-Bench Airline demonstrations with only actions
 name: "act_prm"
 is_async: false
 # Source of successful demonstrations
 dataset_config:
   path: "mzio/aprm-amityco_apigen_tau_bench_split_turn"
   cache_dir: "/scr/mzhang/data/"
-  split: "retail"
+  split: "airline"
 
 success_rollouts_only: true
 actions_only: true
@@ -20,7 +20,7 @@ action_bos: "<tool_call>"
 action_eos: "</tool_call>"
 final_answer_bos: "Final Answer: "
 
-num_train_samples: 3400  # 214
+num_train_samples: 500
 num_val_samples: 10
 num_test_samples: 0
 

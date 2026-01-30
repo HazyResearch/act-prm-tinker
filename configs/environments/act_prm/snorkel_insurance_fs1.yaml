@@ -20,8 +20,8 @@ action_bos: "<tool_call>"
 action_eos: "</tool_call>"
 final_answer_bos: "Final Answer: "
 
-num_train_samples: 276
-num_val_samples: 20
+num_train_samples: 286
+num_val_samples: 10
 num_test_samples: 0
 
 max_turns: 20
