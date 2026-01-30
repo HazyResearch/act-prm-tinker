@@ -20,7 +20,7 @@ action_bos: "<tool_call>"
 action_eos: "</tool_call>"
 final_answer_bos: "Final Answer: "
 
-num_train_samples: 346
+num_train_samples: 157
 num_val_samples: 10
 num_test_samples: 0
 
