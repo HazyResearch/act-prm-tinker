@@ -391,12 +391,14 @@ class RLTrainer(BaseTrainer):
         # -> Then can evaluate by seeing how training another LLM from scratch performs
         # -> Will overwrite existing dataset if it already exists (e.g., to hit total samples)
         ds_identifier = "-".join([
-            f"{delim[:2].upper()}{self.run_name.split(delim)[-1].split("-")[0]}"
+            f"{delim[:1].upper()}{self.run_name.split(delim)[-1].split("-")[0]}"
             for delim in ["enco=", "geco=", "se=", "re="]  # env, generator, seed, replicate
         ])
         if "joint" in self.run_name:
             ds_identifier += "-joint"
         ds_name = f"{dataset_prefix}-{ds_identifier}{dataset_suffix}-b{save_batch_idx:03d}"
+        if len(ds_name) > 96:  # hacks to cut down on HuggingFace dataset hub name length
+            ds_name = ds_name.replace("tau_bench", "tau").replace("act_prm", "aprm").replace("qwen3", "qw3")
         cfg.dataset_url_sft = f"https://huggingface.co/datasets/{ds_name}"
         try:
             _save_trajectories_to_hf_dataset(new_trajectories[trajectory_key], ds_name)
