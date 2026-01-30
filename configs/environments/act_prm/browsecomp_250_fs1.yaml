@@ -9,14 +9,14 @@ dataset_config:
 
 success_rollouts_only: true
 actions_only: true
-max_messages: 20
+max_messages: 1000
 
 num_fewshot_prompts: 1
 action_bos: "<tool_call>"
 action_eos: "</tool_call>"
 final_answer_bos: "Final Answer: "
 
-num_train_samples: 700
+num_train_samples: 250
 num_val_samples: 50
 num_test_samples: 10
 
