@@ -129,20 +129,12 @@ class SftTrainer:
         _labels[_labels == -100] = 0  # -100 will cause tokenization errors
         decoded_labels = hf_tokenizer.batch_decode(_labels)
         for idx, decoded_input in enumerate(decoded_inputs):
-            try:
-                rich_print(f"[cyan]Input {idx}:\n{decoded_input}\n[/cyan]")
-                rich_print(f"[green]Label {idx}:\n{decoded_labels[idx]}\n[/green]")
-            except Exception as e:
-                print(f"Input {idx}:\n{decoded_input}\n")
-                print(f"Label {idx}:\n{decoded_labels[idx]}\n")
+            rich_print(f"[cyan]Input {idx}:\n{decoded_input}\n[/cyan]")
+            rich_print(f"[green]Label {idx}:\n{decoded_labels[idx]}\n[/green]")
             rich_print("=" * 100)
         # Keep run url and cmd in display
-        try:
-            rich_print(f"[bold]Run url: [link={self.run_url}]{self.run_url}[/link][/bold]")
-            rich_print(f"[bold]Run cmd: [bright_cyan]{self.run_cmd}[/bright_cyan][/bold]")
-        except Exception as e:
-            print(f"Run url: {self.run_url}")
-            print(f"Run cmd: {self.run_cmd}") 
+        rich_print(f"[bold]Run url: [link={self.run_url}]{self.run_url}[/link][/bold]")
+        rich_print(f"[bold]Run cmd: [bright_cyan]{self.run_cmd}[/bright_cyan][/bold]")
 
     def compute_loss(
         self,
@@ -323,7 +315,7 @@ class SftTrainer:
                 with torch.no_grad():
                     llm.model.eval()
                     env.split = "eval"
-                    num_eval_samples = 5  # len(env)
+                    num_eval_samples = len(env)
                     # Each eval sample corresponds to a single task, and consists of an HFDataset
                     # of steps in a single task rollout
                     nll_per_task: list[float] = []

@@ -1,4 +1,4 @@
-# HotpotQA MC demonstrations with only actions
+# Snorkel Agent Finance Reasoning demonstrations with only actions
 name: "act_prm"
 is_async: false
 # Source of successful demonstrations
@@ -20,8 +20,8 @@ action_bos: "<tool_call>"
 action_eos: "</tool_call>"
 final_answer_bos: "Final Answer: "
 
-num_train_samples: 147
-num_val_samples: 20
+num_train_samples: 157
+num_val_samples: 10
 num_test_samples: 0
 
 max_turns: 20

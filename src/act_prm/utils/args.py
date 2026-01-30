@@ -252,8 +252,13 @@ def get_args() -> argparse.Namespace:
     try:
         _model_name = OmegaConf.load(f"./configs/trainer/{args.trainer_config}.yaml")["model_name"]
     except Exception as e:
-        assert args.model_name is not None, "args.model_name must be specified if not in trainer_config"
-        _model_name = None
+        print(f"{e.__class__.__name__}: {e}")
+        try:
+            _model_name = OmegaConf.load(f"./configs/model/{args.model_config}.yaml")["model_config"]["pretrained_model_name_or_path"]
+        except Exception as e:
+            print(f"{e.__class__.__name__}: {e}")
+            assert args.model_name, "args.model_name must be specified if not in trainer_config"
+            _model_name = args.model_name
     _model_name = args.model_name or _model_name
     _model_name = _model_name.split("/")[-1].replace("-", "_")
     _env_config = args.env_config.replace("/", "_")
