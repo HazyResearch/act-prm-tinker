@@ -177,7 +177,7 @@ class ActPrmForSftTrainer(RLTrainer):
                     hf_tokenizer=hf_tokenizer,
                     save_name_or_identifier="Stage 1: SFT Generation with Act-PRM LLM",
                     trajectory_key="think_act_policy",
-                    dataset_prefix="mzio/aprm-sft_genthinkact",
+                    dataset_prefix="mzio/aprm-sft_thinkact",
                     dataset_suffix="-ap1",
                 )
 

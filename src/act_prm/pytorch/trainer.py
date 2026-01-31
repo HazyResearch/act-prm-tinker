@@ -80,7 +80,8 @@ class SftTrainer:
 
         self.run_name = cfg.run_name
         self.run_url = ml_logger.get_logger_url() if ml_logger is not None else None
-        self.run_cmd = f"uv run python main.py {" ".join(sys.argv[1:])}"
+        # self.run_cmd = f"uv run python main.py {" ".join(sys.argv[1:])}"
+        self.run_cmd = " ".join(sys.argv)
 
         # Checkpointing and best metrics
         self.checkpoint_path = checkpoint_path or cfg.checkpoint_path

@@ -31,6 +31,7 @@
 {"grad_step": 0, "global_step": 30, "train/loss": 0.068359375, "train/ppl": 1.0703125, "train/weight": 0.9999781250953674}
 {"grad_step": 0, "global_step": 31, "train/loss": 2.875, "train/ppl": 17.75, "train/weight": 0.9999679923057556}
 {"grad_step": 1, "global_step": 32, "train/loss": 0.5078125, "train/ppl": 1.6640625, "train/weight": 0.5839585661888123}
+<<<<<<< HEAD
 {"grad_step": 1, "global_step": 33, "train/loss": 1.2109375, "train/ppl": 3.359375, "train/weight": 0.419699102640152}
 {"grad_step": 1, "global_step": 34, "train/loss": 0.6953125, "train/ppl": 2.0, "train/weight": 0.9798893332481384}
 {"grad_step": 1, "global_step": 35, "train/loss": 0.34375, "train/ppl": 1.4140625, "train/weight": 0.9999703764915466}
