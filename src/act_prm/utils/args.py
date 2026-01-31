@@ -60,7 +60,12 @@ def get_args() -> argparse.Namespace:
         help=(
             "Number of steps to accumulate gradients before updating the model. "
             "Should be <= mini_batch_size",
-        )
+        ),
+    )
+    parser.add_argument(
+        "--max_input_id_len",
+        type=int,
+        help="Max number of tokens for training samples (if we're GPU poor)",
     )
 
     ## Environment
