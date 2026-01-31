@@ -289,7 +289,7 @@ class ActionLmEnv(Environment):
         ds_eval = HFDataset.from_pandas(df_eval)
         # Applies tokenization for training and model inference evaluation
         ds_train = ds_train.map(
-            partial(self._preprocess_sample, target_thoughts=True),   # labels include thoughts
+            partial(self._preprocess_sample, target_thoughts=True, split="train"),   # labels include thoughts
             remove_columns=ds_train.column_names,
             # load_from_cache_file=False,
             load_from_cache_file=True,
@@ -297,7 +297,7 @@ class ActionLmEnv(Environment):
         )
         ds_eval = ds_eval.map(
             # partial(self._preprocess_sample, target_thoughts=False),  # labels include actions only
-            partial(self._preprocess_sample, target_thoughts=self.target_thoughts_eval),
+            partial(self._preprocess_sample, target_thoughts=self.target_thoughts_eval, split="eval"),
             remove_columns=ds_eval.column_names,
             # load_from_cache_file=False,
             load_from_cache_file=True,
@@ -367,7 +367,7 @@ class ActionLmEnv(Environment):
             # df_by_sample = df_by_sample.reset_index(drop=True)
             ds_sample = HFDataset.from_pandas(df_by_sample)
             ds_sample = ds_sample.map(
-                partial(self._preprocess_sample, target_thoughts=target_thoughts),
+                partial(self._preprocess_sample, target_thoughts=target_thoughts, split=split),
                 remove_columns=ds_sample.column_names,
                 # load_from_cache_file=False,
                 load_from_cache_file=True,
@@ -382,7 +382,7 @@ class ActionLmEnv(Environment):
 
         return samples, samples_messages
 
-    def _preprocess_sample(self, sample: dict[str, Any], target_thoughts: bool) -> dict[str, Any]:
+    def _preprocess_sample(self, sample: dict[str, Any], target_thoughts: bool, split: str) -> dict[str, Any]:
         """
         Preprocess a chat dialogue sample for Hugging Face Transformers model input
         -> Assumes sample is a dict with at least keys ["state", "action", "tools"]
@@ -437,12 +437,14 @@ class ActionLmEnv(Environment):
 
         # Finally get model training inputs and labels
         labels = copy(model_input_ids)
-        if target_thoughts:  # compute cross-entropy loss for thought and action tokens
+        if target_thoughts and split == "train":  # compute cross-entropy loss for thought and action tokens
             # labels[:state_len] = [-100] * state_len
             assistant_mask = np.array(model_inputs["assistant_masks"])
             labels = np.array(labels)
             labels[assistant_mask == 0] = -100  # note that this does not include eos tokens
             labels = labels.tolist()
+        elif target_thoughts:  # Only evaluate on last assistant message
+            labels[:state_len] = [-100] * state_len
         else:  # only compute cross-entropy loss for action tokens
             labels[:state_thought_len] = [-100] * state_thought_len
 
