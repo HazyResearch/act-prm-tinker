@@ -296,7 +296,8 @@ class ActionLmEnv(Environment):
             desc="Tokenizing SFT train split",
         )
         ds_eval = ds_eval.map(
-            partial(self._preprocess_sample, target_thoughts=False),  # labels include actions only
+            # partial(self._preprocess_sample, target_thoughts=False),  # labels include actions only
+            partial(self._preprocess_sample, target_thoughts=self.target_thoughts_eval),
             remove_columns=ds_eval.column_names,
             # load_from_cache_file=False,
             load_from_cache_file=True,
