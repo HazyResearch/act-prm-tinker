@@ -1,0 +1,42 @@
+# TextWorld demonstrations
+name: "action_lm"
+is_async: false
+dataset_config:
+  path: "mzio/aprm-sft_genthinkact-ENact_prm_taubench_retail_500_fs1-GEaprm_qwen3_ap-SE42-REv10_lr1e04-b009"
+  cache_dir: "/scr/mzhang/data/"
+  split: "train"
+
+max_input_id_len: 4096
+
+fp32_loss: false  # keep in bf16
+
+actions_only: false
+build_full_states: true  # we need to filter for best_actions_only or best_halves_only
+best_actions_only: false
+best_halves_only: false
+success_only: true
+
+hide_observations: false
+hidden_obs_content: "..."
+first_obs_to_show: 2
+last_obs_to_show: 1
+
+num_fewshot_prompts: 0
+action_bos: "<tool_call>"
+action_eos: "</tool_call>"
+final_answer_bos: "Final Answer: "
+
+num_eval_gen_samples: null
+num_eval_rollout_samples: null
+frac_train_tasks: 0.95  # 0.8
+frac_eval_tasks:  0.05  # 0.2
+
+max_turns: null
+num_tries: 1
+eval_num_tries: 1
+seed: 0
+split: "train"
+system_prompt: "You are a helpful tool-calling assistant."
+original_system_prompt: "You are a helpful tool-calling assistant."
+truncation_message: "Sorry, you have reached the maximum number of steps. Please try again."
+verbose: false
