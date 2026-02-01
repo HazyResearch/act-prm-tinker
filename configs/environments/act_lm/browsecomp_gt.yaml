@@ -11,6 +11,7 @@ timestep_name: "timestep"
 generation_id_name: "generation_id"
 
 fp32_loss: false  # keep in bf16
+loss_on_past_assistant_messages: true
 
 actions_only: false
 build_full_states: true  # we need to filter for best_actions_only or best_halves_only
