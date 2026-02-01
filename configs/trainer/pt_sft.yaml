@@ -2,6 +2,7 @@
 trainer_name: pt_sft
 
 fp32_loss: false  # keep in bf16
+loss_on_past_assistant_messages: true
 
 # # Generation (Sampling Rollouts)
 # num_batches: 200

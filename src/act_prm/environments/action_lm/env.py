@@ -74,6 +74,7 @@ class ActionLmEnv(Environment):
         success_only: bool = True,
         max_timestep: int | None = None,
         target_thoughts_eval: bool = False,
+        loss_on_past_assistant_messages: bool = False,
         action_bos: str = "<tool_call>",
         action_eos: str = "</tool_call>",
         final_answer_bos: str = "Final Answer: ",
@@ -104,6 +105,7 @@ class ActionLmEnv(Environment):
         self.max_input_id_len = max_input_id_len
 
         self.target_thoughts_eval = target_thoughts_eval  # if True, we compute inference metrics over thought tokens too
+        self.loss_on_past_assistant_messages = loss_on_past_assistant_messages
 
         self.sample_id_name = sample_id_name
         self.timestep_name = timestep_name
@@ -427,7 +429,8 @@ class ActionLmEnv(Environment):
         )
         # Full model input (state, thought, action)
         model_input_kwargs = {"add_generation_prompt": False, "return_dict": True}
-        if target_thoughts:
+        # if target_thoughts:
+        if self.loss_on_past_assistant_messages:
             # allow us to easily train on past assistant messages
             model_input_kwargs["return_assistant_tokens_mask"] = True
         model_inputs = _tokenize(messages + [think_act_msg], **model_input_kwargs)
@@ -436,17 +439,40 @@ class ActionLmEnv(Environment):
         state_thought_len = len(state_thought_ids)
 
         # Finally get model training inputs and labels
-        labels = copy(model_input_ids)
-        if target_thoughts and split == "train":  # compute cross-entropy loss for thought and action tokens
-            # labels[:state_len] = [-100] * state_len
+        if self.loss_on_past_assistant_messages and split == "train":
+            # Compute cross-entropy loss for past assistant messages
             assistant_mask = np.array(model_inputs["assistant_masks"])
-            labels = np.array(labels)
-            labels[assistant_mask == 0] = -100  # note that this does not include eos tokens
+            labels = np.array(model_input_ids)
+            # A bit hacky, but ensure assistant mask includes eos tokens
+            while labels[np.where(assistant_mask)[0]][-1] != self.tokenizer.eos_token_id:
+                assistant_mask[1:] += assistant_mask[:-1]
+            labels[assistant_mask == 0] = -100
             labels = labels.tolist()
-        elif target_thoughts:  # Only evaluate on last assistant message
-            labels[:state_len] = [-100] * state_len
-        else:  # only compute cross-entropy loss for action tokens
-            labels[:state_thought_len] = [-100] * state_thought_len
+        else:
+            # We'll only compute loss on last assistant message
+            labels = [-100] * len(model_input_ids)
+
+        if target_thoughts:
+            # Compute loss on thought + action tokens
+            labels[state_len:] = model_input_ids[state_len:]
+        else:
+            # Only compute loss on action tokens
+            labels[state_thought_len:] = model_input_ids[state_thought_len:]
+
+        # labels = copy(model_input_ids)
+        # if target_thoughts and split == "train":  # compute cross-entropy loss for thought and action tokens
+        #     # labels[:state_len] = [-100] * state_len
+        #     assistant_mask = np.array(model_inputs["assistant_masks"])
+        #     labels = np.array(labels)
+        #     labels[assistant_mask == 0] = -100  # note that this may not include eos tokens
+        #     labels = labels.tolist()
+        #     breakpoint()
+        # elif target_thoughts:  # Only evaluate on last assistant message
+        #     # labels[:state_len] = [-100] * state_len
+        #     labels = [-100] * state_len + model_input_ids[state_len:]
+        # else:  # only compute cross-entropy loss for action tokens
+        #     # labels[:state_thought_len] = [-100] * state_thought_len
+        #     labels = [-100] * state_thought_len + model_input_ids[state_thought_len:]
 
         weight = sample.get("advantage", 1.0)  # Optionally still use advantage for SFT weighting
         return {
