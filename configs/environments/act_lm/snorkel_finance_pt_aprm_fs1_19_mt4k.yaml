@@ -7,6 +7,7 @@ dataset_config:
   split: "train"
 
 max_input_id_len: 4096
+max_sample_ids: null
 
 fp32_loss: false  # keep in bf16
 loss_on_past_assistant_messages: true

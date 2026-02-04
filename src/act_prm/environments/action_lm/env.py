@@ -152,6 +152,7 @@ class ActionLmEnv(Environment):
             # "train": self.init_rl_data(self.df_train, split="train"),
             "eval":  self.init_rl_data(self.df_eval,  split="eval"),
         }
+        # breakpoint()
 
         # Silly streaming
         self.streamer = RichTextStreamer(
@@ -219,7 +220,7 @@ class ActionLmEnv(Environment):
                     except Exception as e:
                         print(f"{e.__class__.__name__}: {e}")
                         breakpoint()
-                    all_full_states[gen_idx].append(last_obs)  # add latest obs, action
+                    # all_full_states[gen_idx].append(last_obs)  # add latest obs, action
                     all_full_states[gen_idx].append(df_by_sample_step["action"][gen_idx])
                 # Update the state for all samples in df_by_sample_step (omit last action)
                 # df_by_sample_step["state_full_obs"] = [_state[:-1] for _state in all_full_states]
@@ -229,6 +230,7 @@ class ActionLmEnv(Environment):
                         df_by_sample_step["state"] = [self.maybe_hide_observations(_state[:-1]) for _state in all_full_states]
                     except Exception as e:
                         print(f"{e.__class__.__name__}: {e}")
+                        print('\nError:\ndf_by_sample_step["state"] = [self.maybe_hide_observations(_state[:-1]) for _state in all_full_states]')
                         breakpoint()
                 # Otherwise, will should also do something where we just hide the prior observations
                 # if t > 0:
