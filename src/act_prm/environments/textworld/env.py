@@ -175,8 +175,10 @@ class TextWorldEnv(Environment):
             "train": self.num_train_samples,
             "test": self.num_test_samples,
         })
-        train_indices = list(range(self.num_train_samples))
-        test_indices  = list(range(self.num_train_samples, self.num_train_samples + self.num_test_samples))
+        # train_indices = list(range(self.num_train_samples))
+        # test_indices  = list(range(self.num_train_samples, self.num_train_samples + self.num_test_samples))
+        test_indices = list(range(self.num_test_samples))
+        train_indices = list(range(self.num_test_samples, self.num_train_samples + self.num_test_samples))  # alt rep
         eval_indices  = test_indices
         # Update val_indices if num_val_samples is provided
         if self.num_val_samples is not None:

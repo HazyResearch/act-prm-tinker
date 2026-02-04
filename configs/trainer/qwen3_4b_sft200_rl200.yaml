@@ -6,7 +6,7 @@ action_prompts: false
 num_batches_action_prompts: 0
 sft_num_batches: 200
 sft_num_substeps: 1  # Updates per batch
-sft_eval_every: 10
+sft_eval_every: 20
 
 hide_observations: false
 hidden_obs_content: "..."

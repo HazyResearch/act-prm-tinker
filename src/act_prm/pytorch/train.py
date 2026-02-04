@@ -40,6 +40,7 @@ def run_rollouts(
     max_tokens: int | None = None,
     temperature: float | None = None,
     pbar_position: int = 0,
+    num_return_sequences: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, list[Trajectory]]]:
     """
     Run rollouts for a single batch, e.g., by generating rollouts and grading them
@@ -62,8 +63,9 @@ def run_rollouts(
             name_or_identifier=name_or_identifier,
         )
         batch_size = tasks_per_update or len(env)  # len(env) is the number of tasks or problems
-        num_return_sequences = cfg.group_size if split == "train" else cfg.eval_group_size
-
+        num_return_sequences = num_return_sequences or (
+            cfg.group_size if split == "train" else cfg.eval_group_size
+        )
         all_eval_metrics = {}
         keys_for_correct = []
         eval_metric_keys = [

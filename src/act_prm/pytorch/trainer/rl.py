@@ -342,7 +342,8 @@ class RLTrainer(BaseTrainer):
             torch.cuda.empty_cache()
 
         # Load best model checkpoint
-        llm.model = load_lora(llm.model, self.best_lm_checkpoint_path)
+        # llm.model = load_lora(llm.model, self.best_lm_checkpoint_path)
+        llm.model = load_lora(llm.model, self.best_checkpoint_path)
         return llm
 
 

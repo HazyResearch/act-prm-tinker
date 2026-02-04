@@ -62,6 +62,7 @@ def get_args() -> argparse.Namespace:
             "Should be <= mini_batch_size",
         ),
     )
+    parser.add_argument("--num_steps", type=int, help="Number of steps to train for")
     parser.add_argument(
         "--max_input_id_len",
         type=int,

@@ -387,48 +387,54 @@ class SftTrainer:
                     )
 
                 if do_rollout_eval:
-                    rollout_checkpoint_name = (
-                        f"rollout_eval_{checkpoint_name}" if checkpoint_name else "rollout_eval"
-                    )
-                    eval_env.split = "eval"
-                    eval_rollout_metrics, _ = run_rollouts(
-                        llm=llm,
-                        hf_tokenizer=hf_tokenizer,
-                        generator_constructor=self.rl_generator_constructor,
-                        env=eval_env,
-                        cfg=cfg,
-                        batch_id=batch_idx,
-                        checkpoint_name=rollout_checkpoint_name,
-                        split="eval",
-                        num_tries=cfg.eval_num_tries,
-                        # Just use all eval tasks
-                        start_idx=0,  
-                        tasks_per_update=len(eval_env),
-                        name_or_identifier=name_or_identifier,
-                    )
-                    metrics.update(eval_rollout_metrics)
-                    display_metrics(eval_rollout_metrics, title=f"Rollout Eval Metrics, Step {step_idx}", style="bright_red")
-
-                    # Update best metrics
-                    ro_metric_name = [k for k in eval_rollout_metrics.keys() if cfg.best_ro_metric in k][0]
-                    eval_ro_metric = eval_rollout_metrics[ro_metric_name]
-                    if eval_ro_metric > self.best_ro_metric:
-                        self.best_ro_metric = eval_ro_metric
-                        self.best_ro_metric_step = step_idx
-                        save_lora(llm.model, self.best_ro_checkpoint_path)
-                        logger.info(
-                            f"RO EVAL (Step {step_idx}, Eval {eval_idx}): "
-                            f"Updated best RO metric to {eval_ro_metric} at step {step_idx}"
+                    # Sanity check with train and test splits
+                    for _split in ["train", "eval"]:
+                        rollout_checkpoint_name = (
+                            f"rollout_eval-{_split}_split-{checkpoint_name}"
+                            if checkpoint_name
+                            else f"rollout_eval-{_split}_split"
                         )
-                    metrics.update({
-                        f"eval/ro_{ro_metric_name}": eval_ro_metric,
-                        f"eval/ro_{ro_metric_name}_best": self.best_ro_metric,
-                        f"eval/ro_{ro_metric_name}_best_step": self.best_ro_metric_step,
-                    })
-                    # _eval_rollout_metrics = self._eval_offline_rollout(
-                    #     llm, eval_env, step_idx, eval_idx, self.eval_rollout_data_path, num_eval_rollout_samples
-                    # )
-                    # eval_rollout_metrics, eval_rollout_metrics_per_task, eval_rollout_data_actions = _eval_rollout_metrics
+                        eval_env.split = _split
+                        eval_rollout_metrics, _ = run_rollouts(
+                            llm=llm,
+                            hf_tokenizer=hf_tokenizer,
+                            generator_constructor=self.rl_generator_constructor,
+                            env=eval_env,
+                            cfg=cfg,
+                            batch_id=batch_idx,
+                            checkpoint_name=rollout_checkpoint_name,
+                            split=_split,
+                            num_tries=cfg.eval_num_tries,
+                            num_return_sequences=cfg.eval_group_size,  # even for train split
+                            # Just use all eval tasks
+                            start_idx=0,  
+                            tasks_per_update=len(eval_env),
+                            name_or_identifier=name_or_identifier,
+                        )
+                        metrics.update(eval_rollout_metrics)
+                        display_metrics(eval_rollout_metrics, title=f"Rollout Eval Metrics, Step {step_idx}", style="bright_red")
+
+                        # Update best metrics
+                        if _split == "eval":
+                            ro_metric_name = [k for k in eval_rollout_metrics.keys() if cfg.best_ro_metric in k][0]
+                            eval_ro_metric = eval_rollout_metrics[ro_metric_name]
+                            if eval_ro_metric > self.best_ro_metric:
+                                self.best_ro_metric = eval_ro_metric
+                                self.best_ro_metric_step = step_idx
+                                save_lora(llm.model, self.best_ro_checkpoint_path)
+                                logger.info(
+                                    f"RO EVAL (Step {step_idx}, Eval {eval_idx}): "
+                                    f"Updated best RO metric to {eval_ro_metric} at step {step_idx}"
+                                )
+                            metrics.update({
+                                f"eval/ro_{ro_metric_name}": eval_ro_metric,
+                                f"eval/ro_{ro_metric_name}_best": self.best_ro_metric,
+                                f"eval/ro_{ro_metric_name}_best_step": self.best_ro_metric_step,
+                            })
+                        # _eval_rollout_metrics = self._eval_offline_rollout(
+                        #     llm, eval_env, step_idx, eval_idx, self.eval_rollout_data_path, num_eval_rollout_samples
+                        # )
+                        # eval_rollout_metrics, eval_rollout_metrics_per_task, eval_rollout_data_actions = _eval_rollout_metrics
                         
                 eval_already = True
                 eval_idx += 1
@@ -437,6 +443,9 @@ class SftTrainer:
                 # if do_gen_eval: del eval_gen_metrics, eval_gen_metrics_per_task, eval_gen_data_actions
                 # if do_rollout_eval: del eval_rollout_metrics
                 torch.cuda.empty_cache()
+
+                if num_steps == 1:
+                    self.ml_logger.log_metrics(metrics)  # increments each time  # hack
             
             # Loop through training batches
             try:

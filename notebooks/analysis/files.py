@@ -24,10 +24,14 @@ TARGET_FILES = {
 }
 
 ARGN_TO_NAME = {
-    "mibasi": "Mini-Batch Size",
+    "loco": "LoRA",
+    "moco": "MC",
+    "mibasi": "MBS",  #  "Mini-Batch Size",
     "lera": "LR",
-    "se": "Seed",
-    "re": "Replicate"
+    "se": "s",  # "Seed",
+    "re": "r",  # "Replicate",
+    "acon": "Actions-only",
+    "hiob": "Hide Past Observations",
 }
 
 
@@ -64,7 +68,16 @@ def get_value_from_argv(argv: str, num_decimals: int = 0) -> str:
         return val
 
 
-def get_name_from_uid(unique_id: str, verbose: bool = False, join_sep: str = "-") -> str:
+def get_name_from_uid(
+    unique_id: str,
+    verbose: bool = False,
+    join_sep: str = "-",
+    no_display: tuple[str, ...] = ("acon", "hiob", "moco"),
+) -> str:
+
+    if len(unique_id) == 0:
+        return ""
+    
     if "acon=1" in unique_id:
         name = "Actions-only"
     else:
@@ -74,12 +87,11 @@ def get_name_from_uid(unique_id: str, verbose: bool = False, join_sep: str = "-"
         details = []
         for argn_argv in unique_id.split(join_sep):
             argn, argv = argn_argv.split("=")
-            if argn in ARGN_TO_NAME:
+            if argn in ARGN_TO_NAME and argn not in no_display:
                 details.append(f"{ARGN_TO_NAME[argn]}={get_value_from_argv(argv)}")
         name = f"{name} ({', '.join(details)})"
 
     return name
-
 
 
 def is_nonempty_csv(path: Path) -> bool:
@@ -134,7 +146,11 @@ def unique_ids_from_strings(
     missing: str = "NA",
     join_sep: str = "-",
     sanitize: bool = True,
-    always_keys: Iterable[str] = ("learning_rate", "mini_batch_size"),
+    always_keys: Iterable[str] = (
+        "actions_only", "hide_observations",
+        "learning_rate", "mini_batch_size",
+        "lora_config", "model_config",
+    ),
 ) -> List[str]:
     """
     Create per-item identifiers using:
@@ -151,27 +167,38 @@ def unique_ids_from_strings(
         return []
 
     # --- 1) strip common prefix/suffix by path parts ---
-    parts = [Path(s).parts for s in strings]
-    min_len = min(len(p) for p in parts)
+    if len(strings) == 1:
+        # With a single item, "common prefix/suffix" would erase everything.
+        # Use just the filename (or use strings[0] if you want dirs included).
+        # cores = [Path(strings[0]).name]
+        parts = [Path(s).parts for s in strings]
+        cores = []
+        pref = 0
+        for p in parts:
+            core_parts = p
+            cores.append("/".join(core_parts))
+    else:
+        parts = [Path(s).parts for s in strings]
+        min_len = min(len(p) for p in parts)
 
-    pref = 0
-    for i in range(min_len):
-        if all(p[i] == parts[0][i] for p in parts):
-            pref += 1
-        else:
-            break
+        pref = 0
+        for i in range(min_len):
+            if all(p[i] == parts[0][i] for p in parts):
+                pref += 1
+            else:
+                break
 
-    suf = 0
-    for j in range(1, min_len - pref + 1):
-        if all(p[-j] == parts[0][-j] for p in parts):
-            suf += 1
-        else:
-            break
+        suf = 0
+        for j in range(1, min_len - pref + 1):
+            if all(p[-j] == parts[0][-j] for p in parts):
+                suf += 1
+            else:
+                break
 
-    cores = []
-    for p in parts:
-        core_parts = p[pref : (len(p) - suf if suf > 0 else len(p))]
-        cores.append("/".join(core_parts))
+        cores = []
+        for p in parts:
+            core_parts = p[pref : (len(p) - suf if suf > 0 else len(p))]
+            cores.append("/".join(core_parts))
 
     # --- 2) parse each core into kv dict + misc tokens ---
     kv_dicts: List[Dict[str, str]] = []

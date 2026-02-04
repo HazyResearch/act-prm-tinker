@@ -262,7 +262,9 @@ class ActPrmForSftTrainer(RLTrainer):
             torch.cuda.empty_cache()
 
         # Load best model checkpoint
-        llm.model = load_lora(llm.model, self.best_lm_checkpoint_path)
+        # llm.model = load_lora(llm.model, self.best_lm_checkpoint_path)
+        llm.model = load_lora(llm.model, self.best_checkpoint_path)
+        
         self.generate_and_save_trajectories(
             save_generator_constructor=self.action_prompt_generator_constructor,
             save_batch_idx=num_steps - 1,  # Last batch

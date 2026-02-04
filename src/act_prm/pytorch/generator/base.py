@@ -2,6 +2,7 @@
 Base class for generation / rollout sampling for Hugging Face Transformers models
 """
 
+import logging
 import sys
 from copy import copy, deepcopy
 from typing import Any, Callable
@@ -26,6 +27,7 @@ from act_prm.replay_buffer.types import (
 from act_prm.utils.display import RichTextStreamer
 
 
+logger = logging.getLogger(__name__)
 console = Console()
 ROYGBIV = ["#FF0000", "#FF7F00", "#FFFF00", "#00FF00", "#0000FF", "#4B0082", "#9400D3"]
 
@@ -80,10 +82,17 @@ def get_action_logprobs_and_state_action_tokens(
 
     # Get logprobs for action tokens only
     a_starts = [state_len - 1 for state_len in state_lens]
-    logprobs = [
-        logprobs[b_idx][attention_mask[b_idx, 1:]][start_idx:].tolist()  # mask matches targets
-        for b_idx, start_idx in enumerate(a_starts)
-    ]
+    try:
+        logprobs = [
+            logprobs[b_idx][attention_mask[b_idx, 1:]][start_idx:].tolist()  # mask matches targets
+            for b_idx, start_idx in enumerate(a_starts)
+        ]
+    except Exception as e:
+        print(f"Error with logprobs[b_idx][attention_mask[b_idx, 1:]][start_idx:].tolist(): {e}")
+        print("len(state_lens)", len(state_lens))
+        print("a_starts", a_starts)
+        print("len(logprobs)", len(logprobs))
+        breakpoint()
     # MZ 1/27/26: maybe more clear to keep separate?
     # logprobs = [logprobs[b_idx][attn_mask] for b_idx, attn_mask in enumerate(attention_mask)]
     # logprobs = [logprobs[b_idx][start_idx:] for b_idx, start_idx in enumerate(a_starts)]
@@ -101,7 +110,8 @@ def get_batch_model_inputs(
     hf_tokenizer: PreTrainedTokenizerBase,
     padding_side: str = "left",
     enable_thinking: bool = False,
-    is_train: bool = True,
+    # is_train: bool = True,
+    for_generation: bool = False,
 ) -> tuple[dict[str, Any], list[int], bool]:
     """
     Get model_inputs (input_ids, attention_mask, etc.) from a batch of input messages
@@ -130,18 +140,27 @@ def get_batch_model_inputs(
         )
         for b_idx in range(len(input_messages))
     ]
-    if len(batch_model_texts) == 1 and is_train:
+    # if len(batch_model_texts) == 1 and is_train:
+    if not for_generation and len(batch_model_texts) == 1:
         # For logprobs/inference, HF Transformers can treat padding / batch_size >1
         # differently..., so we add dummy message to be consistent (always pad)
-        batch_model_texts.append({"role": "assistant", "content": ""})
+        batch_model_texts.append("")
         drop_last_batch_item = True
 
     # Then tokenize (get padded input_ids, attention_mask, etc.)
-    batch_model_inputs = hf_tokenizer(
-        batch_model_texts,
-        padding=True,
-        return_tensors="pt"
-    )
+    try:
+        batch_model_inputs = hf_tokenizer(
+            batch_model_texts,
+            padding=True,
+            return_tensors="pt"
+        )
+    except Exception as e:
+        logger.error(
+            f"Error tokenizing batch_model_texts: {e.__class__.__name__}: {e}"
+            f"\nbatch_model_texts: {batch_model_texts}"
+        )
+        breakpoint()
+        
     input_lens = [attn_mask.sum().item() for attn_mask in batch_model_inputs["attention_mask"]]
     return batch_model_inputs, input_lens, drop_last_batch_item
 
@@ -372,14 +391,18 @@ class HuggingFaceGenerator:
                     self._get_messages_from_state(state=state, default_context=None)
                     for state in batch_states
                 ]
-                batch_state_inputs, state_input_lens, _ = get_batch_model_inputs(
+                _batch_model_inputs = get_batch_model_inputs(
                     input_messages=batch_state_messages,
                     tools=[state.tools for state in batch_states],
                     hf_tokenizer=hf_tokenizer,
                     padding_side="left",
                     enable_thinking=self.enable_thinking,
-                    is_train=split == "train",
+                    # is_train=split == "train",
+                    for_generation=True,
                 )
+                # batch_state_inputs, state_input_lens, _ = _batch_model_inputs
+                batch_state_inputs: dict[str, Any] = _batch_model_inputs[0]
+                state_input_lens: list[int] = _batch_model_inputs[1]
                 state_input_len_left_padded = batch_state_inputs["input_ids"].shape[1]
 
                 # Generate model responses
@@ -423,15 +446,24 @@ class HuggingFaceGenerator:
                     hf_tokenizer=hf_tokenizer,
                     padding_side="right",
                     enable_thinking=self.enable_thinking,
-                    is_train=split == "train",
+                    # is_train=split == "train",
+                    for_generation=False,
                 )
                 # -> 2. Compute model inference logprobs (matches those at training time)
                 logits = llm.model(**batch_state_action_inputs.to(device), use_cache=False).logits
+                if len(state_input_lens) == 1 and len(logits) > 1:
+                    # Expand to match batch_size in 2nd get_batch_model_inputs, e.g., bc made batch_size > 1 for training
+                    state_input_lens = state_input_lens * len(logits)
+                
                 if drop_last_batch_item:  # now we remove last item after model inference
                     logits = logits[:-1]
                     state_input_lens = state_input_lens[:-1]
                     for k, v in batch_state_action_inputs.items():
-                        setattr(batch_state_action_inputs, k, v[:-1])
+                        try:
+                            batch_state_action_inputs[k] = v[:-1]
+                        except TypeError as e:
+                            logger.warning(f"Error setting batch_state_action_inputs[{k}]: {e.__class__.__name__}: {e}")
+                            setattr(batch_state_action_inputs, k, v[:-1])
                 
                 act_logps_and_state_act_toks = get_action_logprobs_and_state_action_tokens(
                     logits=logits,
@@ -440,6 +472,13 @@ class HuggingFaceGenerator:
                 )
                 act_logprobs: list[list[float]] = act_logps_and_state_act_toks[0]       # batch_size x action_len
                 state_action_tokens: list[list[int]] = act_logps_and_state_act_toks[1]  # batch_size x (state_len + action_len)
+
+                if len(state_input_lens) != len(act_logprobs):
+                    logger.warning("Dropped last batch item for logprobs matching...")
+                    logger.warning(f"logits: {logits.shape}")
+                    logger.warning(f"state_input_lens: {state_input_lens}")
+                    logger.warning(f"batch_state_action_inputs: {batch_state_action_inputs}")
+                    breakpoint()
 
                 # Transition to next states
                 # -> Parse to consistent ActionFromLLM format
