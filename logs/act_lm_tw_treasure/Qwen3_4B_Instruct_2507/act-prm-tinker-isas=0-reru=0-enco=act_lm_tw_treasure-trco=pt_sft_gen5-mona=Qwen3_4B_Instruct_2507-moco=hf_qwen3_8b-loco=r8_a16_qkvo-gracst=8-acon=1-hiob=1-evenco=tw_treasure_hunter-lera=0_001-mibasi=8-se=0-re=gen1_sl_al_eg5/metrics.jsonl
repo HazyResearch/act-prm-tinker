@@ -1,0 +1,27 @@
+{"grad_step": 0, "global_step": 0, "eval/lm_nll": 0.6119207922893775, "eval/lm_step_acc": 0.075, "eval/lm_success": 0.0, "eval/lm_longest": 0.0, "eval/lm_ppl": 1.8439698824797277, "eval/lm_probs": 0.5423082066043418, "eval/lm_best_ppl": 1.8439698824797277, "eval/lm_best_ppl_step": 0, "actions_data_lm_save_path": "./logs/act_lm_tw_treasure/Qwen3_4B_Instruct_2507/act-prm-tinker-isas=0-reru=0-enco=act_lm_tw_treasure-trco=pt_sft_gen5-mona=Qwen3_4B_Instruct_2507-moco=hf_qwen3_8b-loco=r8_a16_qkvo-gracst=8-acon=1-hiob=1-evenco=tw_treasure_hunter-lera=0_001-mibasi=8-se=0-re=gen1_sl_al_eg5/eval_lm_action_metrics.csv", "train/loss": 1.875, "train/ppl": 6.53125, "train/weight": 0.9999779462814331}
+{"grad_step": 0, "global_step": 1, "train/loss": 1.8984375, "train/ppl": 6.6875, "train/weight": 0.9999788999557495}
+{"grad_step": 0, "global_step": 2, "train/loss": 3.25, "train/ppl": 25.75, "train/weight": 0.9999784231185913}
+{"grad_step": 0, "global_step": 3, "train/loss": 1.7734375, "train/ppl": 5.90625, "train/weight": 0.9999827146530151}
+{"grad_step": 0, "global_step": 4, "train/loss": 1.8671875, "train/ppl": 6.46875, "train/weight": 0.9999826550483704}
+{"grad_step": 0, "global_step": 5, "train/loss": 2.09375, "train/ppl": 8.125, "train/weight": 0.5839271545410156}
+{"grad_step": 0, "global_step": 6, "train/loss": 3.328125, "train/ppl": 27.875, "train/weight": 0.9220796227455139}
+{"grad_step": 0, "global_step": 7, "train/loss": 3.78125, "train/ppl": 43.75, "train/weight": 0.9999678134918213}
+{"grad_step": 1, "global_step": 8, "train/loss": 1.734375, "train/ppl": 5.65625, "train/weight": 0.9999815225601196}
+{"grad_step": 1, "global_step": 9, "train/loss": 2.0625, "train/ppl": 7.875, "train/weight": 0.9999791979789734}
+{"grad_step": 1, "global_step": 10, "train/loss": 1.8984375, "train/ppl": 6.6875, "train/weight": 0.9999799728393555}
+{"grad_step": 1, "global_step": 11, "train/loss": 2.15625, "train/ppl": 8.625, "train/weight": 0.9999793171882629}
+{"grad_step": 1, "global_step": 12, "train/loss": 2.46875, "train/ppl": 11.8125, "train/weight": 0.9999844431877136}
+{"grad_step": 1, "global_step": 13, "train/loss": 4.28125, "train/ppl": 72.5, "train/weight": 0.9999811053276062}
+{"grad_step": 1, "global_step": 14, "train/loss": 1.859375, "train/ppl": 6.40625, "train/weight": 0.9999805688858032}
+{"grad_step": 1, "global_step": 15, "train/loss": 6.375, "train/ppl": 588.0, "train/weight": 0.999862015247345}
+{"grad_step": 2, "global_step": 16, "train/loss": 2.03125, "train/ppl": 7.625, "train/weight": 0.9999804496765137}
+{"grad_step": 2, "global_step": 17, "train/loss": 2.203125, "train/ppl": 9.0625, "train/weight": 0.9999786615371704}
+{"grad_step": 2, "global_step": 18, "train/loss": 2.109375, "train/ppl": 8.25, "train/weight": 0.9999792575836182}
+{"grad_step": 2, "global_step": 19, "train/loss": 2.09375, "train/ppl": 8.125, "train/weight": 0.9999792575836182}
+{"grad_step": 2, "global_step": 20, "train/loss": 4.78125, "train/ppl": 119.5, "train/weight": 0.3380275368690491}
+{"grad_step": 2, "global_step": 21, "train/loss": 3.140625, "train/ppl": 23.125, "train/weight": 0.9999833703041077}
+{"grad_step": 2, "global_step": 22, "train/loss": 1.859375, "train/ppl": 6.40625, "train/weight": 0.9999796152114868}
+{"grad_step": 2, "global_step": 23, "train/loss": 2.765625, "train/ppl": 15.875, "train/weight": 0.9996855854988098}
+{"grad_step": 3, "global_step": 24, "train/loss": 2.0625, "train/ppl": 7.875, "train/weight": 0.9999803304672241}
+{"grad_step": 3, "global_step": 25, "train/loss": 1.6796875, "train/ppl": 5.375, "train/weight": 0.9993616342544556}
+{"grad_step": 3, "global_step": 26, "train/loss": 3.671875, "train/ppl": 39.25, "train/weight": 0.9999760985374451}

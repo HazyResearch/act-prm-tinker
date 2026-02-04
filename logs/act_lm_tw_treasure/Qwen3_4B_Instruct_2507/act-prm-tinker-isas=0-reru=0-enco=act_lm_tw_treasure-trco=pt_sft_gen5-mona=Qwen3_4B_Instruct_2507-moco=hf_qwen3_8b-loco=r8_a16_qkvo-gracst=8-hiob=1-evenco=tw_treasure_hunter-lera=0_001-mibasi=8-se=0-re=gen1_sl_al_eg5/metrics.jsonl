@@ -1,0 +1,8 @@
+{"grad_step": 0, "global_step": 0, "eval/lm_nll": 0.21546696774514995, "eval/lm_step_acc": 0.3, "eval/lm_success": 0.0, "eval/lm_longest": 0.0, "eval/lm_ppl": 1.240441007682875, "eval/lm_probs": 0.8061648992627105, "eval/lm_best_ppl": 1.240441007682875, "eval/lm_best_ppl_step": 0, "actions_data_lm_save_path": "./logs/act_lm_tw_treasure/Qwen3_4B_Instruct_2507/act-prm-tinker-isas=0-reru=0-enco=act_lm_tw_treasure-trco=pt_sft_gen5-mona=Qwen3_4B_Instruct_2507-moco=hf_qwen3_8b-loco=r8_a16_qkvo-gracst=8-hiob=1-evenco=tw_treasure_hunter-lera=0_001-mibasi=8-se=0-re=gen1_sl_al_eg5/eval_lm_action_metrics.csv", "train/loss": 2.0, "train/ppl": 7.375, "train/weight": 0.9999779462814331}
+{"grad_step": 0, "global_step": 1, "train/loss": 1.75, "train/ppl": 5.75, "train/weight": 0.9999788999557495}
+{"grad_step": 0, "global_step": 2, "train/loss": 2.875, "train/ppl": 17.75, "train/weight": 0.9999784231185913}
+{"grad_step": 0, "global_step": 3, "train/loss": 2.09375, "train/ppl": 8.125, "train/weight": 0.9999827146530151}
+{"grad_step": 0, "global_step": 4, "train/loss": 1.9375, "train/ppl": 6.9375, "train/weight": 0.9999826550483704}
+{"grad_step": 0, "global_step": 5, "train/loss": 1.9296875, "train/ppl": 6.875, "train/weight": 0.5839271545410156}
+{"grad_step": 0, "global_step": 6, "train/loss": 2.8125, "train/ppl": 16.625, "train/weight": 0.9220796227455139}
+{"grad_step": 0, "global_step": 7, "train/loss": 2.640625, "train/ppl": 14.0, "train/weight": 0.9999678134918213}
