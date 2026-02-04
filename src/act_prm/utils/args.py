@@ -67,6 +67,11 @@ def get_args() -> argparse.Namespace:
         type=int,
         help="Max number of tokens for training samples (if we're GPU poor)",
     )
+    parser.add_argument(
+        "--max_sample_ids",
+        type=int,
+        help="Max number of samples to load for Act-PRM SFT datasets",
+    )
 
     ## Environment
     parser.add_argument(

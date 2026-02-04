@@ -82,6 +82,9 @@ class ActionLmEnv(Environment):
         frac_eval_tasks: int = 0.2,
         fp32_loss: bool = False,
         max_input_id_len: int | None = None,
+        max_sample_ids: int | None = None,
+        train_sample_ids: list[int] | None = None,
+        eval_sample_ids: list[int] | None = None,
         seed: int = 0,
         split: str = "train",
         system_prompt: str = "You are a helpful assistant.",
@@ -103,7 +106,10 @@ class ActionLmEnv(Environment):
 
         self.max_timestep = max_timestep
         self.max_input_id_len = max_input_id_len
-
+        self.max_sample_ids = max_sample_ids
+        self.train_sample_ids = train_sample_ids
+        self.eval_sample_ids = eval_sample_ids
+        
         self.target_thoughts_eval = target_thoughts_eval  # if True, we compute inference metrics over thought tokens too
         self.loss_on_past_assistant_messages = loss_on_past_assistant_messages
 
@@ -146,6 +152,7 @@ class ActionLmEnv(Environment):
             # "train": self.init_rl_data(self.df_train, split="train"),
             "eval":  self.init_rl_data(self.df_eval,  split="eval"),
         }
+        # breakpoint()
 
         # Silly streaming
         self.streamer = RichTextStreamer(
@@ -274,17 +281,21 @@ class ActionLmEnv(Environment):
         if self.max_timestep is not None:
             df = df[df[self.timestep_name] < self.max_timestep]
 
-        # Separate into train and eval splits (no test for SFT evals)
-        unique_sample_ids = df[self.sample_id_name].unique()
-        np.random.seed(self.seed)
-        np.random.shuffle(unique_sample_ids)
-        num_train = int(len(unique_sample_ids) * self.frac_train_tasks)
-        train_sample_ids = unique_sample_ids[:num_train]
-        eval_sample_ids  = unique_sample_ids[num_train:]
+        if self.train_sample_ids is None or self.eval_sample_ids is None:
+            # Separate into train and eval splits (no test for SFT evals)
+            unique_sample_ids = df[self.sample_id_name].unique()
+            if self.max_sample_ids is not None:
+                unique_sample_ids = unique_sample_ids[:self.max_sample_ids]
+            
+            np.random.seed(self.seed)
+            np.random.shuffle(unique_sample_ids)
+            num_train = int(len(unique_sample_ids) * self.frac_train_tasks)
+            self.train_sample_ids = unique_sample_ids[:num_train]
+            self.eval_sample_ids  = unique_sample_ids[num_train:]
 
         # Load from these for sampling based evaluation
-        df_train = df[df[self.sample_id_name].isin(train_sample_ids)]
-        df_eval  = df[df[self.sample_id_name].isin(eval_sample_ids)]
+        df_train = df[df[self.sample_id_name].isin(self.train_sample_ids)]
+        df_eval  = df[df[self.sample_id_name].isin(self.eval_sample_ids)]
 
         # Convert to Hugging Face datasets and apply tokenization preprocessing
         ds_train = HFDataset.from_pandas(df_train)

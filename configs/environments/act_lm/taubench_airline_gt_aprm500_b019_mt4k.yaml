@@ -1,17 +1,13 @@
-# BrowseComp Search Demonstrations
+# TextWorld demonstrations
 name: "action_lm"
 is_async: false
 dataset_config:
-  path: "mzio/rb_last-cql-mc_oai_gpt5_med-ec_browsecomp_plus_search-ds_train-spp4-gbs1-s0-r_1"
+  path: "mzio/aprm-amityco_apigen_tau_bench_split_turn"
   cache_dir: "/scr/mzhang/data/"
-  split: "train"
+  split: "sft_genthinkact_ENact_prm_tau_airline_500_fs1_GEaprm_qwen3_ap_SE42_REv10_lr4e5_b4_g4_b019"
 
 max_input_id_len: 4096
 max_sample_ids: null
-
-sample_id_name: "data_sample_id"
-timestep_name: "timestep"
-generation_id_name: "generation_id"
 
 fp32_loss: false  # keep in bf16
 loss_on_past_assistant_messages: true
@@ -34,8 +30,8 @@ final_answer_bos: "Final Answer: "
 
 num_eval_gen_samples: null
 num_eval_rollout_samples: null
-frac_train_tasks: 0.8
-frac_eval_tasks: 0.2
+frac_train_tasks: 0.95  # 0.8
+frac_eval_tasks:  0.05  # 0.2
 
 max_turns: null
 num_tries: 1
