@@ -4,7 +4,7 @@ is_async: false
 dataset_config:
   path: "mzio/aprm-snorkelai_agent_finance_reasoning"
   cache_dir: "/scr/mzhang/data/"
-  split: "aprm_sft_genthinkact_ENact_prm_snorkel_finance_fs1_GEaprm_qwen3_ap_SE42_REv10_ap1_b019"
+  split: "aprm_sft_genthinkact_ENact_prm_snorkel_finance_fs1_GEaprm_qwen3_ap_SE42_REv10_ap1_b019_gen0"
 
 fp32_loss: false  # keep in bf16
 loss_on_past_assistant_messages: true
