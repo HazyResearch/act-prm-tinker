@@ -104,6 +104,7 @@ class TextWorldEnv(Environment):
         dataset_config: dict[str, Any],
         task: str,  # one of TEXTWORLD_TASKS
         state_keys: list[str] | None = None,
+        task_filters: list[str] | None = None,  # e.g., ["lvl010"]
         # Inherited arguments
         num_train_samples: int = 20,
         num_val_samples: int | None = None,
@@ -120,6 +121,7 @@ class TextWorldEnv(Environment):
 
         self.textworld_games_path = dataset_config["cache_dir"]
         self.task = task
+        self.task_filters = task_filters or []
         self.state_keys = state_keys or ["description", "score", "moves"]
         self.all_tasks = list(DEFAULT_MAX_TURNS_BY_TASK.keys())
         

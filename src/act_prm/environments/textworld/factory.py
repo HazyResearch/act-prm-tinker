@@ -48,6 +48,7 @@ class TextWorldFactory:
         self,
         textworld_games_path: str | Path,
         tasks: list[str],
+        task_filters: list[str] | None = None,
         # request infos
         objective: bool = True,
         description: bool = True,
@@ -61,6 +62,7 @@ class TextWorldFactory:
         Initialize the TextWorldFactory
         """
         self.count = defaultdict(int)
+        task_filters = task_filters or []
 
         games_root = Path(textworld_games_path).expanduser().resolve()
         if not games_root.exists():
@@ -82,7 +84,7 @@ class TextWorldFactory:
             for entry in sorted(glob.glob(str(games_root / "**" / pattern), recursive=True)):
                 p = Path(entry)
                 task = p.parent.name
-                if task in tasks:
+                if task in tasks and all(filter in str(p) for filter in task_filters):
                     games_by_task[task].append(p)
 
         if not games_by_task:
