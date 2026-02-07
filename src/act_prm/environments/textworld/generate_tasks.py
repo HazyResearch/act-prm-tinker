@@ -1,6 +1,8 @@
 """
 Generate TextWorld games
 
+Example commands:
+```
 uv run python ./src/act_prm/environments/textworld/generate_tasks.py \
 --cache_dir /scr/mzhang/data/textworld/tw_games/ \
 --task treasure_hunter \
@@ -16,6 +18,22 @@ uv run python ./src/act_prm/environments/textworld/generate_tasks.py \
 --recipe 2 \
 --go 6 \
 --open --cook --cut
+```
+
+Note: for cooking game, we do need to do a package-level patch. 
+
+Currently, in `.venv/lib/python3.12/site-packages/textworld/challenges/tw_cooking/cooking.py`
+L1016 has:
+
+```python
+nb_distractors = abs(int(rng_objects.randn(1) * 3 + nb_ingredients))
+```
+
+With newer numpy versions, this will raise a scalar issue. We should instead change it to:
+
+```python
+nb_distractors = abs(int(rng_objects.randn() * 3 + nb_ingredients))
+```
 """
 
 from __future__ import annotations
