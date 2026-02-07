@@ -7,6 +7,15 @@ uv run python ./src/act_prm/environments/textworld/generate_tasks.py \
 --n 10 \
 --seed_start 0 \
 --level 20
+
+uv run python ./src/act_prm/environments/textworld/generate_tasks.py \
+--cache_dir /scr/mzhang/data/textworld/tw_games/ \
+--task cooking_game \
+--n 10 \
+--seed_start 0 \
+--recipe 2 \
+--go 6 \
+--open --cook --cut
 """
 
 from __future__ import annotations
@@ -20,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 TASK_CHOICES = [
-    "treasure_hunter", "coin_collector", "the_cooking_game",
+    "treasure_hunter", "coin_collector", "cooking_game",
     "treasure_hunter_unseen", "treasure_hunter_newtools", "treasure_hunter_shifted"
 ]
 
