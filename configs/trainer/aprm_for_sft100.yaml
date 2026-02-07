@@ -3,7 +3,6 @@ trainer_name: act_prm_for_sft
 advantage_threshold: null  # e.g., 0 if mean_center, high probability if not
 action_prompts: true
 save_rollouts_every: 10
-eval_rollout_start: 0
 
 hide_observations: false
 hidden_obs_content: "..."
