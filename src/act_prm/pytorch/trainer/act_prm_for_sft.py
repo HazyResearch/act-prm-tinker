@@ -166,9 +166,8 @@ class ActPrmForSftTrainer(RLTrainer):
 
             # Generate and save trajectories to a HF Dataset
             _save_rollouts_every = cfg.get("save_rollouts_every", num_steps)
-            _eval_rollout_start = cfg.get("eval_rollout_start", 0)
             do_save_rollouts = (
-                (batch_idx + 1) % _save_rollouts_every == 0 and batch_idx + 1 >= _eval_rollout_start
+                (batch_idx + 1) % _save_rollouts_every == 0   # and batch_idx + 1 >= _eval_rollout_start
                 or (batch_idx + 1 == num_steps)
             )
             if _save_rollouts_every > 0 and do_save_rollouts:

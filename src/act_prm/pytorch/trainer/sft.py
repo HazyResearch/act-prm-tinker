@@ -340,7 +340,8 @@ class SftTrainer:
                 )
             )
             do_gen_eval = eval_gen_every > 0 and ((step_idx + 1) % eval_gen_every == 0 or last_step)
-            do_rollout_eval = eval_rollout_every > 0 and ((step_idx + 1) % eval_rollout_every == 0 or last_step)
+            _eval_rollout_start = cfg.get("eval_rollout_start", 0)
+            do_rollout_eval = eval_rollout_every > 0 and ((step_idx + 1) % eval_rollout_every == 0 and step_idx + 1 >= _eval_rollout_start or last_step)
             if not eval_already:
                 llm.model.eval()  # redundant but just in case
                 env.split = "eval"
@@ -388,7 +389,7 @@ class SftTrainer:
 
                 if do_rollout_eval:
                     # Sanity check with train and test splits
-                    for _split in ["train", "eval"]:
+                    for _split in ["eval"]:
                         rollout_checkpoint_name = (
                             f"rollout_eval-{_split}_split-{checkpoint_name}"
                             if checkpoint_name
