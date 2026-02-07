@@ -5,7 +5,6 @@ Defines the rules and constraints that are prepended to the LLM's system
 prompt, telling it how to play BabyAI-Text (one tool call per turn, only
 listed tools are valid, limited number of steps).
 """
-# CONDENSED: """System-level instruction prompts for the BabyAI-Text environment."""
 
 # Template string with a {max_turns} placeholder that gets filled in at runtime.
 INSTRUCTION_PROMPT_BABYAI_TEXT = """
@@ -30,6 +29,5 @@ def get_instruction_prompt(max_turns: int | None = None) -> str:
     Returns:
         The instruction prompt string with ``{max_turns}`` replaced.
     """
-    # CONDENSED: """Return the instruction prompt with max_turns filled in (default 20)."""
     max_turns = max_turns or 20
     return INSTRUCTION_PROMPT_BABYAI_TEXT.format(max_turns=max_turns).strip()

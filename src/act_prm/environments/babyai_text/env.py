@@ -629,7 +629,6 @@ class AsyncBabyAiTextEnv(BabyAiTextEnv):
         Returns:
             A ``BabyAiTextState`` for the new episode.
         """
-        # CONDENSED: """Async version of reset()."""
         return super().reset(
             sample_idx=sample_idx,
             generation_idx=generation_idx,
@@ -648,5 +647,4 @@ class AsyncBabyAiTextEnv(BabyAiTextEnv):
         Returns:
             A ``BabyAiTextStepResult``.
         """
-        # CONDENSED: """Async version of step()."""
         return super().step(**kwargs)
