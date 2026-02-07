@@ -23,7 +23,7 @@ The BabyAI packages are **not** listed in `pyproject.toml` and must be installed
 | `gym-minigrid` | MiniGrid grid-world backend |
 
 Additionally, you need these Python packages:
-- `gym` (OpenAI Gym — the old `gym`, not `gymnasium`)
+- `gym` (OpenAI Gym 0.21–0.26 — the old `gym`, **not** `gymnasium`). Since the BabyAI packages are installed with `--no-deps`, `gym` will **not** be pulled in automatically — you must install it explicitly: `pip install "gym>=0.21,<0.27"`
 - `blosc`, `colorama`, `termcolor`, `matplotlib` (transitive dependencies of babyai)
 
 ## Installation
@@ -34,11 +34,13 @@ Additionally, you need these Python packages:
 git clone https://github.com/flowersteam/Grounding_LLMs_with_online_RL.git
 ```
 
-### 2. Install supporting libraries
+### 2. Install gym and supporting libraries
 
 ```bash
-pip install blosc colorama termcolor matplotlib
+pip install "gym>=0.21,<0.27" blosc colorama termcolor matplotlib
 ```
+
+**Note:** `gym` must be installed explicitly because `--no-deps` (step 3) prevents it from being pulled in as a transitive dependency. Make sure you install the old `gym` package, not `gymnasium`.
 
 ### 3. Install the three BabyAI packages (in order, editable mode, no deps)
 
@@ -137,6 +139,10 @@ uv run python main_pytorch.py \
   --model_config <your_model_config> \
   --lora_config <your_lora_config>
 ```
+
+## Colab Setup
+
+A ready-to-run Colab notebook is available at `notebooks/babyai_pytorch_setup.ipynb`. It handles cloning, dependency installation (including the NumPy shim and explicit `gym` install), authentication, and training in one place.
 
 ## File Structure
 
