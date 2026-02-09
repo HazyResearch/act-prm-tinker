@@ -379,6 +379,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 {"role": "assistant", "content": response.text}
                 for response in responses_in_group
             ]
+            # MZ 2/09/16: debugging check, but remove
             # for _ix, _msg in enumerate(act_prompt_state_messages):
             #     print(f"act_prompt_state_messages[{_ix}]: {_msg}")
             # logger.warning(
