@@ -35,7 +35,7 @@ If you haven't already, add this `.env` file to your `.gitignore` file to avoid 
 
 ### PyTorch
 
-We're also implementing the sufficient training and generation code in PyTorch. See files in `src/act_prm/pytorch/`.
+We've also implemented sufficient training and generation code in PyTorch. See the `pytorch` branch for files under `src/act_prm/pytorch/`.
 
 #### FlashAttention-2
 
