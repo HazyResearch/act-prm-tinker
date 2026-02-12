@@ -116,28 +116,37 @@ For Act-PRM training (wrapping BabyAI as a base env), see `configs/environments/
 ### Direct BabyAI training (RL or SFT)
 
 ```bash
-uv run python main_pytorch.py \
+python main_pytorch.py \
   --env_config babyai/default \
   --eval_env_config babyai/eval \
   --generator_config default \
-  --trainer_config <your_trainer_config> \
+  --trainer_config qwen3_4b_aprm10_sft20_rl \
   --replay_buffer_config default \
-  --model_config <your_model_config> \
-  --lora_config <your_lora_config>
+  --model_config hf_llama3_1_8b_inst \
+  --lora_config r32_a32_qkvo \
+  --log_path ./logs \
+  --seed 42 \
+  --replicate 0 \
+  --verbose
 ```
 
 ### Act-PRM over BabyAI
 
 ```bash
-uv run python main_pytorch.py \
+python main_pytorch.py \
   --env_config act_prm/babyai \
   --base_env_config babyai/default \
   --eval_env_config babyai/eval \
   --generator_config aprm_qwen3_ap \
   --trainer_config aprm_for_sft100 \
   --replay_buffer_config default \
-  --model_config <your_model_config> \
-  --lora_config <your_lora_config>
+  --model_config hf_llama3_1_8b_inst \
+  --lora_config r32_a32_qkvo \
+  --log_path ./logs \
+  --save_rollouts_every 10 \
+  --seed 42 \
+  --replicate 0 \
+  --verbose
 ```
 
 ## Colab Setup
