@@ -13,7 +13,6 @@ Your goal is to follow the mission and reach the win condition.
 
 ## Rules:
 - You must call exactly one tool per turn to choose an action.
-- Only the listed tools are valid actions.
 - You have {max_turns} steps to complete the task. Restarting is forbidden.
 """.strip()
 
