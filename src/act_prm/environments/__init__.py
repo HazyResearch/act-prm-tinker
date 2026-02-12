@@ -70,6 +70,14 @@ def get_env(name: str, is_async: bool = False, **kwargs: Any) -> Environment:
             from .longbench_v2 import LongBenchEnvironment
             return LongBenchEnvironment(**kwargs)
 
+    elif name == "babyai_text":
+        if is_async:
+            from .babyai_text import AsyncBabyAiTextEnv
+            return AsyncBabyAiTextEnv(**kwargs)
+        else:
+            from .babyai_text import BabyAiTextEnv
+            return BabyAiTextEnv(**kwargs)
+
     raise NotImplementedError(f"Sorry invalid environment: '{name}'.")
 
 
