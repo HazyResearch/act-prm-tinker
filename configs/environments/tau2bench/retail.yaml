@@ -1,0 +1,24 @@
+name: "tau2bench"
+is_async: false
+domain: "retail"
+task_split: null
+user_llm: "gpt-4.1-2025-04-14"
+user_llm_args:
+  temperature: 0.0
+  max_tokens: 512
+max_steps: 50
+num_train_tasks: 80
+num_val_tasks: null
+num_test_tasks: 50
+hide_observations: false
+hidden_obs_content: "..."
+first_obs_to_show: 1
+last_obs_to_show: 0
+max_turns: 30
+num_tries: 1
+eval_num_tries: 1
+seed: 0
+split: "train"
+system_prompt: "You are a helpful customer service agent."
+truncation_message: "Sorry, you have reached the maximum number of steps. Please try again."
+verbose: false
