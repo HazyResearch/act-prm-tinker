@@ -52,6 +52,10 @@ uv run python stage_metrics.py --verbose             # actually stage
 
 Before committing, always run `ruff check .` and fix all issues. Code must be lint-clean.
 
+## Shell Commands
+
+Never use `$()` command substitution in shell commands. Instead, write the commit message to a temporary file and use `git commit -F`, or use `git commit -m` with a simple inline string. For multi-line messages, write to a file first with the Write tool, then `git commit -F /tmp/commit_msg.txt`.
+
 ## Git Workflow
 
 Commit per logical task and push to `origin cc` immediately after.
