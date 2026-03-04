@@ -55,6 +55,7 @@ class SftTrainer:
     """
     Supervised Fine-Tuning for Hugging Face Transformer (PEFT) models
     """
+
     def __init__(
         self,
         cfg: DictConfig,
@@ -101,8 +102,8 @@ class SftTrainer:
             os.makedirs(self.best_lm_checkpoint_path)
         if not os.path.exists(self.best_ro_checkpoint_path):
             os.makedirs(self.best_ro_checkpoint_path)
-        
-        self.best_ppl = float("inf")      # for perplexity evaluation
+
+        self.best_ppl = float("inf")  # for perplexity evaluation
         self.best_ro_metric = float("-inf")  # for rollout evaluation
         self.best_ppl_step = 0
         self.best_ro_metric_step = 0
@@ -122,11 +123,15 @@ class SftTrainer:
         self.eval_lm_data_path = os.path.join(log_path, "eval_lm_action_metrics.csv")
         self.eval_gen_data_path = os.path.join(log_path, "eval_gen_action_metrics.csv")
 
-    def get_generator_constructor(self, **kwargs: Any) -> Callable[..., HuggingFaceGenerator]:
+    def get_generator_constructor(
+        self, **kwargs: Any
+    ) -> Callable[..., HuggingFaceGenerator]:
         """
         Get a (partially initialized) Hugging Face Generator constructor by name
         """
-        return get_generator_constructor(**kwargs, ml_logger=self.ml_logger, cfg=self.cfg)
+        return get_generator_constructor(
+            **kwargs, ml_logger=self.ml_logger, cfg=self.cfg
+        )
 
     def _check_model_inputs(
         self,
@@ -148,15 +153,19 @@ class SftTrainer:
             try:
                 rich_print(f"[cyan]Input {idx}:\n{decoded_input}\n[/cyan]")
                 rich_print(f"[green]Label {idx}:\n{decoded_labels[idx]}\n[/green]")
-            except Exception as e:
+            except Exception:
                 print(f"[cyan]Input {idx}:\n{decoded_input}\n[/cyan]")
                 print(f"[green]Label {idx}:\n{decoded_labels[idx]}\n[/green]")
             rich_print("=" * 100)
         # Keep run url and cmd in display
         try:
-            rich_print(f"[bold]Run url: [link={self.run_url}]{self.run_url}[/link][/bold]")
-            rich_print(f"[bold]Run cmd: [bright_cyan]{self.run_cmd}[/bright_cyan][/bold]")
-        except Exception as e:
+            rich_print(
+                f"[bold]Run url: [link={self.run_url}]{self.run_url}[/link][/bold]"
+            )
+            rich_print(
+                f"[bold]Run cmd: [bright_cyan]{self.run_cmd}[/bright_cyan][/bold]"
+            )
+        except Exception:
             print(f"Run url: {self.run_url}")
             print(f"Run cmd: {self.run_cmd}")
 
@@ -174,7 +183,8 @@ class SftTrainer:
         fp32_loss = fp32_loss or self.fp32_loss
         device = model.device
         model_inputs = {
-            k: v.to(device) for k, v in batch.items()
+            k: v.to(device)
+            for k, v in batch.items()
             if k in ["input_ids", "attention_mask"]
         }
         weight = batch.get("weight", 1.0)  # ignored but report it
@@ -182,7 +192,9 @@ class SftTrainer:
         labels = batch["labels"][:, 1:]
         batch_size, seq_len_m1, vocab_size = logits.shape
         loss = torch.nn.functional.cross_entropy(
-            logits.view(-1, vocab_size).to(dtype=torch.float32 if fp32_loss else logits.dtype),
+            logits.view(-1, vocab_size).to(
+                dtype=torch.float32 if fp32_loss else logits.dtype
+            ),
             labels.view(-1).to(device),
             reduction="mean",
             ignore_index=ignore_index,
@@ -191,7 +203,7 @@ class SftTrainer:
         return {"loss": loss, "ppl": ppl, "weight": weight}
 
     def _compute_env_loss(
-        self, 
+        self,
         model: torch.nn.Module,
         batch: dict[str, torch.Tensor],
         ignore_index: int = -100,
@@ -204,7 +216,8 @@ class SftTrainer:
         weight = batch.get("weight", 1.0)
         device = model.device
         model_inputs = {
-            k: v.to(device) for k, v in batch.items()
+            k: v.to(device)
+            for k, v in batch.items()
             if k in ["input_ids", "attention_mask"]
         }
         logits = model(**model_inputs, use_cache=False).logits[:, :-1, :]
@@ -214,12 +227,18 @@ class SftTrainer:
         valid = labels != ignore_index
         token_len = valid.sum(dim=-1)
 
-        token_nll = torch.nn.functional.cross_entropy(
-            logits.view(-1, vocab_size).to(dtype=torch.float32 if fp32_loss else logits.dtype),
-            labels.view(-1).to(device),
-            reduction="none",
-            ignore_index=ignore_index,
-        ).reshape(batch_size, seq_len_m1).to(dtype=logits.dtype)
+        token_nll = (
+            torch.nn.functional.cross_entropy(
+                logits.view(-1, vocab_size).to(
+                    dtype=torch.float32 if fp32_loss else logits.dtype
+                ),
+                labels.view(-1).to(device),
+                reduction="none",
+                ignore_index=ignore_index,
+            )
+            .reshape(batch_size, seq_len_m1)
+            .to(dtype=logits.dtype)
+        )
 
         nll_sum = token_nll.sum(dim=1)
         loss = nll_sum / token_len.clamp_min(1).to(device)
@@ -232,7 +251,7 @@ class SftTrainer:
             "logits_shifted": logits.detach().cpu(),  # shifted already [:, :-1, :]
             "labels_shifted": labels.detach().cpu(),  # shifted already [:, 1:]
         }
-    
+
     def train(
         self,
         llm: HuggingFaceLLM | None = None,
@@ -247,7 +266,8 @@ class SftTrainer:
         # Specify training duration
         num_steps: int | None = None,
         mini_batch_size: int | None = None,
-        gradient_accumulation_steps: int | None = None,  # 1 if not specified here or in cfg
+        gradient_accumulation_steps: int
+        | None = None,  # 1 if not specified here or in cfg
         num_eval_gen_samples: int | None = None,
         num_eval_rollout_samples: int | None = None,
         # Other identifiers
@@ -280,9 +300,13 @@ class SftTrainer:
         eval_rollout_every = eval_rollout_every or cfg.eval_rollout_every
         # Number of offline eval samples to evaluate on
         num_eval_lm_samples = len(env.datasets["eval"])
-        num_eval_gen_samples = num_eval_gen_samples or cfg.get("num_eval_gen_samples", 5)
+        num_eval_gen_samples = num_eval_gen_samples or cfg.get(
+            "num_eval_gen_samples", 5
+        )
         # Number of online eval samples to evaluate on
-        num_eval_rollout_samples = num_eval_rollout_samples or cfg.get("num_eval_rollout_samples", 5)
+        num_eval_rollout_samples = num_eval_rollout_samples or cfg.get(
+            "num_eval_rollout_samples", 5
+        )
 
         # Prepare SFT dataloaders from `env.datasets` for each train/eval split
         dataloaders = {"train": None, "eval": None}
@@ -290,7 +314,9 @@ class SftTrainer:
         # 1. Determine mechanical dataset batch size and number of epochs
         num_steps = num_steps or cfg.num_steps
         mini_batch_size = mini_batch_size or cfg.mini_batch_size
-        grad_accum_step = gradient_accumulation_steps or cfg.gradient_accumulation_steps or 1
+        grad_accum_step = (
+            gradient_accumulation_steps or cfg.gradient_accumulation_steps or 1
+        )
         dataloader_batch_size = mini_batch_size // grad_accum_step
 
         try:
@@ -313,18 +339,18 @@ class SftTrainer:
 
         # Do training loop
         pbar = tqdm(total=num_steps, desc="Training steps", colour="cyan", position=1)
-        step_idx  = 0  # total number of steps or gradient updates taken
+        step_idx = 0  # total number of steps or gradient updates taken
         batch_idx = 0  # current batch index within dataloader
-        eval_idx  = 0  # number of times we've evaluated
+        eval_idx = 0  # number of times we've evaluated
         eval_already = False  # use to only evaluate once per step_idx
         save_already = False  # use to only save once per step_idx
-        loss_metrics = None   # will assign to metrics after each batch
+        loss_metrics = None  # will assign to metrics after each batch
         _global_step = 0
-        
+
         train_iterator = iter(train_loader)  # Loop thru dataloader
         while step_idx < num_steps:
             # Running metrics per batch
-            metrics = {"grad_step": step_idx, "global_step": _global_step}  
+            metrics = {"grad_step": step_idx, "global_step": _global_step}
             # Save model checkpoint
             if not save_already and step_idx % cfg.save_every == 0:
                 save_lora(llm.model, f"{self.checkpoint_path}/step_{step_idx:03d}")
@@ -332,37 +358,55 @@ class SftTrainer:
 
             # Evaluate
             last_step = step_idx == num_steps - 1
-            do_lm_eval = (
-                eval_every > 0 and (
-                    (step_idx + 1) % eval_every == 0
-                    or last_step
-                    or (step_idx == 0 and not cfg.no_initial_eval)
-                )
+            do_lm_eval = eval_every > 0 and (
+                (step_idx + 1) % eval_every == 0
+                or last_step
+                or (step_idx == 0 and not cfg.no_initial_eval)
             )
-            do_gen_eval = eval_gen_every > 0 and ((step_idx + 1) % eval_gen_every == 0 or last_step)
+            do_gen_eval = eval_gen_every > 0 and (
+                (step_idx + 1) % eval_gen_every == 0 or last_step
+            )
             _eval_rollout_start = cfg.get("eval_rollout_start", 0)
-            do_rollout_eval = eval_rollout_every > 0 and ((step_idx + 1) % eval_rollout_every == 0 and step_idx + 1 >= _eval_rollout_start or last_step)
+            do_rollout_eval = eval_rollout_every > 0 and (
+                (step_idx + 1) % eval_rollout_every == 0
+                and step_idx + 1 >= _eval_rollout_start
+                or last_step
+            )
             if not eval_already:
                 llm.model.eval()  # redundant but just in case
                 env.split = "eval"
                 if loss_metrics is not None:
-                    display_metrics(loss_metrics, title=f"Train Metrics, Step {step_idx}")
+                    display_metrics(
+                        loss_metrics, title=f"Train Metrics, Step {step_idx}"
+                    )
 
                 # Do perplexity-based and inference-based evaluation on the eval set data
                 if do_lm_eval:
                     _eval_lm_metrics = self._eval_offline_lm(
-                        llm, env, step_idx, eval_idx, num_eval_lm_samples,
+                        llm,
+                        env,
+                        step_idx,
+                        eval_idx,
+                        num_eval_lm_samples,
                     )
-                    eval_lm_metrics, eval_lm_metrics_per_task, eval_lm_data_actions = _eval_lm_metrics
-                    metrics.update(eval_lm_metrics)                    
+                    eval_lm_metrics, eval_lm_metrics_per_task, eval_lm_data_actions = (
+                        _eval_lm_metrics
+                    )
+                    metrics.update(eval_lm_metrics)
                     pbar.set_postfix(**eval_lm_metrics)
-                    display_metrics(eval_lm_metrics, title=f"LM Eval Metrics, Step {step_idx}", style="bright_blue")
+                    display_metrics(
+                        eval_lm_metrics,
+                        title=f"LM Eval Metrics, Step {step_idx}",
+                        style="bright_blue",
+                    )
                     # Save action-level metrics
                     for k, v in eval_lm_data_actions.items():
                         if k not in self.eval_lm_data_actions:
                             self.eval_lm_data_actions[k] = []
                         self.eval_lm_data_actions[k].extend(v)
-                    pd.DataFrame(self.eval_lm_data_actions).to_csv(self.eval_lm_data_path, index=False)
+                    pd.DataFrame(self.eval_lm_data_actions).to_csv(
+                        self.eval_lm_data_path, index=False
+                    )
                     logger.info(
                         f"LM EVAL (Step {step_idx}, Eval {eval_idx}): "
                         f"Saved offline LM eval metrics to {self.eval_lm_data_path}!"
@@ -370,18 +414,32 @@ class SftTrainer:
 
                 if do_gen_eval:
                     _eval_gen_metrics = self._eval_offline_gen(
-                        llm, env, step_idx, eval_idx, num_eval_gen_samples,
+                        llm,
+                        env,
+                        step_idx,
+                        eval_idx,
+                        num_eval_gen_samples,
                     )
-                    eval_gen_metrics, eval_gen_metrics_per_task, eval_gen_data_actions = _eval_gen_metrics
+                    (
+                        eval_gen_metrics,
+                        eval_gen_metrics_per_task,
+                        eval_gen_data_actions,
+                    ) = _eval_gen_metrics
                     metrics.update(eval_gen_metrics)
                     # pbar.set_postfix(**eval_gen_metrics)
-                    display_metrics(eval_gen_metrics, title=f"Gen Eval Metrics, Step {step_idx}", style="bright_green")
+                    display_metrics(
+                        eval_gen_metrics,
+                        title=f"Gen Eval Metrics, Step {step_idx}",
+                        style="bright_green",
+                    )
                     # Save action-level metrics
                     for k, v in eval_gen_data_actions.items():
                         if k not in self.eval_gen_data_actions:
                             self.eval_gen_data_actions[k] = []
                         self.eval_gen_data_actions[k].extend(v)
-                    pd.DataFrame(self.eval_gen_data_actions).to_csv(self.eval_gen_data_path, index=False)
+                    pd.DataFrame(self.eval_gen_data_actions).to_csv(
+                        self.eval_gen_data_path, index=False
+                    )
                     logger.info(
                         f"Gen EVAL (Step {step_idx}, Eval {eval_idx}): "
                         f"Saved offline Gen eval metrics to {self.eval_gen_data_path}!"
@@ -408,16 +466,24 @@ class SftTrainer:
                             num_tries=cfg.eval_num_tries,
                             num_return_sequences=cfg.eval_group_size,  # even for train split
                             # Just use all eval tasks
-                            start_idx=0,  
+                            start_idx=0,
                             tasks_per_update=len(eval_env),
                             name_or_identifier=name_or_identifier,
                         )
                         metrics.update(eval_rollout_metrics)
-                        display_metrics(eval_rollout_metrics, title=f"Rollout Eval Metrics, Step {step_idx}", style="bright_red")
+                        display_metrics(
+                            eval_rollout_metrics,
+                            title=f"Rollout Eval Metrics, Step {step_idx}",
+                            style="bright_red",
+                        )
 
                         # Update best metrics
                         if _split == "eval":
-                            ro_metric_name = [k for k in eval_rollout_metrics.keys() if cfg.best_ro_metric in k][0]
+                            ro_metric_name = [
+                                k
+                                for k in eval_rollout_metrics.keys()
+                                if cfg.best_ro_metric in k
+                            ][0]
                             eval_ro_metric = eval_rollout_metrics[ro_metric_name]
                             if eval_ro_metric > self.best_ro_metric:
                                 self.best_ro_metric = eval_ro_metric
@@ -427,16 +493,18 @@ class SftTrainer:
                                     f"RO EVAL (Step {step_idx}, Eval {eval_idx}): "
                                     f"Updated best RO metric to {eval_ro_metric} at step {step_idx}"
                                 )
-                            metrics.update({
-                                f"eval/ro_{ro_metric_name}": eval_ro_metric,
-                                f"eval/ro_{ro_metric_name}_best": self.best_ro_metric,
-                                f"eval/ro_{ro_metric_name}_best_step": self.best_ro_metric_step,
-                            })
+                            metrics.update(
+                                {
+                                    f"eval/ro_{ro_metric_name}": eval_ro_metric,
+                                    f"eval/ro_{ro_metric_name}_best": self.best_ro_metric,
+                                    f"eval/ro_{ro_metric_name}_best_step": self.best_ro_metric_step,
+                                }
+                            )
                         # _eval_rollout_metrics = self._eval_offline_rollout(
                         #     llm, eval_env, step_idx, eval_idx, self.eval_rollout_data_path, num_eval_rollout_samples
                         # )
                         # eval_rollout_metrics, eval_rollout_metrics_per_task, eval_rollout_data_actions = _eval_rollout_metrics
-                        
+
                 eval_already = True
                 eval_idx += 1
 
@@ -447,7 +515,7 @@ class SftTrainer:
 
                 if num_steps == 1:
                     self.ml_logger.log_metrics(metrics)  # increments each time  # hack
-            
+
             # Loop through training batches
             try:
                 batch: dict[str, torch.Tensor] = next(train_iterator)
@@ -470,7 +538,7 @@ class SftTrainer:
             # ppl  = loss_metrics["ppl"]
             loss = loss / grad_accum_step
             loss.backward()
-            
+
             batch_idx += 1
             if (batch_idx) % grad_accum_step == 0:
                 # Perform gradient update
@@ -482,7 +550,8 @@ class SftTrainer:
                 pbar.update(1)
 
             loss_metrics = {
-                f"train/{k}": v.detach().cpu().item() for k, v in loss_metrics.items()
+                f"train/{k}": v.detach().cpu().item()
+                for k, v in loss_metrics.items()
                 if v.numel() == 1  # only keep scalar metrics
             }
             metrics.update(loss_metrics)
@@ -494,7 +563,9 @@ class SftTrainer:
             except Exception as e:
                 _error_class = e.__class__.__name__
                 _error_message = str(e)
-                rich_print(f"[red]Error logging metrics: {_error_class}: {_error_message}[/red]")
+                rich_print(
+                    f"[red]Error logging metrics: {_error_class}: {_error_message}[/red]"
+                )
                 for k, v in metrics.items():
                     print(k, type(v))
                 breakpoint()
@@ -504,7 +575,6 @@ class SftTrainer:
         # Load best model checkpoint
         llm.model = load_lora(llm.model, self.best_lm_checkpoint_path)
         return llm
-
 
     def _eval_offline_lm(
         self,
@@ -546,19 +616,33 @@ class SftTrainer:
                 "rollout_task_idx": [],
             }
             for task_idx in range(num_eval_samples):
-                eval_metrics = env.eval_lm(llm.model, task_idx, fp32_loss=self.fp32_loss)
-                eval_metrics_per_task["nll_per_task"].append(eval_metrics["rollout_nll"])
-                eval_metrics_per_task["ppl_per_task"].append(eval_metrics["rollout_ppl"])
-                eval_metrics_per_task["step_acc_per_task"].append(eval_metrics["rollout_step_acc"])
-                eval_metrics_per_task["success_per_task"].append(eval_metrics["rollout_success"])
-                eval_metrics_per_task["longest_per_task"].append(eval_metrics["longest_success"])
+                eval_metrics = env.eval_lm(
+                    llm.model, task_idx, fp32_loss=self.fp32_loss
+                )
+                eval_metrics_per_task["nll_per_task"].append(
+                    eval_metrics["rollout_nll"]
+                )
+                eval_metrics_per_task["ppl_per_task"].append(
+                    eval_metrics["rollout_ppl"]
+                )
+                eval_metrics_per_task["step_acc_per_task"].append(
+                    eval_metrics["rollout_step_acc"]
+                )
+                eval_metrics_per_task["success_per_task"].append(
+                    eval_metrics["rollout_success"]
+                )
+                eval_metrics_per_task["longest_per_task"].append(
+                    eval_metrics["longest_success"]
+                )
 
                 # Fill in action-level metrics by action timestep
                 for k in eval_metrics.keys():
                     if k not in eval_data_actions and k.startswith("rollout_action_"):
                         eval_data_actions[k] = []
                 for _t in eval_metrics["rollout_action_timestep"]:
-                    eval_data_actions["task_idx"].append(task_idx)  # redundant but sanity check
+                    eval_data_actions["task_idx"].append(
+                        task_idx
+                    )  # redundant but sanity check
                     eval_data_actions["train_step_idx"].append(step_idx)
                     eval_data_actions["train_eval_idx"].append(eval_idx)
                     eval_data_actions["rollout_task_idx"].append(task_idx)
@@ -570,17 +654,20 @@ class SftTrainer:
         def _get_metric_key(k: str) -> str:
             k = k.replace("_per_task", "")
             return f"eval/lm_{k}"
+
         eval_metrics_to_log = {
             _get_metric_key(k): sum(v) / max(len(v), 1)
             for k, v in eval_metrics_per_task.items()
             if k not in ["ppl_per_task"]
         }
         # Save specific PPL and action prob metrics
-        eval_metrics_to_log.update({
-            "eval/lm_ppl": np.exp(eval_metrics_to_log["eval/lm_nll"]).item(),
-            "eval/lm_probs": np.exp(-eval_metrics_to_log["eval/lm_nll"]).item(),
-        })
-        # Update best metrics 
+        eval_metrics_to_log.update(
+            {
+                "eval/lm_ppl": np.exp(eval_metrics_to_log["eval/lm_nll"]).item(),
+                "eval/lm_probs": np.exp(-eval_metrics_to_log["eval/lm_nll"]).item(),
+            }
+        )
+        # Update best metrics
         eval_ppl = eval_metrics_to_log["eval/lm_ppl"]
         if eval_ppl < self.best_ppl:
             self.best_ppl = eval_ppl
@@ -590,9 +677,12 @@ class SftTrainer:
                 f"LM EVAL (Step {step_idx}, Eval {eval_idx}): "
                 f"Updated best LM PPL to {eval_ppl} at step {step_idx}"
             )
-        eval_metrics_to_log.update({
-            "eval/lm_best_ppl": self.best_ppl, "eval/lm_best_ppl_step": self.best_ppl_step,
-        })
+        eval_metrics_to_log.update(
+            {
+                "eval/lm_best_ppl": self.best_ppl,
+                "eval/lm_best_ppl_step": self.best_ppl_step,
+            }
+        )
         eval_metrics_to_log["actions_data_lm_save_path"] = self.eval_lm_data_path
         env.split = orig_env_split
         return eval_metrics_to_log, eval_metrics_per_task, eval_data_actions
@@ -636,35 +726,46 @@ class SftTrainer:
                 "rollout_task_idx": [],
             }
             for task_idx in range(num_eval_samples):
-                eval_metrics = env.eval_gen(llm.model, task_idx, fp32_loss=self.fp32_loss)
-                eval_metrics_per_task["step_acc_per_task"].append(eval_metrics["rollout_step_acc"])
-                eval_metrics_per_task["success_per_task"].append(eval_metrics["rollout_success"])
-                eval_metrics_per_task["longest_per_task"].append(eval_metrics["longest_success"])
+                eval_metrics = env.eval_gen(
+                    llm.model, task_idx, fp32_loss=self.fp32_loss
+                )
+                eval_metrics_per_task["step_acc_per_task"].append(
+                    eval_metrics["rollout_step_acc"]
+                )
+                eval_metrics_per_task["success_per_task"].append(
+                    eval_metrics["rollout_success"]
+                )
+                eval_metrics_per_task["longest_per_task"].append(
+                    eval_metrics["longest_success"]
+                )
 
                 # Fill in action-level metrics by action timestep
                 for k in eval_metrics.keys():
                     if k not in eval_data_actions and k.startswith("rollout_action_"):
                         eval_data_actions[k] = []
                 for _t in eval_metrics["rollout_action_timestep"]:
-                    eval_data_actions["task_idx"].append(task_idx)  # redundant but sanity check
+                    eval_data_actions["task_idx"].append(
+                        task_idx
+                    )  # redundant but sanity check
                     eval_data_actions["train_step_idx"].append(step_idx)
                     eval_data_actions["train_eval_idx"].append(eval_idx)
                     eval_data_actions["rollout_task_idx"].append(task_idx)
                     for k in eval_data_actions.keys():
                         if k in eval_metrics:
                             eval_data_actions[k].append(eval_metrics[k][_t])
-                    
+
         # Get metrics for logging via ml_logger
         def _get_metric_key(k: str) -> str:
             k = k.replace("_per_task", "")
             return f"eval/gen_{k}"
+
         eval_metrics_to_log = {
             _get_metric_key(k): sum(v) / max(len(v), 1)
             for k, v in eval_metrics_per_task.items()
             if k not in ["ppl_per_task"]
         }
         eval_metrics_to_log["actions_data_gen_save_path"] = self.eval_gen_data_path
-        # For now, don't track these metrics to update best metrics 
+        # For now, don't track these metrics to update best metrics
         # eval_gen_step_acc = eval_metrics_to_log["eval/gen_step_acc"]
         # if eval_gen_step_acc > self.best_gen_step_acc:
         #     self.best_gen_step_acc = eval_gen_step_acc

@@ -31,7 +31,9 @@ def _remove_mask(datum: tinker.Datum) -> tinker.Datum:
 
 
 # Copied from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L174
-def _training_logprobs_from_fwd_bwd(fwd_bwd_result: tinker.ForwardBackwardOutput) -> list[float]:
+def _training_logprobs_from_fwd_bwd(
+    fwd_bwd_result: tinker.ForwardBackwardOutput,
+) -> list[float]:
     """
     Extract training logprobs from forward-backward result
     """
@@ -55,7 +57,9 @@ async def train_step(
     if not batches:
         return []
 
-    adam_params = tinker.AdamParams(learning_rate=learning_rate, beta1=0.9, beta2=0.95, eps=1e-8)
+    adam_params = tinker.AdamParams(
+        learning_rate=learning_rate, beta1=0.9, beta2=0.95, eps=1e-8
+    )
     training_logprobs_D: list[torch.Tensor] = []
 
     # Enqueue first batch
@@ -111,7 +115,9 @@ async def compute_full_batch_metrics_and_get_sampling_client(
     # Compute KL metrics
     if do_compute_kl:
         with timed("compute_kl_sample_train", metrics):
-            kl_sample_train_metrics = compute_kl_sample_train(data_D, training_logprobs_D)
+            kl_sample_train_metrics = compute_kl_sample_train(
+                data_D, training_logprobs_D
+            )
             metrics.update(kl_sample_train_metrics)
 
     # Get a sampling client using the new weights

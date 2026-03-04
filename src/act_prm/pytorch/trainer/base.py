@@ -2,21 +2,17 @@
 Parent class PyTorch trainer for Hugging Face Transformers models
 """
 
-import os
 import logging
 import sys
 from abc import ABC, abstractmethod
-from copy import copy, deepcopy
+from copy import deepcopy
 from typing import Any, Callable
 
 from omegaconf import DictConfig
 from rich import print as rich_print
 from rich.console import Console
 from rich.table import Table
-from tqdm import tqdm
 
-import numpy as np
-import pandas as pd
 import torch
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
@@ -24,13 +20,12 @@ from torch.utils.data import DataLoader
 from transformers import PreTrainedTokenizerBase
 from tinker_cookbook.utils import ml_log
 
-from act_prm.lora import load_lora, save_lora
 from act_prm.llm_handlers import HuggingFaceLLM
 from act_prm.environments import Environment
 from act_prm.replay_buffer import ReplayBuffer
 
 from ..generator import get_generator_constructor, HuggingFaceGenerator
-from ..train import run_rollouts, hide_observations, prepare_minibatch
+from ..train import hide_observations, prepare_minibatch
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -56,6 +51,7 @@ class BaseTrainer(ABC):
     """
     Parent class for PyTorch trainers (Hugging Face Transformers models)
     """
+
     def __init__(
         self,
         cfg: DictConfig,
@@ -88,7 +84,9 @@ class BaseTrainer(ABC):
         self.hidden_obs_content = cfg.get("hidden_obs_content", "...")
 
         # RL / Evaluation generator: does standard rollouts, see act_prm/generator/default.py
-        self.rl_generator_constructor = self.get_generator_constructor(**self.generator_cfg)
+        self.rl_generator_constructor = self.get_generator_constructor(
+            **self.generator_cfg
+        )
         self.best_metric = 1e8 if "loss" in cfg.best_metric else -1e8
 
         self.run_name = cfg.run_name
@@ -100,18 +98,22 @@ class BaseTrainer(ABC):
         self.checkpoint_path = checkpoint_path or cfg.checkpoint_path
         self.log_path = log_path or cfg.log_path
 
-    def get_generator_constructor(self, **kwargs: Any) -> Callable[..., HuggingFaceGenerator]:
+    def get_generator_constructor(
+        self, **kwargs: Any
+    ) -> Callable[..., HuggingFaceGenerator]:
         """
         Get a (partially initialized) Hugging Face Generator constructor by name
         """
-        return get_generator_constructor(**kwargs, ml_logger=self.ml_logger, cfg=self.cfg)
+        return get_generator_constructor(
+            **kwargs, ml_logger=self.ml_logger, cfg=self.cfg
+        )
 
     def maybe_hide_observations(
         self,
         messages: list[dict[str, str]],
         hidden_obs_content: str | None = None,
         first_obs_to_show: int = 2,  # e.g., to keep prompt
-        last_obs_to_show: int = 1,   # e.g., to keep last observation
+        last_obs_to_show: int = 1,  # e.g., to keep last observation
     ) -> list[dict[str, str]]:
         """
         Maybe hide past observations from messages
@@ -120,7 +122,9 @@ class BaseTrainer(ABC):
             return messages
 
         hidden_obs_content = hidden_obs_content or self.hidden_obs_content
-        return hide_observations(messages, hidden_obs_content, first_obs_to_show, last_obs_to_show)
+        return hide_observations(
+            messages, hidden_obs_content, first_obs_to_show, last_obs_to_show
+        )
 
     def prepare_minibatch(self, **kwargs: Any) -> tuple[DataLoader, dict[str, Any]]:
         """
@@ -165,7 +169,8 @@ class BaseTrainer(ABC):
         fp32_loss = fp32_loss or self.fp32_loss
         device = model.device
         model_inputs = {
-            k: v.to(device) for k, v in batch.items()
+            k: v.to(device)
+            for k, v in batch.items()
             if k in ["input_ids", "attention_mask"]
         }
         weight = batch.get("weight", 1.0)  # ignored but report it
@@ -173,13 +178,15 @@ class BaseTrainer(ABC):
         labels = batch["labels"][:, 1:]
         vocab_size = logits.shape[-1]
         loss = torch.nn.functional.cross_entropy(
-            logits.view(-1, vocab_size).to(dtype=torch.float32 if fp32_loss else logits.dtype),
+            logits.view(-1, vocab_size).to(
+                dtype=torch.float32 if fp32_loss else logits.dtype
+            ),
             labels.view(-1).to(device),
             reduction="mean",
         ).to(dtype=logits.dtype)
         ppl = torch.exp(loss).detach().cpu()
         return {"loss": loss, "ppl": ppl, "weight": weight}
-    
+
     @abstractmethod
     def train(
         self,
@@ -194,7 +201,8 @@ class BaseTrainer(ABC):
         # Specify training duration
         num_steps: int | None = None,
         mini_batch_size: int | None = None,
-        gradient_accumulation_steps: int | None = None,  # 1 if not specified here or in cfg
+        gradient_accumulation_steps: int
+        | None = None,  # 1 if not specified here or in cfg
         # num_eval_gen_samples: int | None = None,
         # num_eval_rollout_samples: int | None = None,
         # Other identifiers

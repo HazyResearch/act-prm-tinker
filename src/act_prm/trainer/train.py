@@ -44,8 +44,15 @@ from ..replay_buffer import ReplayBuffer
 from ..replay_buffer.types import Trajectory, TrajectoryGroup
 
 from .tinker.metrics import incorporate_kl_penalty
-from .tinker.update import compute_full_batch_metrics_and_get_sampling_client, train_step
-from .tinker.utils import gather_with_progress, save_checkpoint_and_get_sampling_client, timed
+from .tinker.update import (
+    compute_full_batch_metrics_and_get_sampling_client,
+    train_step,
+)
+from .tinker.utils import (
+    gather_with_progress,
+    save_checkpoint_and_get_sampling_client,
+    timed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,19 +60,22 @@ logger = logging.getLogger(__name__)
 # Helpers
 # -------
 
+
 def is_better(x: float, y: float, metric: str) -> bool:
     """
     Determine if x is better than y for a given metric
     """
     return x <= y if metric in ["loss"] else x >= y
 
+
 # -------------------
 # Main training loops
 # -------------------
 
+
 async def do_sync_training(
     start_batch: int,  # starting batch or step = 1
-    end_batch: int,    # ending batch, e.g., len(env) // cfg.batch_size
+    end_batch: int,  # ending batch, e.g., len(env) // cfg.batch_size
     cfg: DictConfig,
     training_client: tinker.TrainingClient,
     service_client: tinker.ServiceClient,
@@ -98,7 +108,9 @@ async def do_sync_training(
     model_name = cfg.model_name or training_client.get_info().model_data.model_name
     hf_tokenizer = hf_tokenizer or training_client.get_tokenizer()
     # ^Same as tinker_cookbook.tokenizer_utils.get_tokenizer(cfg.model_name)?
-    renderer_name = cfg.renderer_name or model_info.get_recommended_renderer_name(model_name)
+    renderer_name = cfg.renderer_name or model_info.get_recommended_renderer_name(
+        model_name
+    )
     renderer = renderers.get_renderer(renderer_name, hf_tokenizer)
     logger.info("Using renderer: %s", renderer_name)
 
@@ -135,7 +147,10 @@ async def do_sync_training(
                 metrics.update(eval_rollout_metrics)
 
             # Save best checkpoints
-            best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
+            _metric_prefix = "eval"
+            best_metric_key = (
+                f"{_metric_prefix}/try_{cfg.eval_num_tries - 1}/{cfg.best_metric}"
+            )
             last_metric = eval_rollout_metrics[best_metric_key]
             if is_better(last_metric, best_metric, cfg.best_metric):
                 best_metric = last_metric
@@ -173,7 +188,10 @@ async def do_sync_training(
         replay_buffer.save_to_hf_dataset(cfg.replay_buffer_path_last)
 
         # 2. Update policy LLM with generated rollouts
-        sampling_client, train_update_metrics = await do_train_step_and_get_sampling_client(
+        (
+            sampling_client,
+            train_update_metrics,
+        ) = await do_train_step_and_get_sampling_client(
             cfg=cfg,
             batch_idx=batch_idx,
             training_client=training_client,
@@ -190,6 +208,7 @@ async def do_sync_training(
 # -----------------------------
 # Generation / Rollout Sampling
 # -----------------------------
+
 
 async def run_rollouts(
     sampling_client: tinker.SamplingClient,
@@ -214,7 +233,7 @@ async def run_rollouts(
     - new_trajectories: Trajectories for the batch, keyed by an identifier (default "policy")
     """
     env.split = split  # Select task split
-    
+
     tinker_completer = TinkerCompleter(
         sampling_client=sampling_client,
         renderer=renderer,
@@ -232,21 +251,30 @@ async def run_rollouts(
         name_or_identifier=name_or_identifier,
     )
 
-    batch_size = tasks_per_update or len(env)  # len(env) is the number of tasks or problems
+    batch_size = tasks_per_update or len(
+        env
+    )  # len(env) is the number of tasks or problems
     num_return_sequences = cfg.group_size if split == "train" else cfg.eval_group_size
-    
+
     all_eval_metrics = {}
     keys_for_correct = []
     eval_metric_keys = [
-        "final_reward", "first_return", "action_prob", "last_state_len",
-        "timesteps", "correct", "total",
+        "final_reward",
+        "first_return",
+        "action_prob",
+        "last_state_len",
+        "timesteps",
+        "correct",
+        "total",
     ]
 
     # Store new trajectories to return
     new_trajectories: dict[str, list[Trajectory]] = {}
-    
+
     for try_idx in range(num_tries):
-        all_trajectory_groups: list[dict[str, list[TrajectoryGroup]]] = await gather_with_progress(
+        all_trajectory_groups: list[
+            dict[str, list[TrajectoryGroup]]
+        ] = await gather_with_progress(
             (
                 tinker_generator.do_group_rollout(
                     num_return_sequences=num_return_sequences,
@@ -254,10 +282,10 @@ async def run_rollouts(
                     batch_id=batch_id,
                     unique_data_sample_id=sample_idx,
                     try_step=try_idx,
-                    max_tokens=cfg.max_tokens,   # redundant as set in TinkerCompleter
-                    temperature=cfg.temperature, # redundant as set in TinkerCompleter
+                    max_tokens=cfg.max_tokens,  # redundant as set in TinkerCompleter
+                    temperature=cfg.temperature,  # redundant as set in TinkerCompleter
                 )
-                for sample_idx in range(start_idx, start_idx + batch_size)  
+                for sample_idx in range(start_idx, start_idx + batch_size)
             ),
             desc=(
                 f"Generating {batch_size * num_return_sequences} {split.upper()} rollouts"
@@ -267,21 +295,33 @@ async def run_rollouts(
         )
         # Save metrics and samples
         trajectory_keys = all_trajectory_groups[0].keys()
-        _metric_prefix = f"{checkpoint_name}_{split}" if checkpoint_name is not None else split
+        _metric_prefix = (
+            f"{checkpoint_name}_{split}" if checkpoint_name is not None else split
+        )
 
         for _key in trajectory_keys:
-            for trajectory_groups in all_trajectory_groups:     # list of list of trajectory groups
-                for traj_group in trajectory_groups[_key]:      # len(trajectory_groups) usually 1,
-                    for trajectory in traj_group.trajectories:  # can be >1, e.g., if step-wise adv
+            for (
+                trajectory_groups
+            ) in all_trajectory_groups:  # list of list of trajectory groups
+                for traj_group in trajectory_groups[
+                    _key
+                ]:  # len(trajectory_groups) usually 1,
+                    for (
+                        trajectory
+                    ) in traj_group.trajectories:  # can be >1, e.g., if step-wise adv
                         if _key == "policy":
                             # Only store metrics for the default "policy" trajectory group
                             for metric_key in eval_metric_keys:
-                                _metric_key = f"{_metric_prefix}/try_{try_idx}/{metric_key}"
+                                _metric_key = (
+                                    f"{_metric_prefix}/try_{try_idx}/{metric_key}"
+                                )
                                 if metric_key == "correct":
                                     keys_for_correct.append(_metric_key)
                                 if _metric_key not in all_eval_metrics:
                                     all_eval_metrics[_metric_key] = []
-                                val = getattr(trajectory, metric_key, 1)  # 1 for total samples
+                                val = getattr(
+                                    trajectory, metric_key, 1
+                                )  # 1 for total samples
                                 all_eval_metrics[_metric_key].append(val)
                         # Add trajectory to list of new trajectories
                         if _key not in new_trajectories:
@@ -308,6 +348,7 @@ async def run_rollouts(
 # --------------------------
 # Training / Policy Updating
 # --------------------------
+
 
 async def prepare_minibatch(
     new_trajectories: list[Trajectory],
@@ -343,18 +384,28 @@ async def prepare_minibatch(
                     == len(padded_advantages)
                     == len(target_tokens)
                 )
-                metadata_D.append({
-                    "sample_id": episode_step.unique_data_sample_id,
-                    "generation_id": episode_step.generation_id,
-                })
+                metadata_D.append(
+                    {
+                        "sample_id": episode_step.unique_data_sample_id,
+                        "generation_id": episode_step.generation_id,
+                    }
+                )
                 data_D.append(
                     tinker.Datum(
                         model_input=tinker.ModelInput.from_ints(input_tokens),
                         loss_fn_inputs={
-                            "target_tokens": TensorData.from_torch(torch.tensor(target_tokens)),
-                            "logprobs": TensorData.from_torch(torch.tensor(padded_logprobs)),
-                            "advantages": TensorData.from_torch(torch.tensor(padded_advantages)),
-                            "mask": TensorData.from_torch(torch.tensor(padded_mask)),  # for KL
+                            "target_tokens": TensorData.from_torch(
+                                torch.tensor(target_tokens)
+                            ),
+                            "logprobs": TensorData.from_torch(
+                                torch.tensor(padded_logprobs)
+                            ),
+                            "advantages": TensorData.from_torch(
+                                torch.tensor(padded_advantages)
+                            ),
+                            "mask": TensorData.from_torch(
+                                torch.tensor(padded_mask)
+                            ),  # for KL
                         },
                     )
                 )
@@ -404,16 +455,18 @@ async def do_train_step_and_get_sampling_client(
         num_substeps = cfg.num_substeps
         if cfg.mini_batch_size:
             # Potentially supersample data_D to hit mini_batch_size * num_substeps
-            data_D = data_D[:cfg.mini_batch_size * num_substeps]
+            data_D = data_D[: cfg.mini_batch_size * num_substeps]
             while len(data_D) < cfg.mini_batch_size * num_substeps:
                 data_D.extend(random.sample(data_D, k=len(data_D)))
-            data_D = data_D[:cfg.mini_batch_size * num_substeps]
+            data_D = data_D[: cfg.mini_batch_size * num_substeps]
     else:
-        raise ValueError("Either cfg.mini_batch_size or cfg.num_substeps must be specified")
+        raise ValueError(
+            "Either cfg.mini_batch_size or cfg.num_substeps must be specified"
+        )
     # Randomly subsample training data if not evenly divisible by num_substeps (# of mini-batches)
     # -> Tinker requires this: https://tinker-docs.thinkingmachines.ai/rl/rl-hyperparams#multiple-updates-per-sampling-iteration
     if len(data_D) % num_substeps != 0:
-        new_batch_size = (max(len(data_D) // num_substeps, 1) * num_substeps)
+        new_batch_size = max(len(data_D) // num_substeps, 1) * num_substeps
         data_D = random.sample(data_D, new_batch_size)
     random.shuffle(data_D)  # Ensure random ordering of mini-batches
 
@@ -425,8 +478,11 @@ async def do_train_step_and_get_sampling_client(
             num_substeps,
             loss_fn,
         )
-    
-    sampling_client, full_batch_metrics = await compute_full_batch_metrics_and_get_sampling_client(
+
+    (
+        sampling_client,
+        full_batch_metrics,
+    ) = await compute_full_batch_metrics_and_get_sampling_client(
         training_client,
         batch_idx + 1,  # NOTE: saving the checkpoint as the i + 1 step
         data_D,

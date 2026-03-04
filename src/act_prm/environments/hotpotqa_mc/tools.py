@@ -9,6 +9,7 @@ class VisitTool(BaseTool):
     """
     Visit a title
     """
+
     def __call__(self, title: str, all_docs_dict: dict[str, str]) -> tuple[None, str]:
         """
         Visit a title

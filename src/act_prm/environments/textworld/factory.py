@@ -13,7 +13,10 @@ from pathlib import Path
 from typing import Any
 
 import textworld
-from textworld.core import Environment as TextWorldEnvironment, Wrapper as TextWorldWrapper
+from textworld.core import (
+    Environment as TextWorldEnvironment,
+    Wrapper as TextWorldWrapper,
+)
 
 
 @dataclass(frozen=True)
@@ -21,6 +24,7 @@ class TextWorldGameIndex:
     """
     Holds resolved game paths grouped by task.
     """
+
     games_by_task: dict[str, list[Path]]
 
 
@@ -81,7 +85,9 @@ class TextWorldFactory:
         # Scan game files
         games_by_task: dict[str, list[Path]] = defaultdict(list)
         for pattern in ("*.ulx", "*.z8"):
-            for entry in sorted(glob.glob(str(games_root / "**" / pattern), recursive=True)):
+            for entry in sorted(
+                glob.glob(str(games_root / "**" / pattern), recursive=True)
+            ):
                 p = Path(entry)
                 task = p.parent.name
                 if task in tasks and all(filter in str(p) for filter in task_filters):

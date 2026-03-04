@@ -4,12 +4,11 @@ Action Process Reward Environments
 We train LLMs to generate thoughts that lead to observed actions with high-likelihoods,
 where reward = p(observed_action | thought).
 
-Based on the Generator, we do this via two setups:
-
-1. `TinkerActionPromptActPrmGenerator`: To bootstrap generations, we first give the ground-truth
+We do this via two environments.
+1. `ActionFirstProcessRewardEnv`: To bootstrap generations, we first give the ground-truth
    action to the LLM first, and ask it to generate the thought that leads to that action.
 
-2. `TinkerActPrmGenerator`: We can then optionally train the LLM to generate thoughts
+2. `ActionProcessRewardEnv`: We can then optionally train the LLM to generate thoughts
     based on just the present state (i.e., it does not see the action as a hint).
 """
 
@@ -24,13 +23,13 @@ from ..base import Environment
 from ..types import EnvironmentState, EnvironmentStepResult
 
 from .utils import (
-    get_full_trajectories_from_dataset,
+    get_action_only_trajectories_from_dataset,
 )
 
 
-SYSTEM_PROMPT_MESSAGE = {
+SYSTEM_PROMPT = {
     "role": "system",
-    "content": "You are a helpful assistant that infers reasoning thoughts behind observed actions.",
+    "content": "You are a helpful assistant that infers latent thoughts behind observed actions.",
 }
 
 THOUGHT_ACTION_FEWSHOT_PROMPTS = [
@@ -154,6 +153,11 @@ class ActionProcessRewardState(EnvironmentState):
     chat_step_idx: int
     action_trajectory: list[dict[str, str]]  # True action-only trajectory
     assistant_indices: list[int]
+    past_gen_thoughts: list[str]
+    thought_action_chat: list[
+        dict[str, str]
+    ]  # Chat we build via thought-action completion
+    # action_thought_chat: list[dict[str, str]]
 
 
 class ActionProcessRewardStepResult(EnvironmentStepResult):
@@ -178,27 +182,22 @@ class ActPrmEnv(Environment):
         self,
         dataset_config: dict[str, Any],
         success_rollouts_only: bool = True,
-        actions_only: bool = True,
         num_fewshot_prompts: int = 1,
         action_bos: str = "<tool_call>",
         action_eos: str = "</tool_call>",
         final_answer_bos: str = "Final Answer: ",
-        num_train_samples: int = 100,
+        num_train_samples: int = 1000,
         num_val_samples: int = 64,
-        num_test_samples: int = 10,
+        num_test_samples: int = 100,
         seed: int = 0,
         split: str = "train",
-        system_prompt: str = SYSTEM_PROMPT_MESSAGE["content"],
-        original_system_prompt: str | None = None,
-        # max_messages: int = 1000,  # a bit hacky, but truncate for long contexts
+        system_prompt: str = SYSTEM_PROMPT["content"],
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.dataset_config = dataset_config
         self.success_rollouts_only = success_rollouts_only
-        self.actions_only = actions_only
         self.num_fewshot_prompts = num_fewshot_prompts
-        # self.max_messages = max_messages
 
         # Use for parsing thoughts and actions from LLM messages
         self.action_bos = action_bos
@@ -220,7 +219,6 @@ class ActPrmEnv(Environment):
         self.split = split
 
         self.system_prompt = system_prompt
-        self.original_system_prompt = original_system_prompt
         self.datasets = self.init_data()
 
     def get_default_context(self) -> list[dict[str, str]]:
@@ -253,15 +251,14 @@ class ActPrmEnv(Environment):
         #    [{"role": "user", "content": "..."},
         #    {"role": "assistant", "content": <tool_call> ... </tool_call>},
         #    ...]  # (^Note that we only have actions, no thoughts in these trajectories)
-        all_trajectories_and_tools = get_full_trajectories_from_dataset(
+        all_action_trajectories = get_action_only_trajectories_from_dataset(
             ds,
-            actions_only=self.actions_only,
             **self.thought_action_kwargs,
         )
 
         # Organize into dataset splits
         num_samples = min(
-            len(all_trajectories_and_tools),
+            len(all_action_trajectories),
             self.num_train_samples + self.num_val_samples + self.num_test_samples,
         )
         shuffle_indices = list(range(num_samples))
@@ -272,9 +269,9 @@ class ActPrmEnv(Environment):
         eval_indices = shuffle_indices[self.num_train_samples : last_eval_idx]
         test_indices = shuffle_indices[last_eval_idx:]
         datasets = {
-            "train": [all_trajectories_and_tools[i] for i in train_indices],
-            "eval": [all_trajectories_and_tools[i] for i in eval_indices],
-            "test": [all_trajectories_and_tools[i] for i in test_indices],
+            "train": [all_action_trajectories[i] for i in train_indices],
+            "eval": [all_action_trajectories[i] for i in eval_indices],
+            "test": [all_action_trajectories[i] for i in test_indices],
         }
         return datasets
 
@@ -291,59 +288,37 @@ class ActPrmEnv(Environment):
         sample_idx_adj = self.adjust_sample_idx(
             sample_idx
         )  # Wrap around if out of bounds
-        action_trajectory_and_tools = self.datasets[self.split][sample_idx_adj]
-        action_trajectory: list[dict[str, Any]] = action_trajectory_and_tools[
-            0
-        ]  # [:self.max_messages]
-        tools: list[dict[str, Any]] = action_trajectory_and_tools[1]
-        # Initial sample is just first (obs, action) of the trajectory, i.e.,
-        # [{"role": "user", "content": "..."},
-        #  {"role": "assistant", "content": <tool_call> ... </tool_call>}]
+        action_trajectory: list[dict[str, Any]] = self.datasets[self.split][
+            sample_idx_adj
+        ]
+        # Initial sample is just first (obs, action) of the trajectory
         chat_step_idx = 2
-        messages = deepcopy(action_trajectory[:2])
+        messages = action_trajectory[:1]  # [{"role": "user", "content": "..."}]
         action_target = action_trajectory[1]["content"]  # <tool_call> ... </tool_call>
         # Keep track of assistant indices in the trajectory (e.g., to load next action_target)
         assistant_indices = [
             i for i, msg in enumerate(action_trajectory) if msg["role"] == "assistant"
         ]
-        # MZ 1/21/26 -> Make the few-shot prompts more seamless into the target task
-        if self.num_fewshot_prompts > 0:
-            # "Great! Now do the same for the next task:\n\n## Next Task:\n\n"
-            if self.default_context[-1]["role"] == "user":
-                # self.default_context[-1]["content"] = (
-                #     "Great! Now do the same for the next task:\n\n"
-                #     "## Next Task:\n\n"
-                # )
-                self.default_context = self.default_context[:-1]
-            messages[0]["content"] = (
-                f"Great! Now do the same for the next task:\n\n"
-                f"## Next Task:\n\n{messages[0]['content']}"
-            )
-        # MZ 1/18/26: Note that we add default context here
-        # -> but we may want to filter it out for thought-action SFT trajectories
         new_messages = self.default_context + messages
-
         return ActionProcessRewardState(
             system_prompt=self.system_prompt,
             new_messages=new_messages,
             model_response=None,
             prior_messages=[],
-            tools=tools,  # include for now, but also assumes tools are consistent for all steps
+            tools=[],  # leave out for now
             # Act-PRM-specific fields
             action_target=action_target,
             chat_step_idx=chat_step_idx,
             action_trajectory=action_trajectory,
             assistant_indices=assistant_indices,
-            thought_action_chat=messages,  # (state, action)
+            past_gen_thoughts=[],
+            thought_action_chat=messages,
             # Step-wise metadata
             sample_id=sample_idx,
             generation_id=generation_idx,
             batch_id=batch_idx,
             try_step=try_step,
             timestep=0,
-            # Past observations to show (account for default context, system prompt)
-            first_obs_to_show=len(new_messages)
-            + 1,  # system + default context + user message
         )
 
     def step(
@@ -351,7 +326,7 @@ class ActPrmEnv(Environment):
         **kwargs: Any,
     ) -> ActionProcessRewardStepResult:
         """
-        Step through the environment; see `_step_impl` for details
+        Step through the environment; see _step_impl for details
         """
         return self._step_impl(**kwargs)
 
@@ -360,19 +335,29 @@ class ActPrmEnv(Environment):
         parsed_actions: list[ActionFromLLM],
         # model_response: Any,
         current_state: ActionProcessRewardState,
-        current_messages: list[dict[str, Any]] | None = None,
+        # current_messages: list[dict[str, Any]] | None = None,
         reward: float = 0.0,
         **kwargs: Any,
     ) -> ActionProcessRewardStepResult:
         """
-        Subclass implementation of `step`.
+        Subclass implementation of step.
 
-        We already compute rewards in the Act-PRM generator; we just pass them in here.
+        Here we maintain the entire input context via state.new_messages (no prior_messages).
+        We also already compute rewards in the Act-PRM generator; we just pass them in here.
+
+        (We could treat this like a normal environment, but maintain consistency with
+         ActionFirstActPrmEnv, which currently does the entire context in state.new_messages)
+
+        MZ 1/13/26: We should look into adopting the next_message and model_response convention,
+        where action-first or state-only completions are handled via different Act-PRM generators
         """
+        thought_action_chat = deepcopy(current_state.thought_action_chat)
+
         action_target = current_state.action_target
         chat_step_idx = copy(current_state.chat_step_idx)
         action_trajectory = current_state.action_trajectory
         assistant_indices = current_state.assistant_indices
+        past_gen_thoughts = current_state.past_gen_thoughts
 
         done = False
         truncated = False
@@ -383,6 +368,8 @@ class ActPrmEnv(Environment):
         sample_id = current_state.sample_id
         generation_id = current_state.generation_id
         batch_id = current_state.batch_id
+
+        # Create environment response
 
         # Update timesteps, fail if too many turns
         timestep += 1
@@ -397,67 +384,52 @@ class ActPrmEnv(Environment):
             # Parse the generated thought
             thought_text = action.text or ""
             thought_text = thought_text.split("<thought>")[
-                -1
+                1
             ].strip()  # Extract if in tags
             thought_text = thought_text.split("</thought>")[0].strip()
-            # Extract thought as text before action or final answer
-            if len(thought_text.split(self.action_bos)) > 1:
-                thought_text = self.action_bos.join(
-                    thought_text.split(self.action_bos)[:-1]
-                ).strip()
-            if len(thought_text.split(self.final_answer_bos)) > 1:
-                thought_text = self.final_answer_bos.join(
-                    thought_text.split(self.final_answer_bos)[:-1]
-                ).strip()
+            thought_text = thought_text.split(self.action_bos)[
+                0
+            ].strip()  # Ignore any actions
+            thought_text = thought_text.split(self.final_answer_bos)[0].strip()
 
             # Update the (state, thought-action) chat
             # 1. Update last assistant message to include the generated thought
-            current_messages[-1] = {
-                "role": "assistant",
-                "content": f"{thought_text}\n\n{action_target}",
-            }
-            # 2. Add next_obs and next_action as new messages
-            env_messages = [
-                action_trajectory[chat_step_idx + t]
-                if chat_step_idx + t < len(action_trajectory)
-                else {"role": "assistant", "content": ""}
-                for t in range(2)
-            ]
-            action_target = env_messages[-1]["content"]  # next action target
+            thought_action_chat.append(
+                {"role": "assistant", "content": f"{thought_text}\n\n{action_target}"}
+            )
+            # 2. Add next_obs to chat
+            for t in range(1):
+                if chat_step_idx + t < len(action_trajectory):
+                    thought_action_chat.append(action_trajectory[chat_step_idx + t])
+
+            # Create new chat (next_state.new_messages)
+            # -> (obs, thought, action, next_obs)
+            new_messages = self.default_context + thought_action_chat
 
             # Update chat step index (to deal with next action)
             chat_step_idx += 2
             if chat_step_idx > len(action_trajectory):
                 done = True
 
-            # Handle past observations to show
-            current_messages = self.maybe_hide_observations(
-                current_messages or [],
-                first_obs_to_show=current_state.first_obs_to_show,
-                last_obs_to_show=current_state.last_obs_to_show,
-            )
-
-            # Create environment response
             new_state = ActionProcessRewardState(
                 system_prompt=self.system_prompt,
-                new_messages=env_messages,
-                model_response=None,
-                prior_messages=current_messages,
-                tools=current_state.tools,
+                new_messages=new_messages,  # Only use new_messages to contain entire context
+                model_response=None,  # So leave model_response and prior_messages empty
+                prior_messages=[],
+                tools=[],
                 # Act-PRM-specific fields
                 action_target=action_target,
                 chat_step_idx=chat_step_idx,
                 action_trajectory=action_trajectory,
                 assistant_indices=assistant_indices,
+                past_gen_thoughts=past_gen_thoughts,
+                thought_action_chat=thought_action_chat,
                 # Step-wise metadata
                 sample_id=sample_id,
                 generation_id=generation_id,
                 batch_id=batch_id,
                 try_step=try_step,
                 timestep=timestep,
-                # Past observations to show (account for default context)
-                first_obs_to_show=current_state.first_obs_to_show,
-                last_obs_to_show=current_state.last_obs_to_show,
             )
 
         else:

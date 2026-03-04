@@ -11,7 +11,6 @@ import numpy as np
 from datasets import DatasetDict, load_dataset
 from pydantic import InstanceOf
 from rich import print as rich_print
-from transformers import AutoTokenizer
 
 # from act_prm.environments.browsecomp_plus.tools import SearchTool, ScrollUpTool, ScrollDownTool
 
@@ -31,12 +30,14 @@ RESULT_TEMPLATE = """## Document View:
 '''{scroll_message}
 """
 
+
 class LongBenchState(EnvironmentStateWithAnswer):
     """
     State of the LongBench environment
     """
+
     tool_registry: dict[str, InstanceOf[BaseTool]]  # callable tools, by name
-    tools: list[dict[str, Any]]                     # tool descriptions
+    tools: list[dict[str, Any]]  # tool descriptions
     doc_dict: dict[str, Any] | None
     all_doc_dicts: list[dict[str, Any]]
     current_doc_id: int
@@ -46,6 +47,7 @@ class LongBenchStepResult(EnvironmentStepResult):
     """
     Step result of the LongBench environment
     """
+
     state: LongBenchState
 
 
@@ -53,6 +55,7 @@ class LongBenchEnvironment(Environment):
     """
     LongBench environment
     """
+
     def __init__(
         self,
         dataset_config: dict[str, Any],
@@ -87,7 +90,7 @@ class LongBenchEnvironment(Environment):
         # Initialize default context (fewshot prompts) for all samples
         self.num_fewshot_prompts = num_fewshot_prompts
         self.default_context = self.get_default_context()
-        
+
         self.num_train_samples = num_train_samples
         self.num_val_samples = num_val_samples
         self.num_test_samples = num_test_samples
@@ -107,7 +110,7 @@ class LongBenchEnvironment(Environment):
         # self.tool_registry = {
         #     "search": SearchTool(**search_tool_config),
         # }
-    
+
         # From BrowseComp-Plus
         # self.datasets, self.ds_corpus = self.init_data()
         # # Build index based on doc_id for self.ds_corpus
@@ -127,7 +130,7 @@ class LongBenchEnvironment(Environment):
         #         **self.search_tool_config,
         #     ),
         # }
-    
+
     def get_default_context(self) -> list[dict[str, str]]:
         """
         Build fewshot examples, i.e., default context, for all samples
@@ -145,11 +148,13 @@ class LongBenchEnvironment(Environment):
         train_val_dict = trainval_test_dict["train"].train_test_split(
             test_size=self.num_val_samples, shuffle=True, seed=self.seed
         )
-        return DatasetDict({
-            "train": train_val_dict["train"],
-            "eval": train_val_dict["test"],
-            "test": trainval_test_dict["test"],
-        })
+        return DatasetDict(
+            {
+                "train": train_val_dict["train"],
+                "eval": train_val_dict["test"],
+                "test": trainval_test_dict["test"],
+            }
+        )
 
     def shuffle(self, seed: int | None = None) -> None:
         """
@@ -160,7 +165,7 @@ class LongBenchEnvironment(Environment):
         indices = np.arange(len(self.datasets[self.split]))
         np.random.shuffle(indices)
         self.datasets[self.split] = self.datasets[self.split][indices]
-        
+
     def reset(
         self,
         sample_idx: int,
@@ -171,7 +176,9 @@ class LongBenchEnvironment(Environment):
         """
         Reset environment (starting new episode + loading a new task)
         """
-        sample_idx_adj = self.adjust_sample_idx(sample_idx)  # Wrap around if out of bounds
+        sample_idx_adj = self.adjust_sample_idx(
+            sample_idx
+        )  # Wrap around if out of bounds
         sample = self.datasets[self.split][sample_idx_adj]
         document = sample["context"]
         # Split document into chunks
@@ -182,7 +189,7 @@ class LongBenchEnvironment(Environment):
         # Get answer choices
         choices = []
         for k in ["choice_A", "choice_B", "choice_C", "choice_D"]:
-            _letter = k[len("choice_"):].upper()
+            _letter = k[len("choice_") :].upper()
             choices.append(f"{_letter}: {sample[k]}")
         choices = "\n".join(choices)
 
@@ -196,7 +203,7 @@ class LongBenchEnvironment(Environment):
         )
         _search_save_path = join(
             self.dataset_config["cache_dir"],
-            f"longbench_v2-{self.split}-{sample_idx:04d}"
+            f"longbench_v2-{self.split}-{sample_idx:04d}",
         )
         tool_registry = {
             "search": SearchTool(
@@ -233,7 +240,8 @@ class LongBenchEnvironment(Environment):
             # Track for accuracy eval
             metadata={"correct": 0, "total": 1},
             # Past observations to show
-            first_obs_to_show=len(messages) + 1,  # system + default context + user message
+            first_obs_to_show=len(messages)
+            + 1,  # system + default context + user message
         )
 
     def step(self, **kwargs: Any) -> LongBenchStepResult:
@@ -253,7 +261,7 @@ class LongBenchEnvironment(Environment):
         Step through the environment
         """
         question = str(current_state.question)
-        answer   = str(current_state.answer)
+        answer = str(current_state.answer)
 
         scroll_tool_kwargs = {
             "all_doc_dicts": current_state.all_doc_dicts,
@@ -261,12 +269,12 @@ class LongBenchEnvironment(Environment):
             "doc_dict": current_state.doc_dict,
         }
         available_tool_names = [k for k in current_state.tool_registry.keys()]
-        
+
         done = False
         truncated = False
         reward = 0
         updated_try_step = False
-        
+
         metadata = copy(current_state.metadata)
         timestep = copy(current_state.timestep)
         try_step = copy(current_state.try_step)
@@ -296,24 +304,23 @@ class LongBenchEnvironment(Environment):
                         f"Invalid tool call:\n\n{action.text}\n\n"
                         f"'{fc_name}' not currently available."
                     )
-                
+
                 else:
                     try:  # Execute tool call
                         tool = current_state.tool_registry[fc_name]
-                        new_doc_dict, maybe_result_str = tool(**fc_args, **scroll_tool_kwargs)
+                        new_doc_dict, maybe_result_str = tool(
+                            **fc_args, **scroll_tool_kwargs
+                        )
                         # maybe_doc_result = result_str
                     except Exception as e:
                         # Handle a tool call error by sending this error to the LLM
                         _error_class = type(e).__name__
                         new_doc_dict = None
-                        maybe_result_str = (
-                            f"Invalid tool call:\n\n{action.text}\n\n{_error_class}: {e}"
-                        )
+                        maybe_result_str = f"Invalid tool call:\n\n{action.text}\n\n{_error_class}: {e}"
                         # maybe_result_str = str(e)
                         # breakpoint()
 
                     if new_doc_dict is not None:
-                        scroll_msg = ""
                         # scroll_down_msg = "\n- Scroll down for more..."
                         # scroll_up_msg   = "\n- Scroll up for more..."
                         available_tool_names = ["search"]
@@ -330,7 +337,7 @@ class LongBenchEnvironment(Environment):
                             ):
                                 # scroll_msg += scroll_up_msg
                                 available_tool_names.append("scroll_up")
-                            
+
                             stdout = RESULT_TEMPLATE.format(
                                 document=new_doc_dict["text"],
                                 scroll_message="",  # scroll_msg,
@@ -340,7 +347,7 @@ class LongBenchEnvironment(Environment):
                                 next_doc_id = new_doc_dict["chunk_idx"]
                                 next_doc_dict = new_doc_dict
                                 made_tool_call = True
-                        
+
                         except Exception as e:
                             _error_class = type(e).__name__
                             logger.error(f"{_error_class}: {e}")
@@ -359,18 +366,21 @@ class LongBenchEnvironment(Environment):
 
             elif action.type in ["message", "reasoning"]:
                 text = action.text or ""
-                if (
-                    action.type == "message"
-                    and action_idx + 1 == len(parsed_actions)
-                ):
+                if action.type == "message" and action_idx + 1 == len(parsed_actions):
                     if "Final Answer: " in text:  # Last action was an answer submission
                         ans_pred = text.split("Final Answer: ")[-1].strip().lower()
                         ans_true = answer.lower()
-                        reward = float(ans_pred == ans_true)  # convert bool to float for rewar
+                        reward = float(
+                            ans_pred == ans_true
+                        )  # convert bool to float for rewar
                         if reward == 1:
-                            user_content = f"# RESULT: CORRECT! ({ans_pred} == {ans_true})"
+                            user_content = (
+                                f"# RESULT: CORRECT! ({ans_pred} == {ans_true})"
+                            )
                         else:
-                            user_content = f"# RESULT: INCORRECT! ({ans_pred} != {ans_true})"
+                            user_content = (
+                                f"# RESULT: INCORRECT! ({ans_pred} != {ans_true})"
+                            )
                         # ^Note for multi-try, should not include the "ans_true" in the user response
                         metadata["correct"] = reward
                         metadata["total"] = 1
@@ -385,7 +395,9 @@ class LongBenchEnvironment(Environment):
                     env_messages.append({"role": "user", "content": user_content})
             else:
                 logger.error(f"Invalid parsed actions: {parsed_actions}")
-                logger.error(f"Specific unknown action type for action {action_idx}: {action.type}")
+                logger.error(
+                    f"Specific unknown action type for action {action_idx}: {action.type}"
+                )
                 breakpoint()
 
         # Update timesteps, fail if too many turns
@@ -400,10 +412,12 @@ class LongBenchEnvironment(Environment):
 
         # Handle badness (environment should always respond to LLM response)
         if len(env_messages) == 0:
-            env_messages.append({
-                "role": "user",
-                "content": "No tool calls or final answers were parsed. Please try again",
-            })
+            env_messages.append(
+                {
+                    "role": "user",
+                    "content": "No tool calls or final answers were parsed. Please try again",
+                }
+            )
             rich_print(f"Last action: {action.text}")
             for _act_idx, _action in enumerate(parsed_actions):
                 rich_print(f"Action {_act_idx}: {_action}")
@@ -422,12 +436,14 @@ class LongBenchEnvironment(Environment):
             last_obs_to_show=current_state.last_obs_to_show,
         )
 
-        metadata.update({
-            "reward": reward,
-            "done": done,
-            "truncated": truncated,
-            "made_tool_call": made_tool_call,
-        })
+        metadata.update(
+            {
+                "reward": reward,
+                "done": done,
+                "truncated": truncated,
+                "made_tool_call": made_tool_call,
+            }
+        )
         new_state = LongBenchState(
             system_prompt=current_state.system_prompt,
             new_messages=env_messages,
@@ -466,6 +482,7 @@ class AsyncLongBenchEnvironment(LongBenchEnvironment):
     """
     Asynchronous LongBench environment
     """
+
     async def reset_async(self, **kwargs: Any) -> LongBenchState:
         """
         Asynchronous reset -> assumes super().reset() is fast and non-blocking

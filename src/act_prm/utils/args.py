@@ -20,13 +20,24 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--project_name", type=str, default="act-prm-tinker")
 
     # Necessary arguments + configs (to load default args from)
-    parser.add_argument("--is_async", action="store_true", help="Use asynchronous environment")
-    parser.add_argument("--resume_run", action="store_true", default=False, help="Resume from checkpoint in log_path")
-    
-    parser.add_argument("--env_config", type=str, help="Environment config to load default args")
+    parser.add_argument(
+        "--is_async", action="store_true", help="Use asynchronous environment"
+    )
+    parser.add_argument(
+        "--resume_run",
+        action="store_true",
+        default=False,
+        help="Resume from checkpoint in log_path",
+    )
+
+    parser.add_argument(
+        "--env_config", type=str, help="Environment config to load default args"
+    )
     parser.add_argument("--generator_config", type=str, help="Generator config; ditto")
     parser.add_argument("--trainer_config", type=str, help="Trainer config; ditto")
-    parser.add_argument("--replay_buffer_config", type=str, help="Replay buffer config; ditto")
+    parser.add_argument(
+        "--replay_buffer_config", type=str, help="Replay buffer config; ditto"
+    )
 
     # Optional arguments -> overrides the defaults in trainer_config if specified
     ## Model (specified in trainer_config)
@@ -95,7 +106,7 @@ def get_args() -> argparse.Namespace:
         help=(
             "Evaluation environment config. If unspecified, defaults to env_config "
             "(but we use different splits for evaluation, i.e., from the 'eval' split)"
-        )
+        ),
     )
     parser.add_argument(
         "--base_env_config",
@@ -111,13 +122,13 @@ def get_args() -> argparse.Namespace:
     ## Tinker logging + checkpointing
     parser.add_argument("--base_url", type=str, help="Tinker base URL")
     parser.add_argument(
-        "--log_path", 
+        "--log_path",
         type=str,
         default="./logs",
         help=(
             "Parent directory for logging and saving Tinker checkpoints. Actual path is "
             "automatically determined (and created) based on our specified argparse args"
-        )
+        ),
     )
     parser.add_argument(
         "--checkpoint_path",
@@ -126,9 +137,11 @@ def get_args() -> argparse.Namespace:
         help=(
             "Parent directory for saving other checkpoints and data (e.g., replay buffer samples)."
             " Similar to above, actual path is automatically determined (and created)"
-        )
+        ),
     )
-    parser.add_argument("--load_checkpoint_path", type=str, help="Path to load Tinker checkpoint")
+    parser.add_argument(
+        "--load_checkpoint_path", type=str, help="Path to load Tinker checkpoint"
+    )
 
     ## Number of tries we allow to solve each task
     parser.add_argument(
@@ -136,7 +149,9 @@ def get_args() -> argparse.Namespace:
         type=int,
         help="Number of tries to solve each task; will override if specified",
     )
-    parser.add_argument("--eval_num_tries", type=int, help="num_tries during evaluation")
+    parser.add_argument(
+        "--eval_num_tries", type=int, help="num_tries during evaluation"
+    )
 
     ## Model Generation
     parser.add_argument("--max_tokens", type=int)
@@ -156,7 +171,7 @@ def get_args() -> argparse.Namespace:
         default=None,
         help="Mean-center rewards",
     )
-    parser.add_argument("--discount_factor", type=float) 
+    parser.add_argument("--discount_factor", type=float)
     parser.add_argument(
         "--group_size",
         type=int,
@@ -201,7 +216,7 @@ def get_args() -> argparse.Namespace:
             "Splits total_episode_steps = batch_size * group_size * len(traejectory) into "
             "`num_substeps` mini-batches, where each mini-batch is used for one optimizer update. "
             "By default, we adjust total_episode_steps to be a multiple of `num_substeps`."
-        )
+        ),
     )
     parser.add_argument(
         "--mini_batch_size",
@@ -211,24 +226,54 @@ def get_args() -> argparse.Namespace:
             "If specified and num_substeps is None, then we set num_substeps = "
             "total_episode_steps // mini_batch_size. If both specified, then we (super)sample the "
             "training data s.t. len(training_data) = mini_batch_size * num_substeps."
-        )
+        ),
     )
 
     ## More Evaluation
-    parser.add_argument("--eval_every", type=int, help="Iters to evaluate, 0 = disabled")
-    parser.add_argument("--eval_gen_every", type=int, help="Iters to evaluate generation, 0 = disabled")
-    parser.add_argument("--eval_rollout_every", type=int, help="Iters to evaluate rollouts, 0 = disabled")
-    parser.add_argument("--eval_rollout_start", type=int, help="Number of batches before doing rollout evaluation")
-    parser.add_argument("--num_eval_gen_samples", type=int, help="Number of samples to evaluate generation")
-    parser.add_argument("--num_eval_rollout_samples", type=int, help="Number of samples to evaluate rollouts")
-    
+    parser.add_argument(
+        "--eval_every", type=int, help="Iters to evaluate, 0 = disabled"
+    )
+    parser.add_argument(
+        "--eval_gen_every", type=int, help="Iters to evaluate generation, 0 = disabled"
+    )
+    parser.add_argument(
+        "--eval_rollout_every",
+        type=int,
+        help="Iters to evaluate rollouts, 0 = disabled",
+    )
+    parser.add_argument(
+        "--eval_rollout_start",
+        type=int,
+        help="Number of batches before doing rollout evaluation",
+    )
+    parser.add_argument(
+        "--num_eval_gen_samples",
+        type=int,
+        help="Number of samples to evaluate generation",
+    )
+    parser.add_argument(
+        "--num_eval_rollout_samples",
+        type=int,
+        help="Number of samples to evaluate rollouts",
+    )
+
     ## Miscellaneous
-    parser.add_argument("--save_every", type=int, help="Iters to save checkpoint, 0 = disabled")
-    parser.add_argument("--save_rollouts_every", type=int, help="Iters to save rollouts, 0 = disabled")
+    parser.add_argument(
+        "--save_every", type=int, help="Iters to save checkpoint, 0 = disabled"
+    )
+    parser.add_argument(
+        "--save_rollouts_every", type=int, help="Iters to save rollouts, 0 = disabled"
+    )
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--replicate", type=str, default="0", help="Unique identifier for run")
-    parser.add_argument("--verbose", action="store_true", default=False, help="Extra details")
-    parser.add_argument("--streamer", action="store_true", help="Stream generations (for PyTorch)")
+    parser.add_argument(
+        "--replicate", type=str, default="0", help="Unique identifier for run"
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", default=False, help="Extra details"
+    )
+    parser.add_argument(
+        "--streamer", action="store_true", help="Stream generations (for PyTorch)"
+    )
 
     args = parser.parse_args()
 
@@ -248,13 +293,21 @@ def get_args() -> argparse.Namespace:
 
     # Get run (i.e., experiment) name
     _ignore_args = [
-        "base_url", "checkpoint_path", "log_path", "load_checkpoint_path", "lora_checkpoint_path",
-        "project_name", "verbose", "streamer",
+        "base_url",
+        "checkpoint_path",
+        "log_path",
+        "load_checkpoint_path",
+        "lora_checkpoint_path",
+        "project_name",
+        "verbose",
+        "streamer",
     ]
     _ignore_args.extend([argn for argn in vars(args).keys() if argn.endswith("_every")])
     if args.base_env_config is not None and args.base_env_config == args.env_config:
         _ignore_args.append("base_env_config")
-    args.run_name = get_run_name(args, prefix=args.project_name, ignore_args=_ignore_args)
+    args.run_name = get_run_name(
+        args, prefix=args.project_name, ignore_args=_ignore_args
+    )
     logger.info("Run name: %s", args.run_name)
 
     # Setup log path and checkpoint / data-saving path
@@ -262,14 +315,20 @@ def get_args() -> argparse.Namespace:
     # -> similar for checkpointing
     created_dir = False
     try:
-        _model_name = OmegaConf.load(f"./configs/trainer/{args.trainer_config}.yaml")["model_name"]
+        _model_name = OmegaConf.load(f"./configs/trainer/{args.trainer_config}.yaml")[
+            "model_name"
+        ]
     except Exception as e:
         print(f"{e.__class__.__name__}: {e}")
         try:
-            _model_name = OmegaConf.load(f"./configs/model/{args.model_config}.yaml")["model_config"]["pretrained_model_name_or_path"]
+            _model_name = OmegaConf.load(f"./configs/model/{args.model_config}.yaml")[
+                "model_config"
+            ]["pretrained_model_name_or_path"]
         except Exception as e:
             print(f"{e.__class__.__name__}: {e}")
-            assert args.model_name, "args.model_name must be specified if not in trainer_config"
+            assert args.model_name, (
+                "args.model_name must be specified if not in trainer_config"
+            )
             _model_name = args.model_name
     _model_name = args.model_name or _model_name
     _model_name = _model_name.split("/")[-1].replace("-", "_")
@@ -294,9 +353,14 @@ def get_args() -> argparse.Namespace:
             logger.info("Using %s at: %s", argname, getattr(args, argname))
 
     # So Tinker doesn't load, delete checkpoints.jsonl at args.log_path if it exists
-    if not args.resume_run and os.path.exists(os.path.join(args.log_path, "checkpoints.jsonl")):
+    if not args.resume_run and os.path.exists(
+        os.path.join(args.log_path, "checkpoints.jsonl")
+    ):
         os.remove(os.path.join(args.log_path, "checkpoints.jsonl"))
-        logger.info("Deleted checkpoints.jsonl at: %s", os.path.join(args.log_path, "checkpoints.jsonl"))
+        logger.info(
+            "Deleted checkpoints.jsonl at: %s",
+            os.path.join(args.log_path, "checkpoints.jsonl"),
+        )
 
     # Setup tinker-cookbook WandB logging
     args.wandb_project = args.project_name

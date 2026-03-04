@@ -59,6 +59,7 @@ class TextWorldState(EnvironmentState):
     """
     Pydantic state for TextWorld episodes
     """
+
     # Allow TextWorldEnvironment | TextWorldWrapper attributes
     model_config = ConfigDict(arbitrary_types_allowed=True)
     # Keep track of the actual TextWorld env instance for each sample task
@@ -72,12 +73,14 @@ class TextWorldState(EnvironmentState):
     action_trajectory: list[str]  # list of TextWorld actions that lead to success
     last_action_text: str  # TextWorld action representation for the last action
     original_system_prompt: str | None = None
-    
+
     # TextWorld shared GameState attributes
     tw_feedback: str
     tw_objective: str
     tw_max_score: int
-    tw_extra_walkthrough: list[str] # same as action_trajectory, but not parsed as LLM tool call
+    tw_extra_walkthrough: list[
+        str
+    ]  # same as action_trajectory, but not parsed as LLM tool call
     tw_description: str
     tw_inventory: Any
     tw_score: int
@@ -124,7 +127,7 @@ class TextWorldEnv(Environment):
         self.task_filters = task_filters or []
         self.state_keys = state_keys or ["description", "score", "moves"]
         self.all_tasks = list(DEFAULT_MAX_TURNS_BY_TASK.keys())
-        
+
         # Build environment
         self.num_train_samples = num_train_samples
         self.num_val_samples = num_val_samples
@@ -132,8 +135,10 @@ class TextWorldEnv(Environment):
         self.split = split
 
         self.max_turns = max_turns or DEFAULT_MAX_TURNS_BY_TASK[task]
-        self.system_prompt = system_prompt  # This gets updated based on the TextWorld task
-        
+        self.system_prompt = (
+            system_prompt  # This gets updated based on the TextWorld task
+        )
+
         # Singleton factory shared across env instances (so scanning happens once)
         # -> Can then create new environments via
         #    sample_env = self.factory.make_env(task=self.task, sample_id=sample_id)
@@ -147,16 +152,24 @@ class TextWorldEnv(Environment):
             max_score=True,
             won=True,
         )
-        if self.task not in self.factory.list_tasks():  # check that this aligns with self.all_tasks
-            raise KeyError(f"Task '{self.task}' not found. Available: {self.factory.list_tasks()}")
-        
+        if (
+            self.task not in self.factory.list_tasks()
+        ):  # check that this aligns with self.all_tasks
+            raise KeyError(
+                f"Task '{self.task}' not found. Available: {self.factory.list_tasks()}"
+            )
+
         # Load data (tasks) and get splits
         self.datasets = self.init_data()
 
         # Initialize tools
         self.textworld_tool = TextWorldTool(task=self.task)
-        self.tool_descriptions: list[dict[str, Any]] = self.textworld_tool.get_tool_descs()
-        self.get_llm_toolcall_from_tw_text = self.textworld_tool.get_llm_toolcall_from_tw_text
+        self.tool_descriptions: list[dict[str, Any]] = (
+            self.textworld_tool.get_tool_descs()
+        )
+        self.get_llm_toolcall_from_tw_text = (
+            self.textworld_tool.get_llm_toolcall_from_tw_text
+        )
         # -> See self._step_impl() for how we call tools
 
         # Few-shot prompts for Act-PRM generation + training
@@ -173,31 +186,43 @@ class TextWorldEnv(Environment):
         Using the TextWorldFactory, we get the sample indices for the task corresponding to the different splits
         """
         num_tasks = self.factory.num_games(self.task)
-        self._check_num_tasks(num_tasks, {
-            "train": self.num_train_samples,
-            "test": self.num_test_samples,
-        })
+        self._check_num_tasks(
+            num_tasks,
+            {
+                "train": self.num_train_samples,
+                "test": self.num_test_samples,
+            },
+        )
         # train_indices = list(range(self.num_train_samples))
         # test_indices  = list(range(self.num_train_samples, self.num_train_samples + self.num_test_samples))
         test_indices = list(range(self.num_test_samples))
-        train_indices = list(range(self.num_test_samples, self.num_train_samples + self.num_test_samples))  # alt rep
-        eval_indices  = test_indices
+        train_indices = list(
+            range(self.num_test_samples, self.num_train_samples + self.num_test_samples)
+        )  # alt rep
+        eval_indices = test_indices
         # Update val_indices if num_val_samples is provided
         if self.num_val_samples is not None:
-            self._check_num_tasks(num_tasks, {
-                "train": self.num_train_samples,
-                "eval": self.num_val_samples,
-                "test": self.num_test_samples,
-            })
-            eval_indices = list(range(len(test_indices), len(test_indices) + self.num_val_samples))
-            
+            self._check_num_tasks(
+                num_tasks,
+                {
+                    "train": self.num_train_samples,
+                    "eval": self.num_val_samples,
+                    "test": self.num_test_samples,
+                },
+            )
+            eval_indices = list(
+                range(len(test_indices), len(test_indices) + self.num_val_samples)
+            )
+
         return {
             "train": train_indices,
-            "eval":  eval_indices,
-            "test":  test_indices,
+            "eval": eval_indices,
+            "test": test_indices,
         }
 
-    def _check_num_tasks(self, num_tasks: int, num_tasks_by_split: dict[str, int]) -> None:
+    def _check_num_tasks(
+        self, num_tasks: int, num_tasks_by_split: dict[str, int]
+    ) -> None:
         """
         Check that the number of tasks is sufficient for the given splits
         """
@@ -233,22 +258,28 @@ class TextWorldEnv(Environment):
         """
         Reset environment (starting new episode + loading a new task)
         """
-        sample_idx_adj = sample_idx % len(self.datasets[self.split])  # wrap around if out of bounds
+        sample_idx_adj = sample_idx % len(
+            self.datasets[self.split]
+        )  # wrap around if out of bounds
         sample_idx_tw = self.datasets[self.split][sample_idx_adj]
 
         # Create and start TextWorld environment for this sample_idx
         sample_tw_env = self.factory.make_env(task=self.task, sample_id=sample_idx_tw)
         tw_game_state: GameState = sample_tw_env.reset()
-        
+
         # Conveniently, we're provided a list of actions that lead to success
         action_trajectory: list[str] = [
             self.get_llm_toolcall_from_tw_text(tw_action)
             for tw_action in tw_game_state["extra.walkthrough"]
         ]
-        
+
         # Prepare initial state message
-        state_json = {self._key(k): v for k, v in tw_game_state.items() if k in self.state_keys}
-        state_json["max_possible_score"] = tw_game_state["max_score"]  # show max score to agent
+        state_json = {
+            self._key(k): v for k, v in tw_game_state.items() if k in self.state_keys
+        }
+        state_json["max_possible_score"] = tw_game_state[
+            "max_score"
+        ]  # show max score to agent
         state_json["moves_left"] = self.max_turns - state_json["moves"]
         state_content = MESSAGE_TEMPLATE.format(
             action_feedback=tw_game_state["feedback"].strip(),
@@ -257,15 +288,18 @@ class TextWorldEnv(Environment):
         messages = [{"role": "user", "content": state_content}]
         # Pass other attributes to our TextWorldState
         tw_game_state_kwargs = {
-            f"tw_{k}".replace(".", "_"): v for
-            k, v in tw_game_state.items() if k in SHARED_GAMESTATE_KEYS
+            f"tw_{k}".replace(".", "_"): v
+            for k, v in tw_game_state.items()
+            if k in SHARED_GAMESTATE_KEYS
         }
         # Display the ground-truth action trajectory
         if sample_idx == 0 and generation_idx == 0 and try_step == 0:
-            for _ix, _tw_action in enumerate(tw_game_state_kwargs["tw_extra_walkthrough"]):
+            for _ix, _tw_action in enumerate(
+                tw_game_state_kwargs["tw_extra_walkthrough"]
+            ):
                 rich_print(
                     f"{_ix}: [bright_cyan]{_tw_action}[/bright_cyan] ->"
-                    f"\n[bold]{action_trajectory[_ix]}[/bold]\n{"-" * 100}"
+                    f"\n[bold]{action_trajectory[_ix]}[/bold]\n{'-' * 100}"
                 )
         return TextWorldState(
             system_prompt=self._build_system_prompt(),
@@ -287,7 +321,8 @@ class TextWorldEnv(Environment):
             # Track for accuracy eval
             metadata={"correct": 0, "total": 1},  # correct := score == max_score
             # Past observations to show
-            first_obs_to_show=len(messages) + 1,  # system + default context + user message
+            first_obs_to_show=len(messages)
+            + 1,  # system + default context + user message
         )
 
     def step(self, **kwargs: Any) -> TextWorldStepResult:
@@ -335,29 +370,39 @@ class TextWorldEnv(Environment):
             if action.type == "function_call":  # handle tool call
                 fc_name = action.name
                 fc_args = action.arguments
-                try:  
+                try:
                     # For TextWorld, we convert the LLM function call to TextWorld action text
-                    tw_action_text = self.textworld_tool(tool_name=fc_name, tool_args=fc_args)
+                    tw_action_text = self.textworld_tool(
+                        tool_name=fc_name, tool_args=fc_args
+                    )
                     assert "tool call error" not in tw_action_text.lower(), (
                         f"Invalid tool call: {action.text}\n\n{tw_action_text}"
                     )
                 except Exception as e:
                     # Handle a tool call error by sending this error to the LLM
                     _error_class = type(e).__name__
-                    stdout = f"Invalid tool call:\n\n{action.text}\n\n{_error_class}: {e}"
+                    stdout = (
+                        f"Invalid tool call:\n\n{action.text}\n\n{_error_class}: {e}"
+                    )
                     tool_call_error = True
                     logger.warning(f"Last message not a valid tool call: {action.text}")
 
                 if not tool_call_error:
                     # Send parsed action to TextWorld environment and take next step
-                    tw_game_state, tw_reward, tw_done = sample_tw_env.step(tw_action_text)
-                    assert tw_reward == tw_game_state["score"], (  # Check our understanding
-                        f"Reward {tw_reward} != score {tw_game_state["score"]}"
+                    tw_game_state, tw_reward, tw_done = sample_tw_env.step(
+                        tw_action_text
+                    )
+                    assert (
+                        tw_reward == tw_game_state["score"]
+                    ), (  # Check our understanding
+                        f"Reward {tw_reward} != score {tw_game_state['score']}"
                     )
                     # Prepare next state message
                     last_action_text = tw_action_text
                     state_json = {
-                        self._key(k): v for k, v in tw_game_state.items() if k in self.state_keys
+                        self._key(k): v
+                        for k, v in tw_game_state.items()
+                        if k in self.state_keys
                     }
                     state_json["max_possible_score"] = tw_game_state["max_score"]
                     state_json["moves_left"] = self.max_turns - state_json["moves"]
@@ -367,14 +412,17 @@ class TextWorldEnv(Environment):
                         state_json=json.dumps(state_json, indent=2),
                     )
                     state_content += (
-                        f"\n\n(Hint: the task is not fully done until score {state_json["score"]}"
-                        f" == max_possible_score {state_json["max_possible_score"]})"
+                        f"\n\n(Hint: the task is not fully done until score {state_json['score']}"
+                        f" == max_possible_score {state_json['max_possible_score']})"
                     )
                     # Update GameState attributes for our TextWorldState
-                    next_state_tw_game_state_kwargs.update({
-                        f"tw_{k}".replace(".", "_"): v for
-                        k, v in tw_game_state.items() if k in SHARED_GAMESTATE_KEYS
-                    })
+                    next_state_tw_game_state_kwargs.update(
+                        {
+                            f"tw_{k}".replace(".", "_"): v
+                            for k, v in tw_game_state.items()
+                            if k in SHARED_GAMESTATE_KEYS
+                        }
+                    )
                     stdout = state_content
                     made_tool_call = True
 
@@ -382,8 +430,7 @@ class TextWorldEnv(Environment):
                     done = bool(tw_done)  # simple alias
                     if tw_reward >= tw_game_state["max_score"]:
                         metadata["correct"] = 1
-                    
-                
+
                 env_response = {
                     "role": "tool",
                     "type": "function_call_output",
@@ -398,7 +445,7 @@ class TextWorldEnv(Environment):
                     if not updated_try_step:
                         try_step += 1
                         updated_try_step = True
-            
+
             elif action.type in ["message", "reasoning"]:
                 # Basically ignore
                 if action_idx + 1 == len(parsed_actions):  # last message
@@ -407,9 +454,11 @@ class TextWorldEnv(Environment):
                     #     "Ok please continue! Remember you *must* call tools to complete the task."
                     # )
                     # env_messages.append({"role": "user", "content": user_content})
-                    
+
                     # Treat as workflow failure
-                    user_content = "Sad! You must persist and call tools to complete the task."
+                    user_content = (
+                        "Sad! You must persist and call tools to complete the task."
+                    )
                     done = True
                     truncated = True
                     env_messages.append({"role": "user", "content": user_content})
@@ -419,7 +468,9 @@ class TextWorldEnv(Environment):
                     logger.warning(f"Last message not a tool call: {action.text}")
             else:
                 logger.error(f"Invalid parsed actions: {parsed_actions}")
-                logger.error(f"Specific unknown action type for action {action_idx}: {action.type}")
+                logger.error(
+                    f"Specific unknown action type for action {action_idx}: {action.type}"
+                )
                 breakpoint()
 
         # Update timesteps, fail if too many turns
@@ -434,14 +485,19 @@ class TextWorldEnv(Environment):
 
         # Handle badness (environment should always respond to LLM response)
         if len(env_messages) == 0:
-            env_messages.append({
-                "role": "user",
-                "content": "No tool calls were parsed. Please try again",
-            })
+            env_messages.append(
+                {
+                    "role": "user",
+                    "content": "No tool calls were parsed. Please try again",
+                }
+            )
             rich_print(f"Last action: {action.text}")
-            rich_print("\n".join(
-                f"Action {_act_idx}: {_action}" for _act_idx, _action in enumerate(parsed_actions)
-            ))
+            rich_print(
+                "\n".join(
+                    f"Action {_act_idx}: {_action}"
+                    for _act_idx, _action in enumerate(parsed_actions)
+                )
+            )
             logger.error("No tool calls were parsed.")
 
         # Handle past observations to show
@@ -451,12 +507,14 @@ class TextWorldEnv(Environment):
             last_obs_to_show=current_state.last_obs_to_show,
         )
 
-        metadata.update({
-            "reward": reward,
-            "done": done,
-            "truncated": truncated,
-            "made_tool_call": made_tool_call,
-        })
+        metadata.update(
+            {
+                "reward": reward,
+                "done": done,
+                "truncated": truncated,
+                "made_tool_call": made_tool_call,
+            }
+        )
         new_state = TextWorldState(
             system_prompt=current_state.system_prompt,
             new_messages=env_messages,
@@ -493,7 +551,7 @@ class AsyncTextWorldEnv(TextWorldEnv):
     """
     Asynchronous TextWorld environment
     """
-    
+
     async def reset_async(
         self,
         sample_idx: int = 0,

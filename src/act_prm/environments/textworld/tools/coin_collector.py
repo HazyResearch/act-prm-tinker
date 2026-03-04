@@ -37,9 +37,7 @@ TOOL_DESCRIPTIONS = {
     "take_coin": {
         "type": "function",
         "name": "take_coin",
-        "description": (
-            "Win the game by taking the coin if you see it in the room."
-        ),
+        "description": ("Win the game by taking the coin if you see it in the room."),
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
 }

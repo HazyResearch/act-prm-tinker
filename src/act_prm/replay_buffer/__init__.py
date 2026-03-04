@@ -14,7 +14,10 @@ def get_replay_buffer(name: str, **kwargs: Any) -> ReplayBuffer:
     if name == "default":
         return ReplayBuffer(**kwargs)
     else:
-        raise NotImplementedError(f"Sorry, replay buffer {name} is not implemented yet.")
+        raise NotImplementedError(
+            f"Sorry, replay buffer {name} is not implemented yet."
+        )
+
 
 __all__ = [
     "ReplayBuffer",

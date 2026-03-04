@@ -1,6 +1,7 @@
 """
 Setup utilities
 """
+
 import os
 import random
 from argparse import Namespace
@@ -44,7 +45,9 @@ def get_run_name(
             argn = "".join([c[0] for c in argname.split("_")])
             ckpt_id = "_".join(
                 [
-                    "=".join(["".join([x[0] for x in c.split("_")]) for c in s.split("=")])
+                    "=".join(
+                        ["".join([x[0] for x in c.split("_")]) for c in s.split("=")]
+                    )
                     for s in args.log_path.split("/")[-1].split("-")
                 ]
             )
@@ -63,5 +66,7 @@ def make_shorter(run_name: str) -> str:
     run_name = run_name.replace("=textworld_", "=tw_")  # textworld
     run_name = run_name.replace("=Qwen_Qwen", "=Qwen")  # models
     run_name = run_name.replace("=Llama_Llam", "=Llama")  # models
-    run_name = run_name.replace("-rebuco=default", "")  # if it's "default", don't need to specify
+    run_name = run_name.replace(
+        "-rebuco=default", ""
+    )  # if it's "default", don't need to specify
     return run_name

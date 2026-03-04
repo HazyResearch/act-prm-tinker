@@ -34,7 +34,6 @@ def get_thought_and_actions(
     action_eos: str = "</tool_call>",
     final_answer_bos: str = "Final Answer: ",
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-
     """
     From a given chat message, return two messages where the first only contains "thought text"
     and the second only contains "actions text".
@@ -58,16 +57,22 @@ def get_thought_and_actions(
             thought_msg["content"] = thought_str
             actions_msg["content"] = f"{final_answer_bos}{actions_str}"
 
-        elif action_bos not in content:  # No action in this message, e.g., because invalid tool call
+        elif (
+            action_bos not in content
+        ):  # No action in this message, e.g., because invalid tool call
             print(f"No action found in message:\n{content}")
             return thought_msg, None
 
         else:
             # Extract content from tool calls, e.g., f"<tool_call>{content}</tool_call>"
             # -> Assumes only one action per message
-            assert action_bos in content, f"No explicit action found in message: {content}"
+            assert action_bos in content, (
+                f"No explicit action found in message: {content}"
+            )
             thought_str, actions_str = content.split(action_bos, maxsplit=1)
-            assert action_eos in actions_str, f"No closing action tag found in message: {actions_str}"
+            assert action_eos in actions_str, (
+                f"No closing action tag found in message: {actions_str}"
+            )
             # Extract the action text content
             actions_str = actions_str.split(action_eos, maxsplit=1)[0].strip()
             # Add back the action tags (maybe redundant)
@@ -97,7 +102,7 @@ def get_action_prompted_completion(
         ...,
         {"role": "assistant", "content": "<action_message_last><thought_message_last>"},
     ]
-    
+
     If `continue_final_message` is True, then we include the last `action_target` as the last
     assistant message, i.e., to prompt a continuation for the thought that leads to it.
     """
@@ -110,7 +115,9 @@ def get_action_prompted_completion(
             latent_inputs.append(msg)
         else:
             assistant_indices.append(msg_idx)
-            msg_thought, msg_actions = get_thought_and_actions(msg, **get_thought_actions_kwargs)
+            msg_thought, msg_actions = get_thought_and_actions(
+                msg, **get_thought_actions_kwargs
+            )
             # Extract content from message dicts
             c_thought, c_actions = msg_thought["content"], msg_actions["content"]
             latent_content = f"{c_actions}\n\n{thought_bos}\n{c_thought}\n{thought_eos}"
@@ -128,7 +135,7 @@ def get_action_prompted_completion(
             "role": last_assistant_msg["role"],
             "content": f"{msg_content}{thought_bos}\n",
         }
-        latent_inputs = latent_inputs[:last_assistant_idx + 1]
+        latent_inputs = latent_inputs[: last_assistant_idx + 1]
     return latent_inputs, action_target
 
 
@@ -136,6 +143,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
     """
     Tinker Generator with Action Process Reward Models
     """
+
     def __init__(self, keep_top_k: int | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.keep_top_k = keep_top_k
@@ -163,7 +171,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
         # Prompt for thoughts, e.g., of the form <action_bos>(action)</action_eos><thought_bos>
         state_messages = deepcopy(state_messages)
         state_messages, action_target = get_action_prompted_completion(
-            state_messages, 
+            state_messages,
             continue_final_message=True,
             action_bos=self.action_bos,
             action_eos=self.action_eos,
@@ -202,7 +210,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
 
         This results in *1* full trajectory (from start to workflow completion).
 
-        However for training, we still save each (state, action', thought', reward') tuple 
+        However for training, we still save each (state, action', thought', reward') tuple
         for all `num_return_sequences` thoughts as a TrajectoryGroup. This results in returning
         `num_steps` TrajectoryGroups.
 
@@ -241,18 +249,23 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             # state_messages should be [obs, action, ..., obs, action]
             state_messages: list[dict[str, Any]] = self._get_messages_from_state(state)
             # Prompt for thoughts
-            act_prompt_state_messages, input_ids = self._get_thought_prompt(state_messages)
+            act_prompt_state_messages, input_ids = self._get_thought_prompt(
+                state_messages
+            )
             tinker_input = ModelInput.from_ints(input_ids)
             # Generate `num_return_sequences` thoughts
-            responses_in_group: list[TokensWithLogprobsAndText] = await asyncio.gather(*[
-                llm.generate(
-                    tinker_input,
-                    max_tokens=max_tokens,
-                    temperature=temperature
-                ) for _ in range(num_return_sequences)
-            ])
+            responses_in_group: list[TokensWithLogprobsAndText] = await asyncio.gather(
+                *[
+                    llm.generate(
+                        tinker_input, max_tokens=max_tokens, temperature=temperature
+                    )
+                    for _ in range(num_return_sequences)
+                ]
+            )
             valid_response_indices = [
-                i for i, response in enumerate(responses_in_group) if response is not None
+                i
+                for i, response in enumerate(responses_in_group)
+                if response is not None
             ]
             responses_in_group = [responses_in_group[i] for i in valid_response_indices]
 
@@ -261,9 +274,11 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 done = True
                 truncated = True
                 break
-            
+
             # Parse thoughts from responses
-            thoughts_in_group: list[str] = [  # demonstrations may have <thought>...</thought>
+            thoughts_in_group: list[
+                str
+            ] = [  # demonstrations may have <thought>...</thought>
                 self._parse_thoughts(response.text) for response in responses_in_group
             ]
             # Compute per-step rewards for each thought
@@ -273,8 +288,10 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             # but we apply after system_prompt in process_state_messages_for_metrics
             standard_chat = process_state_messages_for_metrics(
                 state_messages,
-                system_prompt=getattr(env, "original_system_prompt", state.system_prompt),
-                first_msg_to_show=max(first_msg_to_show, 0)
+                system_prompt=getattr(
+                    env, "original_system_prompt", state.system_prompt
+                ),
+                first_msg_to_show=max(first_msg_to_show, 0),
             )
             group_metrics = await compute_group_thought_action_metrics(
                 state_messages=standard_chat,
@@ -310,13 +327,16 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 reward=rewards_in_group[best_thought_idx],
             )
             next_state = env_step_result.state
-            truncated  = env_step_result.truncated
-            done       = env_step_result.done
+            truncated = env_step_result.truncated
+            done = env_step_result.done
             next_obs = [
                 {
                     "role": msg["role"],
-                    "content": msg["output"] if msg.get("output", None) else msg["content"]
-                } for msg in next_state.new_messages
+                    "content": msg["output"]
+                    if msg.get("output", None)
+                    else msg["content"],
+                }
+                for msg in next_state.new_messages
             ]
 
             # ---------- Save episode steps for each generation ----------
@@ -336,9 +356,13 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             # Save (state, thought, action) steps
             trajectory_group = self._get_trajectory_group_from_generations(
                 state_messages=standard_chat,
-                actions_in_group=[msg[0] for msg in thought_action_messages],  # list[dict[str, str]]
+                actions_in_group=[
+                    msg[0] for msg in thought_action_messages
+                ],  # list[dict[str, str]]
                 state_len=group_metrics["state_len"][0],
-                state_action_tokens_in_group=group_metrics["state_thought_action_tokens"],
+                state_action_tokens_in_group=group_metrics[
+                    "state_thought_action_tokens"
+                ],
                 old_logprobs_in_group=group_metrics["action_logprobs"],
                 rewards_in_group=rewards_in_group,
                 generation_ids_in_group=valid_response_indices,
@@ -348,10 +372,11 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 trajectory_group.keep_top_k(self.keep_top_k)
             all_trajectory_groups.append(trajectory_group)
 
-            # Save action-prompted (state, action, thought) steps            
+            # Save action-prompted (state, action, thought) steps
             # 1. Get state-action-thought artifacts for RL training
             state_action_thought_messages_G = [
-                deepcopy(act_prompt_state_messages) for _ in range(len(responses_in_group))
+                deepcopy(act_prompt_state_messages)
+                for _ in range(len(responses_in_group))
             ]
             state_action_thought_tokens_G = []
             for i, response in enumerate(responses_in_group):
@@ -369,13 +394,19 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                 for i in range(len(responses_in_group))
             ]
             state_action_thought_tinker_input_G = [
-                ModelInput.from_ints(_tokens) for _tokens in state_action_thought_tokens_G
+                ModelInput.from_ints(_tokens)
+                for _tokens in state_action_thought_tokens_G
             ]
-            logprobs_G = await asyncio.gather(*[
-                llm.compute_logprobs_async(_tinker_input)
-                for _tinker_input in state_action_thought_tinker_input_G
-            ])
-            logprobs_G = [logprobs[-action_token_lens_G[i]:] for i, logprobs in enumerate(logprobs_G)]
+            logprobs_G = await asyncio.gather(
+                *[
+                    llm.compute_logprobs_async(_tinker_input)
+                    for _tinker_input in state_action_thought_tinker_input_G
+                ]
+            )
+            logprobs_G = [
+                logprobs[-action_token_lens_G[i] :]
+                for i, logprobs in enumerate(logprobs_G)
+            ]
             actions_in_group = [
                 {"role": "assistant", "content": response.text}
                 for response in responses_in_group
@@ -388,7 +419,7 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             #     f"{self.hf_tokenizer.decode(state_action_thought_tokens_G[0][-action_token_lens_G[0]:])}"
             # )
             # breakpoint()
-            
+
             # 2. Actually save state-action-thought steps to a TrajectoryGroup
             act_prompt_trajectory_group = self._get_trajectory_group_from_generations(
                 state_messages=act_prompt_state_messages,
@@ -403,13 +434,15 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             )
             all_act_prompt_trajectory_groups.append(act_prompt_trajectory_group)
             # ---------- End saving episode steps for each generation ----------
-            
+
             # Transition to next state
             state = next_state
 
             # Visualize generated thoughts
             if self.verbose:
-                for i in [best_thought_idx]:  # or range(num_return_sequences), but this is a lot
+                for i in [
+                    best_thought_idx
+                ]:  # or range(num_return_sequences), but this is a lot
                     header_text = (
                         f"Batch {batch_id}, Split {split}, Try {try_step}, "
                         f"Sample {unique_data_sample_id}, Generation {i}, "
@@ -417,7 +450,9 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                         # f"Step {state.timestep} / {max_turns}, "  # -1 bc just took a step
                         f"Reward {rewards_in_group[i]:.4f}"
                     )
-                    rewards_str = ", ".join([f"{r:.4f}" for r in sorted(rewards_in_group)[::-1]])
+                    rewards_str = ", ".join(
+                        [f"{r:.4f}" for r in sorted(rewards_in_group)[::-1]]
+                    )
                     panel_content = [
                         f"Rewards: [bright_green][{rewards_str}][/bright_green]",
                         f"Run url: [cyan]{self.run_url}[/cyan]",
@@ -454,6 +489,6 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                     )
 
         return {
-            "policy": all_act_prompt_trajectory_groups, 
+            "policy": all_act_prompt_trajectory_groups,
             "think_act_policy": all_trajectory_groups,
         }

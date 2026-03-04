@@ -41,7 +41,7 @@ def build_retriever(
         return BM25.load(save_path or "does_not_exist", load_corpus=True)
     except FileNotFoundError:
         print(f"-> No retriever found at {save_path}, building new retriever")
-    
+
     if retriever_name.startswith("bm25"):
         # Lowercase corpus for BM25
         corpus = [c["text"].lower() for c in corpus]
@@ -80,9 +80,9 @@ class SearchTool(BaseTool):
     ) -> None:
         super().__init__(**kwargs)
         self.retriever_name = retriever_name
-        self.stemmer = Stemmer("english") if use_stemmer else None  
+        self.stemmer = Stemmer("english") if use_stemmer else None
         self.retriever_config = retriever_config
-        
+
         # self.tokenizer = tokenizer
         self.corpus = corpus
         self.top_k = 1
@@ -121,22 +121,26 @@ class SearchTool(BaseTool):
             for i in range(results.shape[1]):
                 # doc_idx, score = results[0, i], scores[0, i]
                 try:
-                    doc_id = results[0, i]["id"]  # results[0, i] can be dict or np.ndarray?
+                    doc_id = results[0, i][
+                        "id"
+                    ]  # results[0, i] can be dict or np.ndarray?
                 except IndexError:
                     doc_id = results[0, i].item()
                 doc_dict = self.corpus[doc_id]
                 # Return string representation of the result
-                scroll_msg = "" # <-- handle this later
+                scroll_msg = ""  # <-- handle this later
                 # if doc_dict["next_chunk_idx"] is not None:
                 #     scroll_msg += "\n- Scroll down for more..."
                 # if doc_dict["prev_chunk_idx"] is not None:
                 #     scroll_msg += "\n- Scroll up for more..."
                 topk_results_str.append(
-                    RESULT_TEMPLATE.format(document=doc_dict["text"], scroll_message=scroll_msg)
+                    RESULT_TEMPLATE.format(
+                        document=doc_dict["text"], scroll_message=scroll_msg
+                    )
                 )
                 topk_results.append(doc_dict)
                 break
-        
+
             new_doc_dict = topk_results[0]
             result_str = topk_results_str[0]
             result_str = f"# Search Result:\n\n{result_str}"

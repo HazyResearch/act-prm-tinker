@@ -11,7 +11,9 @@ class ScrollUpTool(BaseTool):
     """
     Scroll up in the document context
     """
-    def __call__(self,
+
+    def __call__(
+        self,
         current_doc_id: int,
         all_doc_dicts: list[dict[str, Any]],
         **kwargs: Any,
@@ -29,7 +31,7 @@ class ScrollUpTool(BaseTool):
             result_str = f"# Prior Text ({_count_str}):\n\n"
             if new_doc_dict["prev_chunk_idx"] is not None:
                 result_str += "[Scroll up for more...] "
-            result_str += f"{new_doc_dict["text"]}"
+            result_str += f"{new_doc_dict['text']}"
             if new_doc_dict["next_chunk_idx"] is not None:
                 result_str += " [...Scroll down for more]"
         else:
@@ -47,7 +49,7 @@ class ScrollUpTool(BaseTool):
             "parameters": {
                 "type": "object",
                 "properties": {},
-            }
+            },
         }
 
 
@@ -55,6 +57,7 @@ class ScrollDownTool(BaseTool):
     """
     Scroll down in the document context
     """
+
     def __call__(
         self,
         current_doc_id: int,
@@ -74,7 +77,7 @@ class ScrollDownTool(BaseTool):
             result_str = f"# Next Text ({_count_str}):\n\n"
             if new_doc_dict["prev_chunk_idx"] is not None:
                 result_str += "[Scroll up for more...] "
-            result_str += f"{new_doc_dict["text"]}"
+            result_str += f"{new_doc_dict['text']}"
             if new_doc_dict["next_chunk_idx"] is not None:
                 result_str += " [...Scroll down for more]"
         else:
@@ -93,5 +96,5 @@ class ScrollDownTool(BaseTool):
             "parameters": {
                 "type": "object",
                 "properties": {},
-            }
+            },
         }

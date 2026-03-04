@@ -43,6 +43,7 @@ class LLMGraderForQA:
     LLM Grader for QA tasks
     - Copied and modified from BrowseComp Eval LLM Grader
     """
+
     def __init__(
         self,
         grader_model: LLM | None = None,
@@ -62,7 +63,7 @@ class LLMGraderForQA:
         self.max_new_tokens = max_new_tokens
         self.num_samples = num_samples
         self.verbose = verbose
-        
+
         # Track metrics over an evaluation or training batch
         self.metrics = {
             "correct": [],
@@ -129,7 +130,9 @@ class LLMGraderForQA:
                 rich_print(f"[green]is_correct vote {_idx + 1}: {is_correct}[/green]")
         is_correct = sum(n_corrects) / len(n_corrects) > 0.5
         grade_msg = n_messages[is_correct][0]  # just pick the first message
-        rich_print(f"[bold green]Final Grade Result: is_correct is {is_correct}[/bold green]")
+        rich_print(
+            f"[bold green]Final Grade Result: is_correct is {is_correct}[/bold green]"
+        )
         rich_print(f"[yellow]Reasoning:\n{grade_msg}[/yellow]")
 
         # Track metrics over an evaluation or training batch

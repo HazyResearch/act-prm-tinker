@@ -39,13 +39,13 @@ def process_batch_for_search(
         "next_scroll_id": [],
     }
     for text_idx, text in enumerate(batch["text"]):
-        doc_id = f"{batch["docid"][text_idx]}_0"
+        doc_id = f"{batch['docid'][text_idx]}_0"
         url = batch["url"][text_idx]
         title = get_title(text) or f"{text.split('\n')[0][:32]} [...]"
         # Split text into chunks
         tokens = tokenizer.encode(text)
         token_chunks = [
-            tokens[i:i + doc_chunk_size]
+            tokens[i : i + doc_chunk_size]
             for i in range(0, len(tokens), doc_chunk_size)
         ]
         if len(token_chunks[-1]) < doc_chunk_size:
@@ -53,7 +53,8 @@ def process_batch_for_search(
             token_chunks[-1] = tokens[-doc_chunk_size:]
         # Decode back into text
         text_chunks = tokenizer.batch_decode(
-            token_chunks, skip_special_tokens=True,
+            token_chunks,
+            skip_special_tokens=True,
         )
         for chunk_idx, text_chunk in enumerate(text_chunks):
             new_batch["title"].append(title)
@@ -61,14 +62,18 @@ def process_batch_for_search(
             new_batch["title_and_text"].append(f"## {title}\n\n{text_chunk}")
             # new_batch["past_scroll_id"].append(idx - 1)
             # new_batch["next_scroll_id"].append(idx + 1)
-            new_batch["past_scroll_id"].append(f"{batch["docid"][text_idx]}_{chunk_idx - 1}")
-            new_batch["next_scroll_id"].append(f"{batch["docid"][text_idx]}_{chunk_idx + 1}")
+            new_batch["past_scroll_id"].append(
+                f"{batch['docid'][text_idx]}_{chunk_idx - 1}"
+            )
+            new_batch["next_scroll_id"].append(
+                f"{batch['docid'][text_idx]}_{chunk_idx + 1}"
+            )
             if chunk_idx == 0:
                 new_batch["past_scroll_id"][-1] = None
             elif chunk_idx == len(text_chunks) - 1:
                 new_batch["next_scroll_id"][-1] = None
             # Add back old metadata
-            doc_id = f"{batch["docid"][text_idx]}_{chunk_idx}"
+            doc_id = f"{batch['docid'][text_idx]}_{chunk_idx}"
             new_batch["doc_id"].append(doc_id)
             new_batch["url"].append(url)
 
@@ -87,7 +92,7 @@ def process_sample_for_multiple_choice(
     Process a sample into our multiple choice format
     """
     search_results = []  # list of docs initially shown
-    doc_dict = {}        # where we store all docs
+    doc_dict = {}  # where we store all docs
     num_docs = 0
     num_distractors = 0
     # max_distractors = max_distractors or # len(sample["negative_docs"])
@@ -95,9 +100,7 @@ def process_sample_for_multiple_choice(
         max_distractors = max(0, max_docs - len(sample["gold_docs"]))
     else:
         max_distractors = max_distractors or len(sample["negative_docs"])
-    _sample = {
-        k: v for k, v in sample.items() if k in ["gold_docs", "negative_docs"]
-    }
+    _sample = {k: v for k, v in sample.items() if k in ["gold_docs", "negative_docs"]}
     # Get potential docs
     for k, v in _sample.items():
         np.random.shuffle(v)
@@ -105,11 +108,13 @@ def process_sample_for_multiple_choice(
             if k == "gold_docs" or num_distractors < max_distractors:
                 # Only show preview and split on new word
                 preview_text = doc["text"][:max_preview_chars]
-                preview_text = f"{preview_text.rsplit(" ", 1)[0]} [...]"
-                search_results.append({
-                    "doc_id": f"{doc["docid"]}_0",
-                    "text_preview": preview_text,
-                })
+                preview_text = f"{preview_text.rsplit(' ', 1)[0]} [...]"
+                search_results.append(
+                    {
+                        "doc_id": f"{doc['docid']}_0",
+                        "text_preview": preview_text,
+                    }
+                )
                 num_docs += 1
                 if k != "gold_docs":
                     num_distractors += 1
@@ -117,24 +122,25 @@ def process_sample_for_multiple_choice(
                 # Split text into chunks
                 tokens = tokenizer.encode(doc["text"])
                 token_chunks = [
-                    tokens[i:i+doc_chunk_size]
+                    tokens[i : i + doc_chunk_size]
                     for i in range(0, len(tokens), doc_chunk_size)
                 ]
                 if len(token_chunks[-1]) < doc_chunk_size:  # make last chunk same size
                     token_chunks[-1] = tokens[-doc_chunk_size:]
                 # Decode back into text
                 text_chunks = tokenizer.batch_decode(
-                    token_chunks, skip_special_tokens=True,
+                    token_chunks,
+                    skip_special_tokens=True,
                 )
                 # Add chunks to doc_dict
                 for idx, text_chunk in enumerate(text_chunks):
-                    _doc_id = f"{doc["docid"]}_{idx}"
+                    _doc_id = f"{doc['docid']}_{idx}"
                     doc_dict[_doc_id] = {
                         "doc_id": _doc_id,
                         "url": doc["url"],
                         "text": text_chunk,
-                        "past_scroll_id": f"{doc["docid"]}_{idx - 1}",
-                        "next_scroll_id": f"{doc["docid"]}_{idx + 1}",
+                        "past_scroll_id": f"{doc['docid']}_{idx - 1}",
+                        "next_scroll_id": f"{doc['docid']}_{idx + 1}",
                     }
                     if idx == 0:
                         doc_dict[_doc_id]["past_scroll_id"] = None
