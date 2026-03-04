@@ -16,7 +16,7 @@ from tinker_cookbook import checkpoint_utils
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 # Copied from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/utils/misc_utils.py#L18
@@ -57,7 +57,9 @@ def split_list(lst: Sequence[T], num_splits: int) -> list[list[T]]:
     if num_splits <= 0:
         raise ValueError(f"num_splits must be positive, got {num_splits}")
     if num_splits > len(lst):
-        raise ValueError(f"Cannot split list of length {len(lst)} into {num_splits} parts")
+        raise ValueError(
+            f"Cannot split list of length {len(lst)} into {num_splits} parts"
+        )
 
     edges = np.linspace(0, len(lst), num_splits + 1).astype(int)
     return [list(lst[edges[i] : edges[i + 1]]) for i in range(num_splits)]
@@ -113,5 +115,10 @@ async def save_checkpoint_and_get_sampling_client(
                 loop_state={"batch": i_batch},
                 kind="both",
             )
-            return training_client.create_sampling_client(path_dict["sampler_path"]), metrics
-        return await training_client.save_weights_and_get_sampling_client_async(), metrics
+            return training_client.create_sampling_client(
+                path_dict["sampler_path"]
+            ), metrics
+        return (
+            await training_client.save_weights_and_get_sampling_client_async(),
+            metrics,
+        )

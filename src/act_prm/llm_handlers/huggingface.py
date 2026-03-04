@@ -35,9 +35,13 @@ def load_hf_model_and_tokenizer(
     """
     Load model and tokenizer from Hugging Face Hub, accomodating for custom chat temmplates
     """
-    model = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path, **kwargs)
-    
-    if pretrained_model_name_or_path == "Qwen/Qwen3-8B":  # hack but get Qwen2.5 tokenizer
+    model = AutoModelForCausalLM.from_pretrained(
+        pretrained_model_name_or_path, **kwargs
+    )
+
+    if (
+        pretrained_model_name_or_path == "Qwen/Qwen3-8B"
+    ):  # hack but get Qwen2.5 tokenizer
         pretrained_model_name_or_path = "Qwen/Qwen2.5-3B-Instruct"
     tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path, **kwargs)
 
@@ -80,10 +84,10 @@ class HuggingFaceLLM(LLM):
             assert tokenizer is not None, (
                 "tokenizer must be provided if model is provided"
             )
-        
+
         super().__init__(model=model, model_config=model_config, **kwargs)
         self.tokenizer = tokenizer
-        
+
         # Parse tool calls
         self.tool_call_bos = tool_call_bos
         self.tool_call_eos = tool_call_eos
@@ -127,7 +131,9 @@ class HuggingFaceLLM(LLM):
                 for single_chat in messages
             ]
         # Get model inputs
-        if (isinstance(tools, list) and not isinstance(tools[0], list)) or tools is None:
+        if (
+            isinstance(tools, list) and not isinstance(tools[0], list)
+        ) or tools is None:
             model_inputs = self.tokenizer.apply_chat_template(
                 messages,
                 tools=tools,
@@ -154,9 +160,11 @@ class HuggingFaceLLM(LLM):
             ]
             # for _idx, _input_text in enumerate(input_texts):
             #     rich_print(f"[{_idx}]\n---\n{_input_text}\n============================\n")
-            model_inputs = self.tokenizer(input_texts, return_tensors="pt", padding=True)
+            model_inputs = self.tokenizer(
+                input_texts, return_tensors="pt", padding=True
+            )
             self.tokenizer.padding_side = og_padding_side
-        
+
         # Get input lengths
         input_len = model_inputs["input_ids"].shape[1]
         # Get generation config
@@ -202,7 +210,7 @@ class HuggingFaceLLM(LLM):
         ]
         if verbose:
             for _text in decoded_texts:
-                rich_print(f"{_text}\n{"-" * 100}")
+                rich_print(f"{_text}\n{'-' * 100}")
         return [
             [{"role": "assistant", "content": message}] for message in decoded_texts
         ]
@@ -248,7 +256,10 @@ class HuggingFaceLLM(LLM):
         """
         return get_actions(response, **self.tool_call_parse_kwargs)
 
-    def get_messages_from_text(self, text: str,) -> list[dict[str, Any]]:
+    def get_messages_from_text(
+        self,
+        text: str,
+    ) -> list[dict[str, Any]]:
         """
         Convert text to LLM chat messages
         """

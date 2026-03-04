@@ -35,9 +35,9 @@ class Environment(ABC):
         verbose: bool = False,
         pretrained_model_config: dict[str, Any] | None = None,
         hide_observations: bool = False,
-        hidden_obs_content: str = "...",     # or "<output omitted for brevity>"
+        hidden_obs_content: str = "...",  # or "<output omitted for brevity>"
         first_obs_to_show: int = 1,  # e.g, to keep prompt
-        last_obs_to_show: int = 0,   # >= 2 to keep more than the last observation
+        last_obs_to_show: int = 0,  # >= 2 to keep more than the last observation
         **kwargs: Any,
     ) -> None:
         super().__init__()
@@ -87,7 +87,9 @@ class Environment(ABC):
             _pretrained_model_config["pretrained_model_name_or_path"] = (
                 _model_name_or_path
             )
-            _chat_template_path = _pretrained_model_config.pop("chat_template_path", None)
+            _chat_template_path = _pretrained_model_config.pop(
+                "chat_template_path", None
+            )
             tokenizer = AutoTokenizer.from_pretrained(**_pretrained_model_config)
             # Override chat template if provided
             if _chat_template_path is not None:
@@ -136,7 +138,7 @@ class Environment(ABC):
         hide_observations: bool | None = None,
         hidden_obs_content: str | None = None,
         first_obs_to_show: int | None = None,  # e.g., to keep prompt
-        last_obs_to_show: int | None = None,   # e.g., to keep last observation
+        last_obs_to_show: int | None = None,  # e.g., to keep last observation
     ) -> list[dict[str, str]]:
         """
         Hide observations from messages
@@ -149,7 +151,7 @@ class Environment(ABC):
         hidden_obs_content = hidden_obs_content or self.hidden_obs_content
         first_obs_to_show = first_obs_to_show or self.first_obs_to_show
         last_obs_to_show = last_obs_to_show or self.last_obs_to_show
-        
+
         return [
             {"role": message["role"], "content": hidden_obs_content}
             if (

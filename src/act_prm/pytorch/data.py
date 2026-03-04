@@ -16,15 +16,20 @@ class DataCollatorForPolicyGradient(DataCollatorForLanguageModeling):
     """
     Custom collator for LM policy gradient training that pads log-probs and advantages.
     """
+
     def __init__(
         self,
         tokenizer: PreTrainedTokenizerBase,
         return_tensors: str = "pt",
         **kwargs: Any,
     ) -> None:
-        super().__init__(tokenizer=tokenizer, mlm=False, return_tensors=return_tensors, **kwargs)
+        super().__init__(
+            tokenizer=tokenizer, mlm=False, return_tensors=return_tensors, **kwargs
+        )
 
-    def __call__(self, features: list[dict[str, Any] | list[int] | Any]) -> dict[str, Any]:
+    def __call__(
+        self, features: list[dict[str, Any] | list[int] | Any]
+    ) -> dict[str, Any]:
         """
         Apply standard causal language modeling collator to HuggingFace Dataset features,
         but also pad log-probs and advantages / weights for policy gradient
@@ -33,7 +38,8 @@ class DataCollatorForPolicyGradient(DataCollatorForLanguageModeling):
         og_padding_side = copy(self.tokenizer.padding_side)
         self.tokenizer.padding_side = "right"
         parent_features = [
-            {"input_ids": f["input_ids"], "attention_mask": f["attention_mask"]} for f in features
+            {"input_ids": f["input_ids"], "attention_mask": f["attention_mask"]}
+            for f in features
         ]
         batch = super().__call__(parent_features)
 
@@ -49,11 +55,13 @@ class DataCollatorForPolicyGradient(DataCollatorForLanguageModeling):
                 elif key == "label_mask":
                     dtype = torch.bool
                     padding_value = False
-                else: # key in ["advantages", "weights"]
+                else:  # key in ["advantages", "weights"]
                     dtype = torch.float
                     padding_value = 0.0
                 values = [torch.tensor(f[key], dtype=dtype) for f in features]
-                values = pad_sequence(values, batch_first=True, padding_value=padding_value)
+                values = pad_sequence(
+                    values, batch_first=True, padding_value=padding_value
+                )
                 batch[key] = values
 
         # Then handle scalars

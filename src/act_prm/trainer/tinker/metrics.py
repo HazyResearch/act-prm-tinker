@@ -62,7 +62,9 @@ async def compute_post_kl(
     # This is a bit ugly, but we first reconstruct the original sequence from before we did the
     # shifting to get the inputs and targets.
     full_sequence_inputs_D = [
-        datum.model_input.append_int(cast(int, datum.loss_fn_inputs["target_tokens"].data[-1]))
+        datum.model_input.append_int(
+            cast(int, datum.loss_fn_inputs["target_tokens"].data[-1])
+        )
         for datum in data_D
     ]
     new_logprobs_D = await asyncio.gather(
@@ -100,7 +102,9 @@ async def incorporate_kl_penalty(
     """
     # Compute logprobs at all data items
     full_sequence_inputs_D = [
-        datum.model_input.append_int(cast(int, datum.loss_fn_inputs["target_tokens"].data[-1]))
+        datum.model_input.append_int(
+            cast(int, datum.loss_fn_inputs["target_tokens"].data[-1])
+        )
         for datum in data_D
     ]
     base_logprobs_D = await asyncio.gather(
@@ -110,7 +114,9 @@ async def incorporate_kl_penalty(
         ]
     )
     # compute the logprob differences, zeroed out when the mask == 0
-    sampled_logprobs_D = [datum.loss_fn_inputs["logprobs"].to_torch() for datum in data_D]
+    sampled_logprobs_D = [
+        datum.loss_fn_inputs["logprobs"].to_torch() for datum in data_D
+    ]
     float_masks = [datum.loss_fn_inputs["mask"].to_torch().float() for datum in data_D]
     logprob_diffs = [
         (sampled_logprobs - torch.tensor(base_logprobs[1:])) * mask
@@ -122,10 +128,14 @@ async def incorporate_kl_penalty(
         [mask.sum() for mask in float_masks]
     )
     for i, datum in enumerate(data_D):
-        kl_advantages = kl_penalty_coef * float_masks[i] * (avg_logp_diff - logprob_diffs[i])
+        kl_advantages = (
+            kl_penalty_coef * float_masks[i] * (avg_logp_diff - logprob_diffs[i])
+        )
         if kl_discount_factor > 0:
             kl_advantages = torch.tensor(
-                discounted_future_sum_vectorized(kl_advantages.numpy(), kl_discount_factor)
+                discounted_future_sum_vectorized(
+                    kl_advantages.numpy(), kl_discount_factor
+                )
             )
         datum.loss_fn_inputs["advantages"] = tinker.TensorData.from_torch(
             datum.loss_fn_inputs["advantages"].to_torch() + kl_advantages
@@ -166,7 +176,9 @@ def compute_sampling_client_metrics(
     metrics = {}
     metrics["sampling_client/step_max"] = max(sampling_client_steps)
     metrics["sampling_client/step_min"] = min(sampling_client_steps)
-    metrics["sampling_client/step_mean"] = sum(sampling_client_steps) / len(sampling_client_steps)
+    metrics["sampling_client/step_mean"] = sum(sampling_client_steps) / len(
+        sampling_client_steps
+    )
     metrics["time/sampling_time_max"] = max(sample_times)
     metrics["time/sampling_time_min"] = min(sample_times)
     metrics["time/sampling_time_mean"] = sum(sample_times) / len(sample_times)

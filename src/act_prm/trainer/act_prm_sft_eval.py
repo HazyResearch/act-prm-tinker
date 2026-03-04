@@ -10,9 +10,7 @@ from typing import Any, Callable
 import numpy as np
 import torch
 from omegaconf import DictConfig
-from rich import print as rich_print
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 from tqdm import tqdm
 
@@ -45,8 +43,9 @@ class ActPrmSftEvalTrainer(RLTrainer):
     """
     Trainer for fully synchronous Act-PRM training
     """
+
     def __init__(
-        self, 
+        self,
         cfg: DictConfig,
         training_client: tinker.TrainingClient,
         service_client: tinker.ServiceClient,
@@ -125,9 +124,13 @@ class ActPrmSftEvalTrainer(RLTrainer):
         - num_substeps: number of total updates
         - num_substeps_per_epoch: number of updates per epoch
         """
-        train_data_D: list[tinker.Datum] = []  # Build this as the entire set of datums to iterate through
+        train_data_D: list[
+            tinker.Datum
+        ] = []  # Build this as the entire set of datums to iterate through
         total_samples: int = 0  # to fill in
-        assert num_epochs or num_substeps, "Either num_epochs or num_substeps must be specified"
+        assert num_epochs or num_substeps, (
+            "Either num_epochs or num_substeps must be specified"
+        )
 
         if num_epochs:
             total_samples = num_epochs * len(data_D)
@@ -162,7 +165,9 @@ class ActPrmSftEvalTrainer(RLTrainer):
                 if len(train_data_D) >= total_samples:
                     train_data_D = train_data_D[:total_samples]
                 else:  # Fill in the rest
-                    train_data_D.extend(random.sample(data_D, k=total_samples - len(train_data_D)))
+                    train_data_D.extend(
+                        random.sample(data_D, k=total_samples - len(train_data_D))
+                    )
         else:
             raise ValueError("Either num_epochs or num_substeps must be specified")
 
@@ -205,7 +210,9 @@ class ActPrmSftEvalTrainer(RLTrainer):
             num_substeps,
             num_substeps_per_epoch,
         )
-        logger.info("Got SFT dataset of size %d from %d datums", len(train_data_D), len(data_D))
+        logger.info(
+            "Got SFT dataset of size %d from %d datums", len(train_data_D), len(data_D)
+        )
         # breakpoint()
 
         # Split into batches and train
@@ -214,16 +221,15 @@ class ActPrmSftEvalTrainer(RLTrainer):
         logger.info("Split SFT dataset into %d batches", len(batches))
         # breakpoint()
         pbar = tqdm(
-            enumerate(batches), 
-            desc="Training with SFT (do_sft_and_eval_loop)", 
-            leave=False, 
+            enumerate(batches),
+            desc="Training with SFT (do_sft_and_eval_loop)",
+            leave=False,
             colour="blue",
         )
         eval_idx = 0
         for batch_id, batch_data_D in pbar:
-            if (
-                (batch_id % inner_eval_every == 0 and sampling_client is not None)
-                or (batch_id == len(batches) - 1)
+            if (batch_id % inner_eval_every == 0 and sampling_client is not None) or (
+                batch_id == len(batches) - 1
             ):
                 # Evaluate the LLM
                 with timed("run_evals_with_sft", metrics):
@@ -277,20 +283,31 @@ class ActPrmSftEvalTrainer(RLTrainer):
                 loop_state={"batch": batch_id},
                 kind="both",
             )
-            sampling_client = training_client.create_sampling_client(path_dict["sampler_path"])
-            logger.info("Created new sampling client for SFT evaluation at path %s", path_dict["sampler_path"])
+            sampling_client = training_client.create_sampling_client(
+                path_dict["sampler_path"]
+            )
+            logger.info(
+                "Created new sampling client for SFT evaluation at path %s",
+                path_dict["sampler_path"],
+            )
             # breakpoint()
-            pbar.set_postfix(**{k.split("/")[-1]: v for k, v in eval_rollout_metrics.items()})
-        
+            pbar.set_postfix(
+                **{k.split("/")[-1]: v for k, v in eval_rollout_metrics.items()}
+            )
+
         # Get best evaluation metrics (over eval_idx)
         best_metric_keys = [k for k in all_eval_metrics.keys() if eval_best_metric in k]
         assert len(best_metric_keys) > 0, (
             f"Best metric key {eval_best_metric} not found in {all_eval_metrics.keys()}"
         )
-        best_eval_idx = np.argmax([all_eval_metrics[k] for k in best_metric_keys]).item()
+        best_eval_idx = np.argmax(
+            [all_eval_metrics[k] for k in best_metric_keys]
+        ).item()
         best_eval_metrics = {}
         for k, v in all_eval_metrics.items():
-            k = k.replace(f"sft_eval_{loop_id:03d}", "sft_eval_max")  # counts across eval_idx
+            k = k.replace(
+                f"sft_eval_{loop_id:03d}", "sft_eval_max"
+            )  # counts across eval_idx
             best_eval_metrics[k] = v[best_eval_idx]
         # Keep track of best_eval_idx
         best_eval_metrics["sft_eval_max/best_eval_idx"] = best_eval_idx
@@ -339,28 +356,39 @@ class ActPrmSftEvalTrainer(RLTrainer):
         for delim in ["-enco=", "-geco=", "-se=", "-re="]:
             _ds_name.append(self.run_name.split(delim)[-1].split("-")[0])
         _ds_name = "-".join(_ds_name)
-        _ds_name = f"mzio/aprm_sft-{_ds_name}-{batch_id:04d}" # hardcoded hack for now
+        _ds_name = f"mzio/aprm_sft-{_ds_name}-{batch_id:04d}"  # hardcoded hack for now
         if len(_ds_name) > 96:
             breakpoint()
         try:
             self._save_trajectories_to_hf_dataset(
                 trajectories=all_new_trajectories,
-                dataset_name=_ds_name,  
+                dataset_name=_ds_name,
             )
-            logger.info("Saved thought-action rollouts to HF Dataset: %s", f"mzio/aprm_sft-{_ds_name}-{batch_id:04d}")
+            logger.info(
+                "Saved thought-action rollouts to HF Dataset: %s",
+                f"mzio/aprm_sft-{_ds_name}-{batch_id:04d}",
+            )
         except Exception as e:
             _error_text = f"({type(e).__name__}: {e})"
-            logger.error("Failed to save thought-action rollouts to HF Dataset: %s", _error_text)
-        
+            logger.error(
+                "Failed to save thought-action rollouts to HF Dataset: %s", _error_text
+            )
+
         # Create Tinker datums
         data_D, _ = await self.prepare_sft_minibatch(
             new_trajectories=all_new_trajectories,
         )
-        logger.info("Create SFT dataset of size %d from %d thought-action rollouts", len(data_D), len(all_new_trajectories))
+        logger.info(
+            "Create SFT dataset of size %d from %d thought-action rollouts",
+            len(data_D),
+            len(all_new_trajectories),
+        )
 
         # Initialize a new policy LLM for evaluating the Act-PRM model's generation quality
-        sft_training_client = await self.service_client.create_lora_training_client_async(
-            cfg.model_name, rank=cfg.lora_rank
+        sft_training_client = (
+            await self.service_client.create_lora_training_client_async(
+                cfg.model_name, rank=cfg.lora_rank
+            )
         )
         logger.info("Created new SFT training client")
 
@@ -403,13 +431,14 @@ class ActPrmSftEvalTrainer(RLTrainer):
                         tinker.Datum(
                             model_input=tinker.ModelInput.from_ints(input_tokens),
                             loss_fn_inputs={
-                                "target_tokens": TensorData.from_torch(torch.tensor(target_tokens)),
+                                "target_tokens": TensorData.from_torch(
+                                    torch.tensor(target_tokens)
+                                ),
                                 "weights": TensorData.from_torch(torch.tensor(weights)),
                             },
                         )
                     )
         return data_D, metrics
-
 
     async def do_rl_loop(
         self,
@@ -436,9 +465,9 @@ class ActPrmSftEvalTrainer(RLTrainer):
 
     # Modified from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L989
     async def train(
-        self, 
-        start_batch: int, 
-        end_batch: int, 
+        self,
+        start_batch: int,
+        end_batch: int,
         cfg: DictConfig | None = None,
         env: Environment | None = None,
         eval_env: Environment | None = None,
@@ -470,13 +499,17 @@ class ActPrmSftEvalTrainer(RLTrainer):
             start_batch=start_batch,
         )
 
-        model_name = cfg.model_name or self.training_client.get_info().model_data.model_name
+        model_name = (
+            cfg.model_name or self.training_client.get_info().model_data.model_name
+        )
         hf_tokenizer = self.hf_tokenizer or self.training_client.get_tokenizer()
         # ^Same as tinker_cookbook.tokenizer_utils.get_tokenizer(cfg.model_name)?
-        renderer_name = cfg.renderer_name or model_info.get_recommended_renderer_name(model_name)
+        renderer_name = cfg.renderer_name or model_info.get_recommended_renderer_name(
+            model_name
+        )
         renderer = renderers.get_renderer(renderer_name, hf_tokenizer)
         logger.info("Using renderer: %s", renderer_name)
-        
+
         # -------- Act-PRM training (generate thoughts from action-prompted states) --------
         logger.info("Starting Act-PRM model training")
         num_batches = end_batch - start_batch
@@ -505,13 +538,17 @@ class ActPrmSftEvalTrainer(RLTrainer):
                         split="eval",
                         num_tries=cfg.eval_num_tries,
                         # Just use all eval tasks
-                        start_idx=0,  
+                        start_idx=0,
                         tasks_per_update=len(self.env),
                     )
                     metrics.update(eval_rollout_metrics)
 
             # Run SFT'ing another LLM evaluations
-            if cfg.sft_eval_every > 0 and batch_idx % cfg.sft_eval_every == 0 and batch_idx > 0:
+            if (
+                cfg.sft_eval_every > 0
+                and batch_idx % cfg.sft_eval_every == 0
+                and batch_idx > 0
+            ):
                 with timed("run_evals_act_probs", metrics):
                     sft_eval_metrics, best_sft_eval_metrics = await self.do_eval_loop(
                         sampling_client=sampling_client,
@@ -550,24 +587,35 @@ class ActPrmSftEvalTrainer(RLTrainer):
                         kind="both",
                     )
                     best_sampling_client_path = path_dict["sampler_path"]
-                    logger.info("Saved best sampling client to %s", best_sampling_client_path)
+                    logger.info(
+                        "Saved best sampling client to %s", best_sampling_client_path
+                    )
                     logger.info(
                         "Updated best %s to %f at batch %d",
-                        cfg.best_metric, self.best_metric, batch_idx,
+                        cfg.best_metric,
+                        self.best_metric,
+                        batch_idx,
                     )
                     _metric_prefix = best_metric_keys[0].split("/")[0]  # "sft_eval_max"
-                    metrics.update({
-                        f"{_metric_prefix}/best_batch": batch_idx,
-                        f"{_metric_prefix}/best_metric": self.best_metric,
-                        f"{_metric_prefix}/best_sampling_client_path": best_sampling_client_path,
-                    })
+                    metrics.update(
+                        {
+                            f"{_metric_prefix}/best_batch": batch_idx,
+                            f"{_metric_prefix}/best_metric": self.best_metric,
+                            f"{_metric_prefix}/best_sampling_client_path": best_sampling_client_path,
+                        }
+                    )
                     try:  # Saving replay buffer
-                        self.replay_buffer.save_to_hf_dataset(self.best_replay_buffer_path)
-                        logger.info("Saved best replay buffer to %s", self.best_replay_buffer_path)
+                        self.replay_buffer.save_to_hf_dataset(
+                            self.best_replay_buffer_path
+                        )
+                        logger.info(
+                            "Saved best replay buffer to %s",
+                            self.best_replay_buffer_path,
+                        )
                     except SchemaInferenceError:
                         logger.warning(
                             "Failed to save best replay buffer to %s\nIs replay buffer empty?",
-                            self.best_replay_buffer_path
+                            self.best_replay_buffer_path,
                         )
                 sft_eval_loop_id += 1
 
@@ -602,7 +650,10 @@ class ActPrmSftEvalTrainer(RLTrainer):
                 kl_penalty_coef=cfg.kl_penalty_coef,
                 kl_discount_factor=cfg.kl_discount_factor,
             )
-            sampling_client, update_metrics = await self.do_train_step_and_get_sampling_client(
+            (
+                sampling_client,
+                update_metrics,
+            ) = await self.do_train_step_and_get_sampling_client(
                 batch_idx=batch_idx,
                 training_client=self.training_client,
                 data_D=data_D,

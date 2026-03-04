@@ -8,7 +8,7 @@ from typing import Any
 from ...graders.qa import LLMGraderForQA
 from ..base import Environment
 
-from .env import (BrowseCompPlusSearchEnv)
+from .env import BrowseCompPlusSearchEnv
 from .tools import ExpandTool, ScrollUpTool, ScrollDownTool, SearchTool
 
 
@@ -16,6 +16,7 @@ class AsyncBrowseCompPlusSearchEnv(BrowseCompPlusSearchEnv):
     """
     Asynchronous search environment for BrowseComp-Plus
     """
+
     def __init__(
         self,
         dataset_config: dict[str, Any],
@@ -40,13 +41,15 @@ class AsyncBrowseCompPlusSearchEnv(BrowseCompPlusSearchEnv):
     ) -> None:
         # Initialize base class attributes, as direct parent (BrowseCompPlusSearchEnv)
         # does heavy blocking work (loading data, initializing search tool)
-        Environment.__init__(self, max_turns=max_turns, num_tries=num_tries, seed=seed, **kwargs)
+        Environment.__init__(
+            self, max_turns=max_turns, num_tries=num_tries, seed=seed, **kwargs
+        )
         self.dataset_config = dataset_config
         self.hf_repo_id = hf_repo_id
 
         # Search tool config
         self.search_tool_config = search_tool_config
-        
+
         # LLM-as-a-judge for grading
         self.grader_model_config = grader_model_config
         self.grader_model_samples = grader_model_samples
@@ -77,7 +80,7 @@ class AsyncBrowseCompPlusSearchEnv(BrowseCompPlusSearchEnv):
 
         self.system_prompt = system_prompt
         self.next_obs_feedback = next_obs_feedback
-        
+
         # Initialize data and tools as placeholders for now
         self.datasets = None
         self.ds_corpus = None
@@ -106,7 +109,10 @@ class AsyncBrowseCompPlusSearchEnv(BrowseCompPlusSearchEnv):
         self.datasets, self.ds_corpus = self.init_data()
         self.ds_corpus_index = {v: i for i, v in enumerate(self.ds_corpus["doc_id"])}
 
-        _tool_kwargs = {"doc_dataset": self.ds_corpus, "ds_corpus_index": self.ds_corpus_index}
+        _tool_kwargs = {
+            "doc_dataset": self.ds_corpus,
+            "ds_corpus_index": self.ds_corpus_index,
+        }
         self.tool_registry = {
             "expand": ExpandTool(**_tool_kwargs),
             "scroll_up": ScrollUpTool(**_tool_kwargs),
@@ -128,10 +134,15 @@ class AsyncBrowseCompPlusSearchEnv(BrowseCompPlusSearchEnv):
             self.datasets, self.ds_corpus = await asyncio.to_thread(self.init_data)
 
             # Building the index is CPU-light but fine here
-            self.ds_corpus_index = {v: i for i, v in enumerate(self.ds_corpus["doc_id"])}
+            self.ds_corpus_index = {
+                v: i for i, v in enumerate(self.ds_corpus["doc_id"])
+            }
 
             # Tool construction: keep on event loop unless tools do blocking I/O
-            _tool_kwargs = {"doc_dataset": self.ds_corpus, "ds_corpus_index": self.ds_corpus_index}
+            _tool_kwargs = {
+                "doc_dataset": self.ds_corpus,
+                "ds_corpus_index": self.ds_corpus_index,
+            }
             # Fast bois
             expand = ExpandTool(**_tool_kwargs)
             scroll_up = ScrollUpTool(**_tool_kwargs)

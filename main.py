@@ -62,28 +62,54 @@ async def main() -> None:
     load_dotenv()  # Setup environment variables from .env file
 
     # Get default configs
-    env_cfg           = OmegaConf.load(f"./configs/environments/{args.env_config}.yaml")
-    generator_cfg     = OmegaConf.load(f"./configs/generator/{args.generator_config}.yaml")
-    trainer_cfg       = OmegaConf.load(f"./configs/trainer/{args.trainer_config}.yaml")
-    replay_buffer_cfg = OmegaConf.load(f"./configs/replay_buffer/{args.replay_buffer_config}.yaml")
-    
+    env_cfg = OmegaConf.load(f"./configs/environments/{args.env_config}.yaml")
+    generator_cfg = OmegaConf.load(f"./configs/generator/{args.generator_config}.yaml")
+    trainer_cfg = OmegaConf.load(f"./configs/trainer/{args.trainer_config}.yaml")
+    replay_buffer_cfg = OmegaConf.load(
+        f"./configs/replay_buffer/{args.replay_buffer_config}.yaml"
+    )
+
     # Optional environment configs
     eval_env_cfg = env_cfg
     base_env_cfg = None
     if args.eval_env_config is not None:
-        eval_env_cfg = OmegaConf.load(f"./configs/environments/{args.eval_env_config}.yaml")
+        eval_env_cfg = OmegaConf.load(
+            f"./configs/environments/{args.eval_env_config}.yaml"
+        )
     if args.base_env_config is not None:
-        base_env_cfg = OmegaConf.load(f"./configs/environments/{args.base_env_config}.yaml")
+        base_env_cfg = OmegaConf.load(
+            f"./configs/environments/{args.base_env_config}.yaml"
+        )
     # Update configs from args
     updated_cfgs = update_configs(
-        args, env_cfg, eval_env_cfg, base_env_cfg, generator_cfg, trainer_cfg, replay_buffer_cfg,
+        args,
+        env_cfg,
+        eval_env_cfg,
+        base_env_cfg,
+        generator_cfg,
+        trainer_cfg,
+        replay_buffer_cfg,
     )
     if args.verbose:
-        cfg_names = ["env", "eval_env", "base_env", "generator", "trainer", "replay_buffer"]
+        cfg_names = [
+            "env",
+            "eval_env",
+            "base_env",
+            "generator",
+            "trainer",
+            "replay_buffer",
+        ]
         for cfg, cfg_name in zip(updated_cfgs, cfg_names):
             if cfg is not None:
                 print_config(cfg, cfg_name.upper())
-    env_cfg, eval_env_cfg, base_env_cfg, generator_cfg, trainer_cfg, replay_buffer_cfg = updated_cfgs
+    (
+        env_cfg,
+        eval_env_cfg,
+        base_env_cfg,
+        generator_cfg,
+        trainer_cfg,
+        replay_buffer_cfg,
+    ) = updated_cfgs
     cfg = trainer_cfg  # Main config to reference (has all Tinker training attributes)
     ml_logger_cfg = OmegaConf.to_container(cfg, resolve=True)
     ml_logger_cfg.update(vars(args))
@@ -130,7 +156,7 @@ async def main() -> None:
     env = get_env(**env_cfg, base_env=base_env)  # For ActPrmEnvWithBaseEnv
     # Reuse env if eval_env not specified; we always specify the split for loading new tasks
     eval_env = get_env(**eval_env_cfg) if args.eval_env_config else env
-    
+
     replay_buffer = get_replay_buffer(**replay_buffer_cfg)
 
     # Training loop

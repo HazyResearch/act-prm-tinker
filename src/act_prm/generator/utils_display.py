@@ -35,7 +35,10 @@ def display_state_action_next_obs(
     """
     Display the state and action in a readable format
     """
-    def add_role_marker(msg: dict[str, str], marker: str | None = None) -> dict[str, str]:
+
+    def add_role_marker(
+        msg: dict[str, str], marker: str | None = None
+    ) -> dict[str, str]:
         """
         Add role marker to message content, so that we can style it after chat template formatting
         """
@@ -65,7 +68,7 @@ def display_state_action_next_obs(
         elif "[next_obs]" in msg:
             msg = msg.replace("[next_obs]", "")
             messages[ix] = f"[dim italic]{msg}[/dim italic]"
-        
+
         if "[system]" in msg:
             msg = msg.replace("[system]", "")
             messages[ix] = f"[{system_color}]{msg}[/{system_color}]"
@@ -87,8 +90,12 @@ def display_state_action_next_obs(
             messages[ix] = msg
         # tool responses
         if tool_response_bos in msg and tool_response_eos in msg:
-            msg = msg.replace(tool_response_bos, f"[{tool_response_color}]{tool_response_bos}")
-            msg = msg.replace(tool_response_eos, f"{tool_response_eos}[/{tool_response_color}]")
+            msg = msg.replace(
+                tool_response_bos, f"[{tool_response_color}]{tool_response_bos}"
+            )
+            msg = msg.replace(
+                tool_response_eos, f"{tool_response_eos}[/{tool_response_color}]"
+            )
             messages[ix] = msg
 
     all_text = hf_tokenizer.eos_token.join(messages)
@@ -96,7 +103,7 @@ def display_state_action_next_obs(
         rich_print(all_text)
         rich_print(Panel(panel_content, title=header_text, style="bold"))
     except MarkupError as e:
-        header_text = f"{"-" * 50} {header_text} {"-" * 50}"
+        header_text = f"{'-' * 50} {header_text} {'-' * 50}"
         print(f"{header_text}\n{all_text}\n{header_text}")
         rich_print(panel_content)
         logger.error(f"rich.errors.MarkupError: {e}")
@@ -133,7 +140,7 @@ def display_state_action_next_obs_old(
         role, content = msg["role"], msg["content"]
         if style is not None:  # if style is provided, use it
             return {"role": role, "content": f"[{style}]{content}[/{style}]"}
-        
+
         # Color system, user, and assistant messages
         if role == "system":
             content = f"[{system_color}]{content}[/{system_color}]"
@@ -143,23 +150,33 @@ def display_state_action_next_obs_old(
             content = f"[{assistant_color}]{content}[/{assistant_color}]"
         # Special color for tool calls
         if tool_call_bos in content:
-            rich_tool_call_bos = f"[/{assistant_color}][{tool_call_color}]{tool_call_bos}"
-            rich_tool_call_eos = f"{tool_call_eos}[/{tool_call_color}][{assistant_color}]"
+            rich_tool_call_bos = (
+                f"[/{assistant_color}][{tool_call_color}]{tool_call_bos}"
+            )
+            rich_tool_call_eos = (
+                f"{tool_call_eos}[/{tool_call_color}][{assistant_color}]"
+            )
             content = content.replace(tool_call_bos, rich_tool_call_bos)
             content = content.replace(tool_call_eos, rich_tool_call_eos)
         # Special color for tool responses
         # -> NOTE (MZ 1/11/2026): This doesn't get parsed before applying chat template
         if tool_response_bos in content:
-            rich_tool_response_bos = f"[/{user_color}][{tool_response_color}]{tool_response_bos}"
-            rich_tool_response_eos = f"{tool_response_eos}[/{tool_response_color}][{user_color}]"
+            rich_tool_response_bos = (
+                f"[/{user_color}][{tool_response_color}]{tool_response_bos}"
+            )
+            rich_tool_response_eos = (
+                f"{tool_response_eos}[/{tool_response_color}][{user_color}]"
+            )
             content = content.replace(tool_response_bos, rich_tool_response_bos)
-            content = content.replace(tool_response_eos, rich_tool_response_eos)        
+            content = content.replace(tool_response_eos, rich_tool_response_eos)
         return {"role": role, "content": content}
-        
+
     state_messages = [make_rich(msg) for msg in state_messages]
     action_messages = [make_rich(msg, "bold bright_green") for msg in action_messages]
-    next_obs_messages = [make_rich(msg, "bold bright_orange") for msg in next_obs_messages]
-    
+    next_obs_messages = [
+        make_rich(msg, "bold bright_orange") for msg in next_obs_messages
+    ]
+
     all_text = hf_tokenizer.apply_chat_template(
         state_messages + action_messages + next_obs_messages,
         add_generation_prompt=False,
@@ -175,7 +192,7 @@ def display_state_action_next_obs_old(
         rich_print(all_text)
         rich_print(Panel(panel_content, title=header_text, style="bold"))
     except MarkupError as e:
-        header_text = f"{"-" * 50} {header_text} {"-" * 50}"
+        header_text = f"{'-' * 50} {header_text} {'-' * 50}"
         print(f"{header_text}\n{all_text}\n{header_text}")
         rich_print(panel_content)
         logger.error(f"rich.errors.MarkupError: {e}")

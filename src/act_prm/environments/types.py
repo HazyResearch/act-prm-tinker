@@ -62,6 +62,7 @@ class EnvironmentStepResult(BaseModel):
     truncated: bool
     info: dict[str, Any] | None = None
 
+
 # Alternative to above:
 # We can use this type suggestion for environment.step() return value
 type StepResult = tuple[

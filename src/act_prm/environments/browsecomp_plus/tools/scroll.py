@@ -12,6 +12,7 @@ class BaseScrollTool(BaseTool):
     """
     Base class for scroll tools
     """
+
     def __init__(
         self,
         doc_dict: dict[str, dict[str, Any]] | None = None,
@@ -23,12 +24,14 @@ class BaseScrollTool(BaseTool):
         self.doc_dict = doc_dict
         self.doc_dataset = doc_dataset
         self.ds_corpus_index = ds_corpus_index
-        assert self.doc_dict or self.doc_dataset, "Either doc_dict or doc_dataset must be provided"
+        assert self.doc_dict or self.doc_dataset, (
+            "Either doc_dict or doc_dataset must be provided"
+        )
         if self.doc_dataset is not None:
             assert self.ds_corpus_index is not None, (
                 "ds_corpus_index must be provided if doc_dataset is provided"
             )
-    
+
     def __call__(
         self,
         current_doc_id: str,
@@ -51,6 +54,7 @@ class ScrollUpTool(BaseScrollTool):
     """
     Scroll up in the document context
     """
+
     def __call__(
         self,
         current_doc_id: str,
@@ -66,9 +70,11 @@ class ScrollUpTool(BaseScrollTool):
             doc: dict[str, Any] = self.doc_dataset[doc_idx]
         else:
             doc_dict = doc_dict or self.doc_dict
-            assert doc_dict is not None, "doc_dict not defined in ScrollUpTool function or init"
+            assert doc_dict is not None, (
+                "doc_dict not defined in ScrollUpTool function or init"
+            )
             doc: dict[str, Any] = doc_dict[current_doc_id]
-        
+
         # Use pointer of past_scroll_id to get the previous document object
         if doc["past_scroll_id"] is not None:
             new_doc_id = doc["past_scroll_id"]
@@ -78,7 +84,7 @@ class ScrollUpTool(BaseScrollTool):
             result_str = "# Prior Text:\n\n"
             if new_doc["past_scroll_id"] is not None:
                 result_str += "[...] "
-            result_str += f"{new_doc["text"]}"
+            result_str += f"{new_doc['text']}"
             if new_doc["next_scroll_id"] is not None:
                 result_str += " [...]"
         else:
@@ -96,7 +102,7 @@ class ScrollUpTool(BaseScrollTool):
             "parameters": {
                 "type": "object",
                 "properties": {},
-            }
+            },
         }
 
 
@@ -104,6 +110,7 @@ class ScrollDownTool(BaseScrollTool):
     """
     Scroll down in the document context
     """
+
     def __call__(
         self,
         current_doc_id: str,
@@ -119,9 +126,11 @@ class ScrollDownTool(BaseScrollTool):
             doc: dict[str, Any] = self.doc_dataset[doc_idx]
         else:
             doc_dict = doc_dict or self.doc_dict
-            assert doc_dict is not None, "doc_dict not defined in ScrollDownTool function or init"
+            assert doc_dict is not None, (
+                "doc_dict not defined in ScrollDownTool function or init"
+            )
             doc: dict[str, Any] = doc_dict[current_doc_id]
-        
+
         # Use pointer of next_scroll_id to get the next document object
         if doc["next_scroll_id"] is not None:
             new_doc_id = doc["next_scroll_id"]
@@ -130,7 +139,7 @@ class ScrollDownTool(BaseScrollTool):
             result_str = "# Next Text:\n\n"
             if new_doc["past_scroll_id"] is not None:
                 result_str += "[Scroll up for more...] "
-            result_str += f"{new_doc["text"]}"
+            result_str += f"{new_doc['text']}"
             if new_doc["next_scroll_id"] is not None:
                 result_str += " [...Scroll down for more]"
         else:
@@ -148,5 +157,5 @@ class ScrollDownTool(BaseScrollTool):
             "parameters": {
                 "type": "object",
                 "properties": {},
-            }
+            },
         }

@@ -51,7 +51,11 @@ def update_configs(
     for config in configs:
         if config is not None:
             for argname, argval in vars(args).items():
-                if argval is not None and argname in config and argname != "model_config":
+                if (
+                    argval is not None
+                    and argname in config
+                    and argname != "model_config"
+                ):
                     config[argname] = argval
     return configs
 
@@ -76,40 +80,66 @@ def main() -> None:
     args.generator_config = args.generator_config or "default"
     args.replay_buffer_config = args.replay_buffer_config or "default"
 
-    model_cfg         = OmegaConf.load(f"./configs/model/{args.model_config}.yaml")
-    lora_cfg          = OmegaConf.load(f"./configs/lora/{args.lora_config}.yaml")
-    env_cfg           = OmegaConf.load(f"./configs/environments/{args.env_config}.yaml")
-    generator_cfg     = OmegaConf.load(f"./configs/generator/{args.generator_config}.yaml")
-    trainer_cfg       = OmegaConf.load(f"./configs/trainer/{args.trainer_config}.yaml")
-    replay_buffer_cfg = OmegaConf.load(f"./configs/replay_buffer/{args.replay_buffer_config}.yaml")
-    
+    model_cfg = OmegaConf.load(f"./configs/model/{args.model_config}.yaml")
+    lora_cfg = OmegaConf.load(f"./configs/lora/{args.lora_config}.yaml")
+    env_cfg = OmegaConf.load(f"./configs/environments/{args.env_config}.yaml")
+    generator_cfg = OmegaConf.load(f"./configs/generator/{args.generator_config}.yaml")
+    trainer_cfg = OmegaConf.load(f"./configs/trainer/{args.trainer_config}.yaml")
+    replay_buffer_cfg = OmegaConf.load(
+        f"./configs/replay_buffer/{args.replay_buffer_config}.yaml"
+    )
+
     # Optional environment configs
     eval_env_cfg = env_cfg
     base_env_cfg = None
     if args.eval_env_config is not None:
-        eval_env_cfg = OmegaConf.load(f"./configs/environments/{args.eval_env_config}.yaml")
+        eval_env_cfg = OmegaConf.load(
+            f"./configs/environments/{args.eval_env_config}.yaml"
+        )
     if args.base_env_config is not None:
-        base_env_cfg = OmegaConf.load(f"./configs/environments/{args.base_env_config}.yaml")
+        base_env_cfg = OmegaConf.load(
+            f"./configs/environments/{args.base_env_config}.yaml"
+        )
     # Update configs from args
     updated_cfgs = update_configs(
-        args, model_cfg, lora_cfg,
-        env_cfg, eval_env_cfg, base_env_cfg,
-        generator_cfg, trainer_cfg, replay_buffer_cfg,
+        args,
+        model_cfg,
+        lora_cfg,
+        env_cfg,
+        eval_env_cfg,
+        base_env_cfg,
+        generator_cfg,
+        trainer_cfg,
+        replay_buffer_cfg,
     )
     if args.verbose:
         cfg_names = [
-            "model", "lora", "env", "eval_env", "base_env", "generator", "trainer", "replay_buffer"
+            "model",
+            "lora",
+            "env",
+            "eval_env",
+            "base_env",
+            "generator",
+            "trainer",
+            "replay_buffer",
         ]
         for cfg, cfg_name in zip(updated_cfgs, cfg_names):
             if cfg is not None:
                 print_config(cfg, cfg_name.upper())
     # Get updated config variables
     model_cfg, lora_cfg = updated_cfgs[:2]
-    env_cfg, eval_env_cfg, base_env_cfg, generator_cfg, trainer_cfg, replay_buffer_cfg = updated_cfgs[2:]
+    (
+        env_cfg,
+        eval_env_cfg,
+        base_env_cfg,
+        generator_cfg,
+        trainer_cfg,
+        replay_buffer_cfg,
+    ) = updated_cfgs[2:]
     # Make env_cfg tokenizers consistent with llm.tokenizer
     env_cfg.pretrained_model_config = model_cfg.model_config
     eval_env_cfg.pretrained_model_config = model_cfg.model_config
-    
+
     cfg = trainer_cfg  # Main config to reference (has all Tinker training attributes)
     cfg.run_name = args.run_name
     cfg.lora_checkpoint_path = args.lora_checkpoint_path
@@ -134,17 +164,20 @@ def main() -> None:
     llm: HuggingFaceLLM = load_llm(**model_cfg)
     llm.model = get_lora_model(llm.model, **lora_cfg)
     # save_lora(llm.model, cfg.lora_checkpoint_path)
-    optimizer = get_optimizer(llm.model, learning_rate=cfg.learning_rate)  # simple for now
-    
+    optimizer = get_optimizer(
+        llm.model, learning_rate=cfg.learning_rate
+    )  # simple for now
+
     if args.verbose:  # Display trainable parameters
         _params_text = "Trainable parameters:\n"
         _param_names = [n for n, p in llm.model.named_parameters() if p.requires_grad]
         _params_text += "\n".join(
-            f"├── [{get_param_color(n)}]{n}[/{get_param_color(n)}]" for n in _param_names
+            f"├── [{get_param_color(n)}]{n}[/{get_param_color(n)}]"
+            for n in _param_names
         )
         rich_print(_params_text)
     display_trainable_parameter_count(llm.model)
-    
+
     replay_buffer = get_replay_buffer(**replay_buffer_cfg)
 
     # Get environment, replay buffer, and generator class

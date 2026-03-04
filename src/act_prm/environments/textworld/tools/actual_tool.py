@@ -14,21 +14,24 @@ ALLOWED_TASKS = ["coin_collector", "the_cooking_game", "treasure_hunter"]
 class TextWorldTool(BaseTool):
     """
     TextWorld tool class
-    
+
     For specific task-types (e.g., "coin_collector", "the_cooking_game", "treasure_hunter"),
     we load the tool descriptions and templates from the appropriate files
     """
+
     def __init__(self, task: str, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.task = task
         if task not in ALLOWED_TASKS:
             raise ValueError(f"Invalid task type: {task}. Allowed: {ALLOWED_TASKS}")
-        self.tool_descriptions, self.tool_to_template = self.get_tool_descs_and_template()
+        self.tool_descriptions, self.tool_to_template = (
+            self.get_tool_descs_and_template()
+        )
         # Get mapping so we can convert TextWorld action text to LLM tool calls
         # -> For example: "take pepper from box" ->
         #    {"name": "take_from", "arguments": {"item": "pepper", "source": "box"}},
         #    instead of {"name": "take", "arguments": {"item": "pepper from box"}}
-        self.tools_to_resolve_from_text = {} 
+        self.tools_to_resolve_from_text = {}
         for tool_name in self.tool_to_template.keys():
             if (
                 len(tool_name.split("_")) > 1
@@ -39,12 +42,14 @@ class TextWorldTool(BaseTool):
                 _name_parts = tool_name.split("_")
                 self.tools_to_resolve_from_text[_name_parts[0]] = _name_parts[1]
 
-    def get_tool_descs_and_template(self, task: str | None = None) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    def get_tool_descs_and_template(
+        self, task: str | None = None
+    ) -> tuple[list[dict[str, Any]], dict[str, str]]:
         """
         Returns a tuple of tool descriptions and templates
         """
         task = task or self.task
-        
+
         if task == "coin_collector":
             from .coin_collector import TOOL_DESCRIPTIONS, TOOL_TO_TEMPLATE
         elif task == "the_cooking_game":
@@ -53,7 +58,7 @@ class TextWorldTool(BaseTool):
             from .treasure_hunter import TOOL_DESCRIPTIONS, TOOL_TO_TEMPLATE
         else:
             raise ValueError(f"Invalid task type: {task}. Allowed: {ALLOWED_TASKS}")
-        
+
         return TOOL_DESCRIPTIONS, TOOL_TO_TEMPLATE
 
     def __call__(self, tool_name: str, tool_args: dict[str, str] | None) -> str:
@@ -72,7 +77,10 @@ class TextWorldTool(BaseTool):
         """
         Returns a list of tool descriptions
         """
-        return [self.tool_descriptions[tool_name] for tool_name in self.tool_to_template.keys()]
+        return [
+            self.tool_descriptions[tool_name]
+            for tool_name in self.tool_to_template.keys()
+        ]
 
     def get_tool_desc(self, tool_name: str) -> dict[str, Any]:
         """
@@ -80,7 +88,9 @@ class TextWorldTool(BaseTool):
         """
         return self.tool_descriptions[tool_name]
 
-    def get_llm_toolcall_from_tw_text(self, tw_action: str, toolcall_tag: str = "tool_call") -> str:
+    def get_llm_toolcall_from_tw_text(
+        self, tw_action: str, toolcall_tag: str = "tool_call"
+    ) -> str:
         """
         Return the valid LLM tool call JSON from a given TextWorld action text
         -> Maybe Qwen3-coded for now
@@ -94,12 +104,14 @@ class TextWorldTool(BaseTool):
         tool_name = tw_action.split(" ")[0]
         tie_break = self.tools_to_resolve_from_text.get(tool_name, "null")
         if tie_break != "null":  # should handle most cases
-            new_tool_name = f"{tool_name}_{tie_break}" if tie_break in tw_action else tool_name
+            new_tool_name = (
+                f"{tool_name}_{tie_break}" if tie_break in tw_action else tool_name
+            )
         else:
             new_tool_name = tool_name
 
         # Go through words in tw_action text to build the JSON tool call
-        tw_arg_text = tw_action[len(tool_name):].strip()  # after the tool call
+        tw_arg_text = tw_action[len(tool_name) :].strip()  # after the tool call
         tw_args = tw_arg_text.split(tie_break)
 
         toolcall_arguments = list(

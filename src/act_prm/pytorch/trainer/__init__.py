@@ -9,7 +9,9 @@ from .rl import RLTrainer
 from .sft import SftTrainer
 
 
-def get_trainer(name: str, **kwargs: Any) -> ActPrmForSftTrainer | RLTrainer | SftTrainer:
+def get_trainer(
+    name: str, **kwargs: Any
+) -> ActPrmForSftTrainer | RLTrainer | SftTrainer:
     """
     Get a trainer by name
     """

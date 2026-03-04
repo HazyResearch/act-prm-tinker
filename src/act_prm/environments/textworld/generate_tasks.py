@@ -47,8 +47,12 @@ logger = logging.getLogger(__name__)
 
 
 TASK_CHOICES = [
-    "treasure_hunter", "coin_collector", "cooking_game",
-    "treasure_hunter_unseen", "treasure_hunter_newtools", "treasure_hunter_shifted"
+    "treasure_hunter",
+    "coin_collector",
+    "cooking_game",
+    "treasure_hunter_unseen",
+    "treasure_hunter_newtools",
+    "treasure_hunter_shifted",
 ]
 
 
@@ -66,14 +70,22 @@ def gen_treasure(out_dir: Path, level: int, seed: int) -> None:
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"tw_treasure_lvl{level:03d}_seed{seed:03d}.z8"
-    run([
-        "tw-make", "tw-treasure_hunter",
-        "--level", str(level),
-        "--seed", str(seed),
-        "--output", str(out),
-        "--format", "z8",
-        "-f", "--silent",
-    ])
+    run(
+        [
+            "tw-make",
+            "tw-treasure_hunter",
+            "--level",
+            str(level),
+            "--seed",
+            str(seed),
+            "--output",
+            str(out),
+            "--format",
+            "z8",
+            "-f",
+            "--silent",
+        ]
+    )
 
 
 def gen_coin(out_dir: Path, level: int, seed: int) -> None:
@@ -82,14 +94,22 @@ def gen_coin(out_dir: Path, level: int, seed: int) -> None:
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"tw_coin_lvl{level:03d}_seed{seed:03d}.z8"
-    run([
-        "tw-make", "tw-coin_collector",
-        "--level", str(level),
-        "--seed", str(seed),
-        "--output", str(out),
-        "--format", "z8",
-        "-f", "--silent",
-    ])
+    run(
+        [
+            "tw-make",
+            "tw-coin_collector",
+            "--level",
+            str(level),
+            "--seed",
+            str(seed),
+            "--output",
+            str(out),
+            "--format",
+            "z8",
+            "-f",
+            "--silent",
+        ]
+    )
 
 
 def gen_cooking(
@@ -109,14 +129,22 @@ def gen_cooking(
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"tw_cook_r{recipe:03d}_go{go:03d}_seed{seed:03d}_{split}.z8"
     cmd = [
-        "tw-make", "tw-cooking",
-        "--recipe", str(recipe),
-        "--go", str(go),
-        "--seed", str(seed),
-        "--split", split,
-        "--output", str(out),
-        "--format", "z8",
-        "-f", "--silent",
+        "tw-make",
+        "tw-cooking",
+        "--recipe",
+        str(recipe),
+        "--go",
+        str(go),
+        "--seed",
+        str(seed),
+        "--split",
+        split,
+        "--output",
+        str(out),
+        "--format",
+        "z8",
+        "-f",
+        "--silent",
     ]
     if open_:
         cmd.append("--open")
