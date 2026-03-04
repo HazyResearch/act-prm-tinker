@@ -104,6 +104,7 @@ class TextWorldEnv(Environment):
         dataset_config: dict[str, Any],
         task: str,  # one of TEXTWORLD_TASKS
         state_keys: list[str] | None = None,
+        task_filters: list[str] | None = None,  # e.g., ["lvl010"]
         # Inherited arguments
         num_train_samples: int = 20,
         num_val_samples: int | None = None,
@@ -120,6 +121,7 @@ class TextWorldEnv(Environment):
 
         self.textworld_games_path = dataset_config["cache_dir"]
         self.task = task
+        self.task_filters = task_filters or []
         self.state_keys = state_keys or ["description", "score", "moves"]
         self.all_tasks = list(DEFAULT_MAX_TURNS_BY_TASK.keys())
         
@@ -175,8 +177,10 @@ class TextWorldEnv(Environment):
             "train": self.num_train_samples,
             "test": self.num_test_samples,
         })
-        train_indices = list(range(self.num_train_samples))
-        test_indices  = list(range(self.num_train_samples, self.num_train_samples + self.num_test_samples))
+        # train_indices = list(range(self.num_train_samples))
+        # test_indices  = list(range(self.num_train_samples, self.num_train_samples + self.num_test_samples))
+        test_indices = list(range(self.num_test_samples))
+        train_indices = list(range(self.num_test_samples, self.num_train_samples + self.num_test_samples))  # alt rep
         eval_indices  = test_indices
         # Update val_indices if num_val_samples is provided
         if self.num_val_samples is not None:
@@ -244,6 +248,7 @@ class TextWorldEnv(Environment):
         
         # Prepare initial state message
         state_json = {self._key(k): v for k, v in tw_game_state.items() if k in self.state_keys}
+        state_json["max_possible_score"] = tw_game_state["max_score"]  # show max score to agent
         state_json["moves_left"] = self.max_turns - state_json["moves"]
         state_content = MESSAGE_TEMPLATE.format(
             action_feedback=tw_game_state["feedback"].strip(),
@@ -354,11 +359,16 @@ class TextWorldEnv(Environment):
                     state_json = {
                         self._key(k): v for k, v in tw_game_state.items() if k in self.state_keys
                     }
+                    state_json["max_possible_score"] = tw_game_state["max_score"]
                     state_json["moves_left"] = self.max_turns - state_json["moves"]
                     state_json["last_action"] = last_action_text
                     state_content = MESSAGE_TEMPLATE.format(
                         action_feedback=tw_game_state["feedback"].strip(),
                         state_json=json.dumps(state_json, indent=2),
+                    )
+                    state_content += (
+                        f"\n\n(Hint: the task is not fully done until score {state_json["score"]}"
+                        f" == max_possible_score {state_json["max_possible_score"]})"
                     )
                     # Update GameState attributes for our TextWorldState
                     next_state_tw_game_state_kwargs.update({

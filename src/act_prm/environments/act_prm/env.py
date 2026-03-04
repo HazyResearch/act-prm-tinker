@@ -186,12 +186,25 @@ class ActPrmEnv(Environment):
         # [{"role": "user", "content": "..."},
         #  {"role": "assistant", "content": <tool_call> ... </tool_call>}]
         chat_step_idx = 2
-        messages = action_trajectory[:2]
+        messages = deepcopy(action_trajectory[:2])
         action_target = action_trajectory[1]["content"]  # <tool_call> ... </tool_call>
         # Keep track of assistant indices in the trajectory (e.g., to load next action_target)
         assistant_indices = [
             i for i, msg in enumerate(action_trajectory) if msg["role"] == "assistant"
         ]
+        # MZ 1/21/26 -> Make the few-shot prompts more seamless into the target task
+        if self.num_fewshot_prompts > 0:
+            # "Great! Now do the same for the next task:\n\n## Next Task:\n\n"
+            if self.default_context[-1]["role"] == "user":
+                # self.default_context[-1]["content"] = (
+                #     "Great! Now do the same for the next task:\n\n"
+                #     "## Next Task:\n\n"
+                # )
+                self.default_context = self.default_context[:-1]
+            messages[0]["content"] = (
+                f"Great! Now do the same for the next task:\n\n"
+                f"## Next Task:\n\n{messages[0]["content"]}"
+            )
         # MZ 1/18/26: Note that we add default context here
         # -> but we may want to filter it out for thought-action SFT trajectories
         new_messages = self.default_context + messages

@@ -33,6 +33,47 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--model_name", type=str)
     parser.add_argument("--lora_rank", type=int)
 
+    ## PyTorch training arguments -> orthogonal to Tinker arguments
+    parser.add_argument("--model_config", type=str, help="Model config; ditto")
+    parser.add_argument("--lora_config", type=str, help="LoRA config; ditto")
+    parser.add_argument(
+        "--lora_checkpoint_path",
+        type=str,
+        default="./checkpoints_lora",
+        help="Path to save and load LoRA checkpoints",
+    )
+    parser.add_argument(
+        "--fp32_loss",
+        action="store_true",
+        default=None,
+        help="Cast logits to float32 before computing cross-entropy loss",
+    )
+    parser.add_argument(
+        "--no_initial_eval",
+        action="store_true",
+        default=None,
+        help="Don't evaluate on the first step",
+    )
+    parser.add_argument(
+        "--gradient_accumulation_steps",
+        type=int,
+        help=(
+            "Number of steps to accumulate gradients before updating the model. "
+            "Should be <= mini_batch_size",
+        ),
+    )
+    parser.add_argument("--num_steps", type=int, help="Number of steps to train for")
+    parser.add_argument(
+        "--max_input_id_len",
+        type=int,
+        help="Max number of tokens for training samples (if we're GPU poor)",
+    )
+    parser.add_argument(
+        "--max_sample_ids",
+        type=int,
+        help="Max number of samples to load for Act-PRM SFT datasets",
+    )
+
     ## Environment
     parser.add_argument(
         "--actions_only",
@@ -81,9 +122,10 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint_path",
         type=str,
+        default="./checkpoints",
         help=(
-            "Parent directory for saving other checkpoints and data (e.g., replay buffer samples)"
-            ". Similar to above, actual path is automatically determined (and created)"
+            "Parent directory for saving other checkpoints and data (e.g., replay buffer samples)."
+            " Similar to above, actual path is automatically determined (and created)"
         )
     )
     parser.add_argument("--load_checkpoint_path", type=str, help="Path to load Tinker checkpoint")
@@ -172,13 +214,21 @@ def get_args() -> argparse.Namespace:
         )
     )
 
-    ## Miscellaneous
+    ## More Evaluation
     parser.add_argument("--eval_every", type=int, help="Iters to evaluate, 0 = disabled")
+    parser.add_argument("--eval_gen_every", type=int, help="Iters to evaluate generation, 0 = disabled")
+    parser.add_argument("--eval_rollout_every", type=int, help="Iters to evaluate rollouts, 0 = disabled")
+    parser.add_argument("--eval_rollout_start", type=int, help="Number of batches before doing rollout evaluation")
+    parser.add_argument("--num_eval_gen_samples", type=int, help="Number of samples to evaluate generation")
+    parser.add_argument("--num_eval_rollout_samples", type=int, help="Number of samples to evaluate rollouts")
+    
+    ## Miscellaneous
     parser.add_argument("--save_every", type=int, help="Iters to save checkpoint, 0 = disabled")
     parser.add_argument("--save_rollouts_every", type=int, help="Iters to save rollouts, 0 = disabled")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--replicate", type=str, default="0", help="Unique identifier for run")
     parser.add_argument("--verbose", action="store_true", default=False, help="Extra details")
+    parser.add_argument("--streamer", action="store_true", help="Stream generations (for PyTorch)")
 
     args = parser.parse_args()
 
@@ -197,7 +247,10 @@ def get_args() -> argparse.Namespace:
     #     args.eval_batch_size = args.eval_tasks_per_update
 
     # Get run (i.e., experiment) name
-    _ignore_args = ["base_url", "log_path", "project_name", "verbose"]
+    _ignore_args = [
+        "base_url", "checkpoint_path", "log_path", "load_checkpoint_path", "lora_checkpoint_path",
+        "project_name", "verbose", "streamer",
+    ]
     _ignore_args.extend([argn for argn in vars(args).keys() if argn.endswith("_every")])
     if args.base_env_config is not None and args.base_env_config == args.env_config:
         _ignore_args.append("base_env_config")
@@ -208,14 +261,30 @@ def get_args() -> argparse.Namespace:
     # -> construct as args.log_path/args.env_config/model_name/args.run_name/
     # -> similar for checkpointing
     created_dir = False
-    _model_name = OmegaConf.load(f"./configs/trainer/{args.trainer_config}.yaml")["model_name"]
+    try:
+        _model_name = OmegaConf.load(f"./configs/trainer/{args.trainer_config}.yaml")["model_name"]
+    except Exception as e:
+        print(f"{e.__class__.__name__}: {e}")
+        try:
+            _model_name = OmegaConf.load(f"./configs/model/{args.model_config}.yaml")["model_config"]["pretrained_model_name_or_path"]
+        except Exception as e:
+            print(f"{e.__class__.__name__}: {e}")
+            assert args.model_name, "args.model_name must be specified if not in trainer_config"
+            _model_name = args.model_name
     _model_name = args.model_name or _model_name
     _model_name = _model_name.split("/")[-1].replace("-", "_")
     _env_config = args.env_config.replace("/", "_")
 
-    for argname in ["log_path", "checkpoint_path"]:
+    for argname in ["log_path", "checkpoint_path", "lora_checkpoint_path"]:
         for new_dir in [_env_config, _model_name, args.run_name]:
-            setattr(args, argname, os.path.join(args.log_path, new_dir))
+            # setattr(args, argname, os.path.join(args.log_path, new_dir))
+            try:
+                setattr(args, argname, os.path.join(getattr(args, argname), new_dir))
+            except Exception as e:
+                _error_class = e.__class__.__name__
+                print(f"{_error_class}: {e}")
+                # setattr(args, argname, os.path.join(args.log_path, new_dir))
+                breakpoint()
             if not os.path.exists(getattr(args, argname)):
                 os.makedirs(getattr(args, argname))
                 created_dir = True

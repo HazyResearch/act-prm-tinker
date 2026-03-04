@@ -140,11 +140,14 @@ def get_chat_from_ds_sample(
     """
     column_names = column_names or ["state", "action", "next_obs"]
 
-    system_prompt: dict = row["system_prompt"]
+    system_prompt: dict | str = row.get("system_prompt", "You are a helpful assistant.")
+    if isinstance(system_prompt, str):
+        system_prompt = {"role": "system", "content": system_prompt}
     state: list[dict] = row["state"]
     action: dict = row["action"]
-    next_obs: dict = row["next_obs"]
-    next_obs["content"] = next_obs["content"].split("\n\nextracted_final_answer:")[0]
+    if "next_obs" in column_names:
+        next_obs: dict = row["next_obs"]
+        next_obs["content"] = next_obs["content"].split("\n\nextracted_final_answer:")[0]
     reward:  float = row["reward"]
     return_: float = row["return_"]
 
@@ -173,7 +176,7 @@ def get_full_trajectories_from_dataset(
     all_trajectories = []
     for last_step_sample in tqdm(full_trajectory_samples):
         # Parse Dataset sample into message chat
-        last_step_messages, _ = get_chat_from_ds_sample(last_step_sample)
+        last_step_messages, _ = get_chat_from_ds_sample(last_step_sample, column_names=["state", "action"])
         tools = last_step_sample.get("tools", [])  # assume tools are consistent for all steps
         if actions_only:
             messages = [

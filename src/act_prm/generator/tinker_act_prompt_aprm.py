@@ -59,6 +59,7 @@ def get_thought_and_actions(
             actions_msg["content"] = f"{final_answer_bos}{actions_str}"
 
         elif action_bos not in content:  # No action in this message, e.g., because invalid tool call
+            print(f"No action found in message:\n{content}")
             return thought_msg, None
 
         else:
@@ -413,13 +414,14 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
                         f"Batch {batch_id}, Split {split}, Try {try_step}, "
                         f"Sample {unique_data_sample_id}, Generation {i}, "
                         f"Step {state.timestep - 1} / {max_turns - 1}, "  # -1 bc just took a step
+                        # f"Step {state.timestep} / {max_turns}, "  # -1 bc just took a step
                         f"Reward {rewards_in_group[i]:.4f}"
                     )
                     rewards_str = ", ".join([f"{r:.4f}" for r in sorted(rewards_in_group)[::-1]])
                     panel_content = [
                         f"Rewards: [bright_green][{rewards_str}][/bright_green]",
                         f"Run url: [cyan]{self.run_url}[/cyan]",
-                        f"Run cmd: [bright_blue]{self.cmd_str}[/bright_blue]",
+                        f"Run cmd: [bright_blue]{self.run_cmd}[/bright_blue]",
                     ]
                     if self.name_or_identifier:
                         panel_content.append(

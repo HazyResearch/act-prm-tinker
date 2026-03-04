@@ -24,6 +24,7 @@ num_test_samples: 5
 
 max_turns: null
 num_tries: 1
+eval_num_tries: 1
 seed: 0
 split: "train"
 system_prompt: "You are a helpful assistant that infers **concise** reasoning thoughts behind observed actions."

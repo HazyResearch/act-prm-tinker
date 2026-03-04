@@ -27,9 +27,10 @@ num_test_samples: 10
 
 max_turns: 20
 num_tries: 1
+eval_num_tries: 1
 seed: 0
 split: "train"
-system_prompt: "You are a helpful assistant that infers reasoning thoughts behind observed actions."
+system_prompt: "You are a helpful assistant that infers reasoning thoughts behind your own observed actions."
 original_system_prompt: "You are a helpful assistant."
 truncation_message: "Sorry, you have reached the maximum number of steps. Please try again."
 verbose: false

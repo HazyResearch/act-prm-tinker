@@ -83,12 +83,16 @@ class HuggingFaceLLM(LLM):
         
         super().__init__(model=model, model_config=model_config, **kwargs)
         self.tokenizer = tokenizer
+        
+        # Parse tool calls
+        self.tool_call_bos = tool_call_bos
+        self.tool_call_eos = tool_call_eos
+        self.tool_call_argname = tool_call_argname
         self.tool_call_parse_kwargs: dict[str, str] = {
-            "tool_call_bos": tool_call_bos,
-            "tool_call_eos": tool_call_eos,
-            "tool_call_argname": tool_call_argname,
+            "tool_call_bos": self.tool_call_bos,
+            "tool_call_eos": self.tool_call_eos,
+            "tool_call_argname": self.tool_call_argname,
         }
-
         # Stream tokens as they generate
         if stream_generation:
             self.streamer = TextStreamer(
@@ -154,7 +158,6 @@ class HuggingFaceLLM(LLM):
             self.tokenizer.padding_side = og_padding_side
         
         # Get input lengths
-        # input_lens = model_inputs["attention_mask"].sum(dim=1)  # (batch_size,)
         input_len = model_inputs["input_ids"].shape[1]
         # Get generation config
         generation_config = (
@@ -174,11 +177,12 @@ class HuggingFaceLLM(LLM):
             **generation_config,
         )
         # Track tokens hack
-        # -> Also not correct if messages is a batch of messages
-        # outputs.prompt_tokens = input_lens.sum()
-        # outputs.completion_tokens = outputs.shape[0] * outputs.shape[1] - input_lens.sum()
         outputs.prompt_tokens = input_len
         outputs.completion_tokens = outputs.shape[1] - input_len
+        # # Alternatively, we want to ignore left-pads? (but what about right ones?)
+        # input_lens = model_inputs["attention_mask"].sum(dim=1)  # (batch_size,)
+        # outputs.prompt_tokens = input_lens.sum()
+        # outputs.completion_tokens = outputs.shape[0] * outputs.shape[1] - outputs.prompt_tokens
         self._track_tokens(outputs)
 
         # Decode and convert tokens to messages
@@ -187,16 +191,12 @@ class HuggingFaceLLM(LLM):
             skip_special_tokens=True,
             clean_up_tokenization_spaces=True,
         )
-        # decoded_texts = [
-        #     self.tokenizer.decode(
-        #         output[input_lens[i]:], skip_special_tokens=True, clean_up_tokenization_spaces=True,
-        #     ) for i, output in enumerate(outputs)
-        # ]
-        # breakpoint()
-        # MZ Hack 10/31/2025, only allow single tool call
+        # For now we only allow one tool call per response
         decoded_texts = [
-            text.split("</tool_call>")[0] + "</tool_call>"
-            if "<tool_call>" in text
+            # text.split("</tool_call>")[0] + "</tool_call>"
+            # if "<tool_call>" in text
+            f"{text.split(self.tool_call_eos)[0]}{self.tool_call_eos}"
+            if self.tool_call_eos in text
             else text
             for text in decoded_texts
         ]
