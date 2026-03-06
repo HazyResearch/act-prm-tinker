@@ -6,9 +6,10 @@ dataset_config:
   split: "train"
 
 grader_model_config:
-  name: "openai"
+  name: "hf_transformer"
+  is_async: false
   model_config:
-    model_name: "gpt-4.1-mini"
+    pretrained_model_name_or_path: "Qwen/Qwen3-8B"
 grader_model_samples: 1
 grader_model_verbose: false
 
