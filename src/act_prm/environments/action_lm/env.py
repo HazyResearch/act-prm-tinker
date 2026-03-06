@@ -296,6 +296,18 @@ class ActionLmEnv(Environment):
             if self.generation_id_name in df.columns and not filter_actions
             else df
         )
+        # If the dataset has a "split" column with overlapping sample IDs across
+        # splits, make sample IDs unique by offsetting test split IDs
+        if "split" in df.columns:
+            split_vals = df["split"].unique()
+            if len(split_vals) > 1:
+                max_train_id = df.loc[
+                    df["split"] == "train", self.sample_id_name
+                ].max()
+                non_train_mask = df["split"] != "train"
+                df.loc[non_train_mask, self.sample_id_name] = (
+                    df.loc[non_train_mask, self.sample_id_name] + max_train_id + 1
+                )
         df = self._maybe_build_full_states(df)
 
         # Filter for samples corresponding to best actions or best-half of actions
