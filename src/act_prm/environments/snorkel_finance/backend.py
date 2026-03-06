@@ -6,6 +6,10 @@ dataset traces, building a lookup table for each (tool_name, args) combination.
 
 For novel queries not in the traces, returns an informative error.
 The calculator tool is always live (uses Python eval).
+
+The HF dataset stores traces in LangChain serialization format. We convert
+these to our internal format (consistent with ActionFromLLM / action_utils.py)
+before extracting tool call → response pairs for caching.
 """
 
 from __future__ import annotations
@@ -23,6 +27,84 @@ logger = logging.getLogger(__name__)
 def _normalize_key(*args: str) -> str:
     """Create a normalized lookup key from arguments."""
     return "|".join(str(a).strip().lower() for a in args)
+
+
+def _convert_langchain_trace(
+    trace: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Convert a LangChain-serialized trace to our internal message format.
+
+    LangChain format:
+    - AI messages: type="ai", content is a list with
+      {"type": "tool_use", "name": ..., "input": ...} items
+    - Tool responses: type="tool", content is a string
+
+    Internal format (consistent with ActionFromLLM / action_utils.py):
+    - Assistant messages with tool calls:
+      {"role": "assistant", "tool_calls": [
+        {"type": "function", "function": {"name": ..., "arguments": ...}}
+      ]}
+    - Assistant text messages:
+      {"role": "assistant", "content": "..."}
+    - Tool responses:
+      {"role": "tool", "type": "function_call_output",
+       "call_id": ..., "output": "..."}
+    - User messages:
+      {"role": "user", "content": "..."}
+    """
+    converted = []
+    for msg in trace:
+        msg_type = msg.get("type", msg.get("role", ""))
+        content = msg.get("content", "")
+
+        if msg_type in ("human", "user"):
+            converted.append({"role": "user", "content": content})
+
+        elif msg_type in ("ai", "assistant"):
+            tool_calls = []
+            text_parts = []
+
+            if isinstance(content, list):
+                for item in content:
+                    if not isinstance(item, dict):
+                        continue
+                    if item.get("type") == "tool_use":
+                        # LangChain tool_use → our function call format
+                        tool_calls.append({
+                            "type": "function",
+                            "function": {
+                                "name": item.get("name", ""),
+                                "arguments": item.get("input", {}),
+                            },
+                        })
+                    elif item.get("type") == "text":
+                        text_parts.append(item.get("text", ""))
+            elif isinstance(content, str):
+                text_parts.append(content)
+
+            if tool_calls:
+                msg_out: dict[str, Any] = {
+                    "role": "assistant",
+                    "tool_calls": tool_calls,
+                }
+                if text_parts:
+                    msg_out["content"] = "\n".join(text_parts)
+                converted.append(msg_out)
+            elif text_parts:
+                converted.append({
+                    "role": "assistant",
+                    "content": "\n".join(text_parts),
+                })
+
+        elif msg_type in ("tool", "function"):
+            converted.append({
+                "role": "tool",
+                "type": "function_call_output",
+                "call_id": msg.get("id"),
+                "output": content,
+            })
+
+    return converted
 
 
 class TraceReplayBackend:
@@ -53,56 +135,62 @@ class TraceReplayBackend:
             self._parse_trace(trace)
 
     def _parse_trace(self, trace: list[dict[str, Any]]) -> None:
-        """Extract tool calls and their responses from a single trace."""
-        for i, msg in enumerate(trace):
+        """Extract tool calls and their responses from a single trace.
+
+        Converts LangChain trace to internal format, then extracts
+        (tool_name, args) → response pairs for caching.
+        """
+        converted = _convert_langchain_trace(trace)
+
+        for i, msg in enumerate(converted):
             if msg.get("role") != "assistant":
                 continue
 
-            content = msg.get("content", "")
-            if "<tool_call>" not in content:
+            tool_calls = msg.get("tool_calls", [])
+            if not tool_calls:
                 continue
 
-            # Extract tool call JSON
-            try:
-                tc_str = content.split("<tool_call>")[-1].split("</tool_call>")[0].strip()
-                tc = json.loads(tc_str)
-            except (json.JSONDecodeError, IndexError):
-                continue
-
-            tool_name = tc.get("name", "")
-            args = tc.get("arguments", {})
-
-            # Find the next tool response message
-            response_content = None
-            for j in range(i + 1, len(trace)):
-                next_msg = trace[j]
-                if next_msg.get("role") in ["tool", "function"]:
-                    response_content = next_msg.get("content", next_msg.get("output", ""))
+            # Collect consecutive tool responses after this assistant message
+            tool_responses = []
+            for j in range(i + 1, len(converted)):
+                next_msg = converted[j]
+                if next_msg.get("role") == "tool":
+                    tool_responses.append(next_msg.get("output", ""))
+                else:
                     break
-                if next_msg.get("role") == "assistant":
-                    break  # no tool response found before next assistant msg
 
-            if response_content is None:
-                continue
+            # Match tool calls to responses and cache
+            for tc_idx, tc in enumerate(tool_calls):
+                if tc_idx >= len(tool_responses):
+                    break
+                response_content = tool_responses[tc_idx]
+                func = tc.get("function", {})
+                tool_name = func.get("name", "")
+                args = func.get("arguments", {})
 
-            # Cache based on tool type
-            if tool_name == "get_descriptions":
-                company = args.get("company_name", "")
-                key = _normalize_key(company)
-                self.descriptions_cache[key] = response_content
+                self._cache_tool_response(tool_name, args, response_content)
 
-            elif tool_name == "get_table_info":
-                company = args.get("company_name", "")
-                table = args.get("table_name", "")
-                key = _normalize_key(company, table)
-                self.table_info_cache[key] = response_content
+    def _cache_tool_response(
+        self, tool_name: str, args: dict[str, Any], response: str
+    ) -> None:
+        """Cache a tool response based on tool type and arguments."""
+        if tool_name == "get_descriptions":
+            company = args.get("company_name", "")
+            key = _normalize_key(company)
+            self.descriptions_cache[key] = response
 
-            elif tool_name == "sql_query":
-                company = args.get("company_name", "")
-                table = args.get("table_name", "")
-                query = args.get("query", "")
-                key = _normalize_key(company, table, query)
-                self.sql_cache[key] = response_content
+        elif tool_name == "get_table_info":
+            company = args.get("company_name", "")
+            table = args.get("table_name", "")
+            key = _normalize_key(company, table)
+            self.table_info_cache[key] = response
+
+        elif tool_name == "sql_query":
+            company = args.get("company_name", "")
+            table = args.get("table_name", "")
+            query = args.get("query", "")
+            key = _normalize_key(company, table, query)
+            self.sql_cache[key] = response
 
     def get_descriptions(self, company_name: str) -> str:
         key = _normalize_key(company_name)
