@@ -1,14 +1,15 @@
-# TextWorld coin_collector medium — actions only, hidden observations
+# TextWorld coin_collector medium SFT demonstrations
 name: "action_lm"
 is_async: false
 dataset_config:
-  path: "mzio/tw-sft-coin-collector-medium-hideobs"
+  path: "mzio/tw-sft-coin-collector-medium"
+  cache_dir: "./data/textworld/medium/coin_collector"
   split: "train"
 
 fp32_loss: false
 loss_on_past_assistant_messages: true
 
-actions_only: true
+actions_only: false
 build_full_states: false
 best_actions_only: false
 best_halves_only: false

@@ -1,14 +1,15 @@
-# TextWorld treasure_hunter easy — actions only, full observations
+# TextWorld treasure_hunter easy SFT demonstrations
 name: "action_lm"
 is_async: false
 dataset_config:
   path: "mzio/tw-sft-treasure-hunter-easy"
+  cache_dir: "./data/textworld/easy/treasure_hunter"
   split: "train"
 
 fp32_loss: false
 loss_on_past_assistant_messages: true
 
-actions_only: true
+actions_only: false
 build_full_states: false
 best_actions_only: false
 best_halves_only: false

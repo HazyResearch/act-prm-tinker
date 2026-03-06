@@ -26,8 +26,8 @@ case "${TASK}" in
     *) echo "Unknown task: ${TASK}. Use coin_collector or treasure_hunter." && exit 1 ;;
 esac
 
-# --- Env config (SFT data) ---
-ENV_CONFIG="act_lm/tw_${TASK_SHORT}_${DIFFICULTY}_${VARIANT}"
+# --- Env config (SFT data) — single config per task/difficulty ---
+ENV_CONFIG="act_lm/tw_${TASK_SHORT}_${DIFFICULTY}"
 
 # --- Eval env config (online TextWorld) ---
 case "${TASK_SHORT}" in
