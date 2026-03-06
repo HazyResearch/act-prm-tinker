@@ -62,9 +62,6 @@ def get_action_logprobs_and_state_action_tokens(
     - logprobs, which is a list of length batch_size, each element is a list of length
       individual_action_len (the number of action tokens in the generation)
     """
-    logprobs = F.log_softmax(
-        logits, dim=-1
-    )  # (batch_size, seq_len, vocab_size) -> (B, L, V)
     labels = input_ids  # convenience alias
     attention_mask = attention_mask.bool()
     # Tmask: 1111111111111111111111111111111111
@@ -83,10 +80,13 @@ def get_action_logprobs_and_state_action_tokens(
     # start: ----thing is chungus.             `label[Tmask[1:]][state_len - 1:]`
     shift_logits = logits[:, :-1, :]
     shift_labels = labels[:, 1:]
-    logprobs = F.log_softmax(shift_logits, dim=-1)
-    logprobs = logprobs.gather(dim=-1, index=shift_labels.unsqueeze(-1)).squeeze(
-        -1
-    )  # (B, L - 1)
+    # Memory-efficient: gather target logits + logsumexp instead of full log_softmax
+    # Avoids materializing (B, L, V) tensor that causes OOM on long sequences
+    # gather and logsumexp operate on bf16 (B,L,V) in-place, producing (B,L) results
+    # which we upcast to fp32 for the subtraction to maintain precision
+    gathered_logits = shift_logits.gather(dim=-1, index=shift_labels.unsqueeze(-1)).squeeze(-1)
+    log_normalizer = shift_logits.logsumexp(dim=-1)
+    logprobs = gathered_logits.float() - log_normalizer.float()  # (B, L - 1)
 
     # Get logprobs for action tokens only
     a_starts = [state_len - 1 for state_len in state_lens]
