@@ -47,6 +47,10 @@ To use the wonderful [FlashAttention-2](https://github.com/Dao-AILab/flash-atten
 
 Please see individual environment README files in `src/act_prm/environments/` for any additional setup instructions.
 
+#### TextWorld
+
+For task generation please see `src/act_prm/environments/textworld/generate_tasks.py`, as well as the README at `src/act_prm/environments/textworld/README.md`.
+
 ## Example Commands
 
 ### Motivating Example: TextWorld (Treasure Hunter)

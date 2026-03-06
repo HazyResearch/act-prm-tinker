@@ -4,14 +4,14 @@ Generate TextWorld games
 Example commands:
 ```
 uv run python ./src/act_prm/environments/textworld/generate_tasks.py \
---cache_dir /scr/mzhang/data/textworld/tw_games/ \
+--cache_dir ./data/textworld/ \
 --task treasure_hunter \
 --n 10 \
 --seed_start 0 \
 --level 20
 
 uv run python ./src/act_prm/environments/textworld/generate_tasks.py \
---cache_dir /scr/mzhang/data/textworld/tw_games/ \
+--cache_dir ./data/textworld/ \
 --task cooking_game \
 --n 10 \
 --seed_start 0 \
@@ -122,17 +122,21 @@ def gen_cooking(
     cut: bool,
     drop: bool,
     split: str,
+    take: int | None = None,
 ) -> None:
     """
     Generate a cooking game
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"tw_cook_r{recipe:03d}_go{go:03d}_seed{seed:03d}_{split}.z8"
+    take = take or recipe  # Following Intelligent-Go-Explore (which BALROG uses): https://github.com/conglu1997/intelligent-go-explore/blob/821ad194080a30b1df7055fc6250cf45ccfcb477/textworld/misc/make_cooking.py#L51
     cmd = [
         "tw-make",
         "tw-cooking",
         "--recipe",
         str(recipe),
+        "--take",
+        str(take),
         "--go",
         str(go),
         "--seed",
