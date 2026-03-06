@@ -31,31 +31,67 @@ logger = logging.getLogger(__name__)
 
 
 def _make_initial_user_message(
-    tw_game_state: dict[str, Any],
+    state: Any,
     env: TextWorldEnv,
 ) -> str:
     """
-    Build the initial user message from objective + description + state JSON,
-    instead of using the raw feedback (which contains walkthrough instructions).
+    Build the initial user message from the raw TextWorld feedback
+    (which includes the banner, objective, and room description).
+    Matches the format used by env.reset() but without max_possible_score.
     """
-    objective = tw_game_state["objective"]
-    description = tw_game_state["description"].strip()
-
     state_json = {
-        env._key(k): v for k, v in tw_game_state.items() if k in env.state_keys
+        env._key(k): v
+        for k, v in {
+            "description": state.tw_description,
+            "score": state.tw_score,
+            "moves": state.tw_moves,
+        }.items()
+        if k in env.state_keys
     }
-    state_json["max_possible_score"] = tw_game_state["max_score"]
-    state_json["moves_left"] = env.max_turns - state_json["moves"]
+    state_json["moves_left"] = env.max_turns - state.tw_moves
 
     return MESSAGE_TEMPLATE.format(
-        action_feedback=f"Your objective is to {objective}\n\n{description}",
+        action_feedback=state.tw_feedback.strip(),
         state_json=json.dumps(state_json, indent=2),
     )
+
+
+def _hide_observations(
+    messages: list[dict[str, str]],
+    hidden_obs_content: str = "...",
+    first_obs_to_show: int = 2,
+    last_obs_to_show: int = 1,
+) -> list[dict[str, str]]:
+    """Replace past tool/user observations with hidden content."""
+    obs_indices = [
+        idx
+        for idx, msg in enumerate(messages)
+        if msg["role"] in ["user", "tool"]
+    ]
+    last_visible_idx = (
+        obs_indices[-last_obs_to_show] if last_obs_to_show > 0 else len(messages)
+    )
+    return [
+        (
+            {"role": msg["role"], "content": hidden_obs_content}
+            if (
+                msg["role"] in ["user", "tool"]
+                and idx >= first_obs_to_show
+                and idx < last_visible_idx
+            )
+            else msg
+        )
+        for idx, msg in enumerate(messages)
+    ]
 
 
 def collect_demonstrations(
     env: TextWorldEnv,
     split: str = "train",
+    hide_observations: bool = False,
+    hidden_obs_content: str = "...",
+    first_obs_to_show: int = 2,
+    last_obs_to_show: int = 1,
 ) -> list[dict[str, Any]]:
     """
     Collect ground-truth demonstration data from a TextWorld environment.
@@ -89,12 +125,11 @@ def collect_demonstrations(
         walkthrough = state.action_trajectory  # list of tool call strings
         tw_walkthrough = state.tw_extra_walkthrough  # raw textworld actions
 
-        # Build system message
-        system_msg = {"role": "system", "content": state.system_prompt}
+        # Build system message (raw, without instruction prompt appended)
+        system_msg = {"role": "system", "content": env.system_prompt}
 
-        # Build initial user message using objective + description (not feedback)
-        tw_game_state = _get_initial_game_state(state)
-        initial_content = _make_initial_user_message(tw_game_state, env)
+        # Build initial user message from raw feedback (includes banner + objective + room)
+        initial_content = _make_initial_user_message(state, env)
         messages: list[dict[str, Any]] = [
             system_msg,
             {"role": "user", "content": initial_content},
@@ -105,6 +140,13 @@ def collect_demonstrations(
         ):
             # The state is messages so far (what the model sees before generating)
             state_messages = list(messages)
+            if hide_observations and len(state_messages) > first_obs_to_show:
+                state_messages = _hide_observations(
+                    state_messages,
+                    hidden_obs_content=hidden_obs_content,
+                    first_obs_to_show=first_obs_to_show,
+                    last_obs_to_show=last_obs_to_show,
+                )
 
             # The action is the assistant's tool call message
             action_msg = {"role": "assistant", "content": action_text}
@@ -131,7 +173,6 @@ def collect_demonstrations(
                 for k, v in tw_game_state_raw.items()
                 if k in env.state_keys
             }
-            state_json["max_possible_score"] = tw_game_state_raw["max_score"]
             state_json["moves_left"] = env.max_turns - state_json["moves"]
             state_json["last_action"] = tw_action
 
@@ -146,19 +187,6 @@ def collect_demonstrations(
 
     return samples
 
-
-def _get_initial_game_state(state: Any) -> dict[str, Any]:
-    """
-    Extract the raw TextWorld game state dict from our TextWorldState,
-    reconstructing the keys the factory provides on reset.
-    """
-    return {
-        "objective": state.tw_objective,
-        "description": state.tw_description,
-        "score": state.tw_score,
-        "moves": state.tw_moves,
-        "max_score": state.tw_max_score,
-    }
 
 
 def main() -> None:
@@ -176,6 +204,14 @@ def main() -> None:
         help="Directory to save the HuggingFace dataset",
     )
     parser.add_argument(
+        "--hide_observations",
+        action="store_true",
+        help="Hide past observations (replace with '...')",
+    )
+    parser.add_argument("--hidden_obs_content", type=str, default="...")
+    parser.add_argument("--first_obs_to_show", type=int, default=2)
+    parser.add_argument("--last_obs_to_show", type=int, default=1)
+    parser.add_argument(
         "--push_to_hub",
         type=str,
         default=None,
@@ -191,7 +227,14 @@ def main() -> None:
     # Collect demonstrations for train and test splits
     all_samples = []
     for split in ["train", "test"]:
-        samples = collect_demonstrations(env, split=split)
+        samples = collect_demonstrations(
+            env,
+            split=split,
+            hide_observations=args.hide_observations,
+            hidden_obs_content=args.hidden_obs_content,
+            first_obs_to_show=args.first_obs_to_show,
+            last_obs_to_show=args.last_obs_to_show,
+        )
         for s in samples:
             s["split"] = split
         all_samples.extend(samples)
