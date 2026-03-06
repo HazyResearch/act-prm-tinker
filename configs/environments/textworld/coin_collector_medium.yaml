@@ -10,9 +10,9 @@ hidden_obs_content: "..."
 first_obs_to_show: 1
 last_obs_to_show: 0
 
-num_train_samples: 8
+num_train_samples: 80
 num_val_samples: null
-num_test_samples: 2
+num_test_samples: 20
 
 max_turns: 25
 num_tries: 1
