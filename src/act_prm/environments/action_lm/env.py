@@ -342,7 +342,7 @@ class ActionLmEnv(Environment):
                 if self.max_sample_ids is not None:
                     unique_sample_ids = unique_sample_ids[: self.max_sample_ids]
 
-                np.random.seed(self.seed)
+                np.random.seed(self.data_seed)
                 np.random.shuffle(unique_sample_ids)
                 num_train = int(len(unique_sample_ids) * self.frac_train_tasks)
                 self.train_sample_ids = unique_sample_ids[:num_train]

@@ -32,6 +32,7 @@ class Environment(ABC):
         truncation_message: str = DEFAULT_TRUNCATION_TEMPLATE,
         split: str = "train",
         seed: int = 0,
+        data_seed: int | None = None,
         verbose: bool = False,
         pretrained_model_config: dict[str, Any] | None = None,
         hide_observations: bool = False,
@@ -47,6 +48,7 @@ class Environment(ABC):
         self.truncation_message = truncation_message.format(max_turns=max_turns)
         self.split = split
         self.seed = seed
+        self.data_seed = data_seed if data_seed is not None else seed
         self.verbose = verbose
         self.pretrained_model_config = pretrained_model_config
         self.tokenizer = self._init_tokenizer()

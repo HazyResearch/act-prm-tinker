@@ -212,6 +212,12 @@ def main() -> None:
     parser.add_argument("--first_obs_to_show", type=int, default=2)
     parser.add_argument("--last_obs_to_show", type=int, default=1)
     parser.add_argument(
+        "--data_seed",
+        type=int,
+        default=None,
+        help="Seed for train/test split shuffling. Defaults to env config seed.",
+    )
+    parser.add_argument(
         "--push_to_hub",
         type=str,
         default=None,
@@ -222,6 +228,8 @@ def main() -> None:
     from omegaconf import OmegaConf
 
     env_cfg = OmegaConf.load(f"./configs/environments/{args.env_config}.yaml")
+    if args.data_seed is not None:
+        env_cfg.data_seed = args.data_seed
     env = TextWorldEnv(**env_cfg)
 
     # Collect demonstrations for train and test splits
