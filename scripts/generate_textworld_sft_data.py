@@ -21,7 +21,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from datasets import Dataset
+from datasets import Dataset, DatasetDict
 from rich import print as rich_print
 from tqdm import tqdm
 
@@ -225,7 +225,7 @@ def main() -> None:
     env = TextWorldEnv(**env_cfg)
 
     # Collect demonstrations for train and test splits
-    all_samples = []
+    split_datasets: dict[str, Dataset] = {}
     for split in ["train", "test"]:
         samples = collect_demonstrations(
             env,
@@ -237,18 +237,19 @@ def main() -> None:
         )
         for s in samples:
             s["split"] = split
-        all_samples.extend(samples)
+        split_datasets[split] = Dataset.from_list(samples)
         rich_print(
             f"[bright_green]Collected {len(samples)} samples for {split} split[/bright_green]"
         )
 
-    # Save as HuggingFace dataset
-    ds = Dataset.from_list(all_samples)
+    # Save as HuggingFace DatasetDict with proper train/test splits
+    ds = DatasetDict(split_datasets)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     ds.save_to_disk(str(output_dir))
     rich_print(
-        f"[bold bright_blue]Saved {len(ds)} samples to {output_dir}[/bold bright_blue]"
+        f"[bold bright_blue]Saved {sum(len(v) for v in ds.values())} samples "
+        f"({', '.join(f'{k}: {len(v)}' for k, v in ds.items())}) to {output_dir}[/bold bright_blue]"
     )
 
     if args.push_to_hub:
