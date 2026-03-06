@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 from copy import copy
 from typing import Any, Annotated
 
@@ -193,12 +194,14 @@ class TextWorldEnv(Environment):
                 "test": self.num_test_samples,
             },
         )
-        # train_indices = list(range(self.num_train_samples))
-        # test_indices  = list(range(self.num_train_samples, self.num_train_samples + self.num_test_samples))
-        test_indices = list(range(self.num_test_samples))
-        train_indices = list(
-            range(self.num_test_samples, self.num_train_samples + self.num_test_samples)
-        )  # alt rep
+        # Shuffle all game indices before splitting into train/test
+        total_needed = self.num_train_samples + self.num_test_samples
+        all_indices = list(range(total_needed))
+        random.seed(self.data_seed)
+        random.shuffle(all_indices)
+
+        test_indices = all_indices[: self.num_test_samples]
+        train_indices = all_indices[self.num_test_samples : total_needed]
         eval_indices = test_indices
         # Update val_indices if num_val_samples is provided
         if self.num_val_samples is not None:
@@ -210,9 +213,17 @@ class TextWorldEnv(Environment):
                     "test": self.num_test_samples,
                 },
             )
-            eval_indices = list(
-                range(len(test_indices), len(test_indices) + self.num_val_samples)
-            )
+            total_with_val = total_needed + self.num_val_samples
+            all_indices_val = list(range(total_with_val))
+            random.seed(self.data_seed)
+            random.shuffle(all_indices_val)
+            test_indices = all_indices_val[: self.num_test_samples]
+            eval_indices = all_indices_val[
+                self.num_test_samples : self.num_test_samples + self.num_val_samples
+            ]
+            train_indices = all_indices_val[
+                self.num_test_samples + self.num_val_samples : total_with_val
+            ]
 
         return {
             "train": train_indices,

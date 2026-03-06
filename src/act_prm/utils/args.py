@@ -266,6 +266,12 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument(
+        "--data_seed",
+        type=int,
+        default=None,
+        help="Seed for data splitting (train/test). Defaults to --seed if not set.",
+    )
+    parser.add_argument(
         "--replicate", type=str, default="0", help="Unique identifier for run"
     )
     parser.add_argument(

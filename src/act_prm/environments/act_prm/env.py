@@ -265,7 +265,7 @@ class ActPrmEnv(Environment):
             self.num_train_samples + self.num_val_samples + self.num_test_samples,
         )
         shuffle_indices = list(range(num_samples))
-        np.random.seed(self.seed)
+        np.random.seed(self.data_seed)
         np.random.shuffle(shuffle_indices)
         last_eval_idx = self.num_train_samples + self.num_val_samples
         train_indices = shuffle_indices[: self.num_train_samples]
