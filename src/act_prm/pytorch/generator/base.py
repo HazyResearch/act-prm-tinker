@@ -15,7 +15,6 @@ from rich.panel import Panel
 from tqdm import tqdm
 
 import torch
-import torch.nn.functional as F
 from tinker_cookbook.utils import ml_log
 from transformers import PreTrainedTokenizerBase
 
@@ -62,9 +61,6 @@ def get_action_logprobs_and_state_action_tokens(
     - logprobs, which is a list of length batch_size, each element is a list of length
       individual_action_len (the number of action tokens in the generation)
     """
-    logprobs = F.log_softmax(
-        logits, dim=-1
-    )  # (batch_size, seq_len, vocab_size) -> (B, L, V)
     labels = input_ids  # convenience alias
     attention_mask = attention_mask.bool()
     # Tmask: 1111111111111111111111111111111111
@@ -83,10 +79,13 @@ def get_action_logprobs_and_state_action_tokens(
     # start: ----thing is chungus.             `label[Tmask[1:]][state_len - 1:]`
     shift_logits = logits[:, :-1, :]
     shift_labels = labels[:, 1:]
-    logprobs = F.log_softmax(shift_logits, dim=-1)
-    logprobs = logprobs.gather(dim=-1, index=shift_labels.unsqueeze(-1)).squeeze(
-        -1
-    )  # (B, L - 1)
+    # Memory-efficient: gather target logits + logsumexp instead of full log_softmax
+    # Avoids materializing (B, L, V) tensor that causes OOM on long sequences
+    # gather and logsumexp operate on bf16 (B,L,V) in-place, producing (B,L) results
+    # which we upcast to fp32 for the subtraction to maintain precision
+    gathered_logits = shift_logits.gather(dim=-1, index=shift_labels.unsqueeze(-1)).squeeze(-1)
+    log_normalizer = shift_logits.logsumexp(dim=-1)
+    logprobs = gathered_logits.float() - log_normalizer.float()  # (B, L - 1)
 
     # Get logprobs for action tokens only
     a_starts = [state_len - 1 for state_len in state_lens]
@@ -104,7 +103,7 @@ def get_action_logprobs_and_state_action_tokens(
         print("len(state_lens)", len(state_lens))
         print("a_starts", a_starts)
         print("len(logprobs)", len(logprobs))
-        breakpoint()
+        raise
     # MZ 1/27/26: maybe more clear to keep separate?
     # logprobs = [logprobs[b_idx][attn_mask] for b_idx, attn_mask in enumerate(attention_mask)]
     # logprobs = [logprobs[b_idx][start_idx:] for b_idx, start_idx in enumerate(a_starts)]
@@ -169,7 +168,7 @@ def get_batch_model_inputs(
             f"Error tokenizing batch_model_texts: {e.__class__.__name__}: {e}"
             f"\nbatch_model_texts: {batch_model_texts}"
         )
-        breakpoint()
+        raise
 
     input_lens = [
         attn_mask.sum().item() for attn_mask in batch_model_inputs["attention_mask"]
@@ -523,7 +522,9 @@ class HuggingFaceGenerator:
                     logger.warning(
                         f"batch_state_action_inputs: {batch_state_action_inputs}"
                     )
-                    breakpoint()
+                    raise RuntimeError(
+                        f"state_input_lens ({len(state_input_lens)}) != act_logprobs ({len(act_logprobs)})"
+                    )
 
                 # Transition to next states
                 # -> Parse to consistent ActionFromLLM format
