@@ -83,9 +83,10 @@ def get_action_logprobs_and_state_action_tokens(
     # Avoids materializing (B, L, V) tensor that causes OOM on long sequences
     # gather and logsumexp operate on bf16 (B,L,V) in-place, producing (B,L) results
     # which we upcast to fp32 for the subtraction to maintain precision
+    _dtype = shift_logits.dtype
     gathered_logits = shift_logits.gather(dim=-1, index=shift_labels.unsqueeze(-1)).squeeze(-1)
     log_normalizer = shift_logits.logsumexp(dim=-1)
-    logprobs = gathered_logits.float() - log_normalizer.float()  # (B, L - 1)
+    logprobs = (gathered_logits.float() - log_normalizer.float()).to(dtype=_dtype)  # (B, L - 1)
 
     # Get logprobs for action tokens only
     a_starts = [state_len - 1 for state_len in state_lens]
