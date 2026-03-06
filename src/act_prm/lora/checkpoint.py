@@ -9,7 +9,7 @@ from typing import Any
 import torch
 from safetensors.torch import load_file
 
-from peft import set_peft_model_state_dict, PeftModel
+from peft import get_peft_model_state_dict, set_peft_model_state_dict, PeftModel
 
 
 # -----------------

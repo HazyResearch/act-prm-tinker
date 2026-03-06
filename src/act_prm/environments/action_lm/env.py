@@ -5,6 +5,7 @@ For now, we just use a way to load Hugging Face datasets and preprocess them for
 """
 
 import logging
+from copy import copy
 from functools import partial
 from typing import Any
 

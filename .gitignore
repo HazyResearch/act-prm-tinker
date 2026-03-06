@@ -207,4 +207,4 @@ marimo/_lsp/
 __marimo__/
 
 # TextWorld game data
-data/
+data/textworld/

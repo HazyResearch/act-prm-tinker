@@ -384,6 +384,9 @@ class HuggingFaceGenerator:
             ]
             all_final_rewards: list[float] = [0.0 for _ in range(num_return_sequences)]
 
+            all_gen_ids = list(
+                range(num_return_sequences)
+            )  # this is fixed, i.e., [1, 2, 3, ...]
             gen_ids_todo = list(range(num_return_sequences))  # this can get smaller
             # unique_data_sample_ids = [sample_id * num_return_sequences + gen_id for gen_id in all_gen_ids]
             num_todo = len(gen_ids_todo)
