@@ -289,7 +289,16 @@ class ActionLmEnv(Environment):
 
         # We want to process this datasets into sequences of trajectories, also their timesteps,
         # -> So that we can then split them into train and eval splits based on the tasks
-        df = ds.to_pandas()  # easier to work with
+        # Handle DatasetDict (multiple splits) vs single Dataset
+        if isinstance(ds, DatasetDict):
+            dfs = []
+            for split_name, split_ds in ds.items():
+                split_df = split_ds.to_pandas()
+                split_df["split"] = split_name
+                dfs.append(split_df)
+            df = pd.concat(dfs, ignore_index=True)
+        else:
+            df = ds.to_pandas()  # easier to work with
         df = df[df["return_"] > 0] if self.success_only else df
         df = (
             df[df[self.generation_id_name] == 0]
@@ -321,16 +330,23 @@ class ActionLmEnv(Environment):
             df = df[df[self.timestep_name] < self.max_timestep]
 
         if self.train_sample_ids is None or self.eval_sample_ids is None:
-            # Separate into train and eval splits (no test for SFT evals)
-            unique_sample_ids = df[self.sample_id_name].unique()
-            if self.max_sample_ids is not None:
-                unique_sample_ids = unique_sample_ids[: self.max_sample_ids]
+            # Use dataset's own train/test splits if available
+            if "split" in df.columns and set(df["split"].unique()) >= {"train", "test"}:
+                train_ids = df.loc[df["split"] == "train", self.sample_id_name].unique()
+                test_ids = df.loc[df["split"] == "test", self.sample_id_name].unique()
+                self.train_sample_ids = train_ids
+                self.eval_sample_ids = test_ids
+            else:
+                # Separate into train and eval splits (no test for SFT evals)
+                unique_sample_ids = df[self.sample_id_name].unique()
+                if self.max_sample_ids is not None:
+                    unique_sample_ids = unique_sample_ids[: self.max_sample_ids]
 
-            np.random.seed(self.seed)
-            np.random.shuffle(unique_sample_ids)
-            num_train = int(len(unique_sample_ids) * self.frac_train_tasks)
-            self.train_sample_ids = unique_sample_ids[:num_train]
-            self.eval_sample_ids = unique_sample_ids[num_train:]
+                np.random.seed(self.seed)
+                np.random.shuffle(unique_sample_ids)
+                num_train = int(len(unique_sample_ids) * self.frac_train_tasks)
+                self.train_sample_ids = unique_sample_ids[:num_train]
+                self.eval_sample_ids = unique_sample_ids[num_train:]
 
         # Load from these for sampling based evaluation
         df_train = df[df[self.sample_id_name].isin(self.train_sample_ids)]
