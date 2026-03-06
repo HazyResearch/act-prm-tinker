@@ -18,6 +18,7 @@ max_turns: 60
 num_tries: 1
 eval_num_tries: 1
 seed: 0
+data_seed: 0
 split: "train"
 system_prompt: "You are a helpful tool-calling assistant."
 truncation_message: "Sorry, you have reached the maximum number of steps. Please try again."
