@@ -103,7 +103,7 @@ def get_action_logprobs_and_state_action_tokens(
         print("len(state_lens)", len(state_lens))
         print("a_starts", a_starts)
         print("len(logprobs)", len(logprobs))
-        breakpoint()
+        raise
     # MZ 1/27/26: maybe more clear to keep separate?
     # logprobs = [logprobs[b_idx][attn_mask] for b_idx, attn_mask in enumerate(attention_mask)]
     # logprobs = [logprobs[b_idx][start_idx:] for b_idx, start_idx in enumerate(a_starts)]
@@ -168,7 +168,7 @@ def get_batch_model_inputs(
             f"Error tokenizing batch_model_texts: {e.__class__.__name__}: {e}"
             f"\nbatch_model_texts: {batch_model_texts}"
         )
-        breakpoint()
+        raise
 
     input_lens = [
         attn_mask.sum().item() for attn_mask in batch_model_inputs["attention_mask"]
@@ -383,9 +383,6 @@ class HuggingFaceGenerator:
             ]
             all_final_rewards: list[float] = [0.0 for _ in range(num_return_sequences)]
 
-            all_gen_ids = list(
-                range(num_return_sequences)
-            )  # this is fixed, i.e., [1, 2, 3, ...]
             gen_ids_todo = list(range(num_return_sequences))  # this can get smaller
             # unique_data_sample_ids = [sample_id * num_return_sequences + gen_id for gen_id in all_gen_ids]
             num_todo = len(gen_ids_todo)
@@ -525,7 +522,9 @@ class HuggingFaceGenerator:
                     logger.warning(
                         f"batch_state_action_inputs: {batch_state_action_inputs}"
                     )
-                    breakpoint()
+                    raise RuntimeError(
+                        f"state_input_lens ({len(state_input_lens)}) != act_logprobs ({len(act_logprobs)})"
+                    )
 
                 # Transition to next states
                 # -> Parse to consistent ActionFromLLM format
@@ -597,18 +596,17 @@ class HuggingFaceGenerator:
                     ]  # Overwrite til last reward
 
                 # Update pbars and finished rollouts
-                for _idx, gen_id in enumerate(gen_ids_todo):
+                # Collect done indices first, then remove in reverse to avoid
+                # index shifting during forward iteration
+                done_indices = []
+                for _idx in range(len(gen_ids_todo)):
                     rollout_pbars[_idx].update(1)
                     if batch_env_step_results[_idx].done:
-                        rollout_pbars[_idx].close()
-                        rollout_pbars.pop(_idx)
-                        gen_ids_todo.pop(_idx)
-                # # Update gen_ids_todo to only include non-done generations
-                # gen_ids_todo = [
-                #     gen_id
-                #     for _idx, gen_id in enumerate(gen_ids_todo)
-                #     if not batch_env_step_results[_idx].done
-                # ]
+                        done_indices.append(_idx)
+                for _idx in reversed(done_indices):
+                    rollout_pbars[_idx].close()
+                    rollout_pbars.pop(_idx)
+                    gen_ids_todo.pop(_idx)
                 # Move to next state
                 batch_states = [
                     next_state
