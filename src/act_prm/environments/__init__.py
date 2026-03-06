@@ -62,6 +62,16 @@ def get_env(name: str, is_async: bool = False, **kwargs: Any) -> Environment:
 
             return HotpotQAMultipleChoiceEnv(**kwargs)
 
+    elif name == "snorkel_finance":
+        if is_async:
+            from .snorkel_finance import AsyncSnorkelFinanceEnv
+
+            return AsyncSnorkelFinanceEnv(**kwargs)
+        else:
+            from .snorkel_finance import SnorkelFinanceEnv
+
+            return SnorkelFinanceEnv(**kwargs)
+
     elif name == "browsecomp_plus_search":
         if is_async:
             from .browsecomp_plus import AsyncBrowseCompPlusSearchEnv
