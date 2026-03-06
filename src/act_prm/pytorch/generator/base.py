@@ -384,9 +384,6 @@ class HuggingFaceGenerator:
             ]
             all_final_rewards: list[float] = [0.0 for _ in range(num_return_sequences)]
 
-            all_gen_ids = list(
-                range(num_return_sequences)
-            )  # this is fixed, i.e., [1, 2, 3, ...]
             gen_ids_todo = list(range(num_return_sequences))  # this can get smaller
             # unique_data_sample_ids = [sample_id * num_return_sequences + gen_id for gen_id in all_gen_ids]
             num_todo = len(gen_ids_todo)
@@ -598,18 +595,17 @@ class HuggingFaceGenerator:
                     ]  # Overwrite til last reward
 
                 # Update pbars and finished rollouts
-                for _idx, gen_id in enumerate(gen_ids_todo):
+                # Collect done indices first, then remove in reverse to avoid
+                # index shifting during forward iteration
+                done_indices = []
+                for _idx in range(len(gen_ids_todo)):
                     rollout_pbars[_idx].update(1)
                     if batch_env_step_results[_idx].done:
-                        rollout_pbars[_idx].close()
-                        rollout_pbars.pop(_idx)
-                        gen_ids_todo.pop(_idx)
-                # # Update gen_ids_todo to only include non-done generations
-                # gen_ids_todo = [
-                #     gen_id
-                #     for _idx, gen_id in enumerate(gen_ids_todo)
-                #     if not batch_env_step_results[_idx].done
-                # ]
+                        done_indices.append(_idx)
+                for _idx in reversed(done_indices):
+                    rollout_pbars[_idx].close()
+                    rollout_pbars.pop(_idx)
+                    gen_ids_todo.pop(_idx)
                 # Move to next state
                 batch_states = [
                     next_state
