@@ -18,10 +18,8 @@ def render_prompt(
     user_query: str,
     company: str,
 ) -> str:
-    """Render the user prompt for a snorkel finance task."""
-    return (
-        f"Here is the question: {user_query}\n\n"
-        f"Here are the companies name in the database to query for: {company}\n\n"
-        f"Use the available tools to gather financial data and answer the question. "
-        f"When ready, use the `respond_user` tool to provide your final answer."
-    )
+    """Render the user prompt for a snorkel finance task.
+
+    Matches the reference format from FinQABenchmark/src/func-calling-sim.py
+    """
+    return f"For company `{company}`, here is the question : {user_query}"

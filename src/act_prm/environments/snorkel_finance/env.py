@@ -17,7 +17,7 @@ import numpy as np
 from datasets import Dataset, DatasetDict, load_dataset
 from pydantic import ConfigDict, InstanceOf
 
-from ...graders.qa import LLMGraderForQA
+from ...graders.snorkel_finance import SnorkelFinanceGrader
 from ...llm_handlers import ActionFromLLM
 from ..base import BaseTool, Environment
 from ..types import EnvironmentStateWithAnswer, EnvironmentStepResult
@@ -91,7 +91,7 @@ class SnorkelFinanceEnv(Environment):
         # LLM-as-a-judge for grading
         self.grader_model_config = grader_model_config
         self.grader_model_samples = grader_model_samples
-        self.grader_model = LLMGraderForQA(
+        self.grader_model = SnorkelFinanceGrader(
             grader_model_config=grader_model_config,
             num_samples=grader_model_samples,
             verbose=grader_model_verbose,
