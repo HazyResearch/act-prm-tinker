@@ -15,7 +15,6 @@ from rich.panel import Panel
 from tqdm import tqdm
 
 import torch
-import torch.nn.functional as F
 from tinker_cookbook.utils import ml_log
 from transformers import PreTrainedTokenizerBase
 
