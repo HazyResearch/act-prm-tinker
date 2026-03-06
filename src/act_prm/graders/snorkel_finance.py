@@ -5,9 +5,12 @@ Matches the grading prompt from FinQABenchmark/src/llmj.py with
 decimal matching rules specific to financial QA.
 """
 
+import logging
 import re
 
 from .qa import LLMGraderForQA
+
+logger = logging.getLogger(__name__)
 
 # From: https://github.com/snorkel-ai/FinQABenchmark/blob/main/src/llmj.py
 SNORKEL_FINANCE_GRADER_TEMPLATE = """I am going to give you
@@ -66,7 +69,11 @@ class SnorkelFinanceGrader(LLMGraderForQA):
             max_new_tokens=self.max_new_tokens,
             num_return_sequences=1,
         )[0]
-        grading_response = self.grader_model.get_actions(sampler_response)[-1].text
+        actions = self.grader_model.get_actions(sampler_response)
+        if not actions:
+            logger.warning("Grader returned no actions (model request may have failed)")
+            return "no", "Grader error: no response from model"
+        grading_response = actions[-1].text or ""
         match = re.search(
             r"correct:\s*(yes|no)\b", grading_response, flags=re.IGNORECASE
         )
