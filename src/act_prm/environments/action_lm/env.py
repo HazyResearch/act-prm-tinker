@@ -5,7 +5,7 @@ For now, we just use a way to load Hugging Face datasets and preprocess them for
 """
 
 import logging
-from copy import copy
+
 from functools import partial
 from typing import Any
 
@@ -494,6 +494,8 @@ class ActionLmEnv(Environment):
             ]
         else:
             state_msgs = sample["state"]
+        # Hide past observations if configured (replace with hidden_obs_content)
+        state_msgs = self.maybe_hide_observations(state_msgs)
         messages.extend(state_msgs)
 
         # Get full and "thought-only" actions
