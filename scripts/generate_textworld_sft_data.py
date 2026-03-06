@@ -9,9 +9,7 @@ Example:
 ```bash
 uv run python scripts/generate_textworld_sft_data.py \
     --env_config textworld/coin_collector_medium \
-    --output_dir ./data/textworld/sft/coin_collector_medium \
-    --hide_observations \
-    --actions_only
+    --output_dir ./data/textworld/sft/coin_collector_medium
 ```
 """
 
@@ -27,25 +25,43 @@ from datasets import Dataset
 from rich import print as rich_print
 from tqdm import tqdm
 
-from act_prm.environments.textworld.env import TextWorldEnv
+from act_prm.environments.textworld.env import TextWorldEnv, MESSAGE_TEMPLATE
 
 logger = logging.getLogger(__name__)
+
+
+def _make_initial_user_message(
+    tw_game_state: dict[str, Any],
+    env: TextWorldEnv,
+) -> str:
+    """
+    Build the initial user message from objective + description + state JSON,
+    instead of using the raw feedback (which contains walkthrough instructions).
+    """
+    objective = tw_game_state["objective"]
+    description = tw_game_state["description"].strip()
+
+    state_json = {
+        env._key(k): v for k, v in tw_game_state.items() if k in env.state_keys
+    }
+    state_json["max_possible_score"] = tw_game_state["max_score"]
+    state_json["moves_left"] = env.max_turns - state_json["moves"]
+
+    return MESSAGE_TEMPLATE.format(
+        action_feedback=f"Your objective is to {objective}\n\n{description}",
+        state_json=json.dumps(state_json, indent=2),
+    )
 
 
 def collect_demonstrations(
     env: TextWorldEnv,
     split: str = "train",
-    actions_only: bool = False,
-    hide_observations: bool = False,
-    hidden_obs_content: str = "...",
-    first_obs_to_show: int = 2,
-    last_obs_to_show: int = 1,
 ) -> list[dict[str, Any]]:
     """
     Collect ground-truth demonstration data from a TextWorld environment.
 
     For each game, steps through the walkthrough and records state-action pairs
-    at each timestep.
+    at each timestep. All messages use only {"role": ..., "content": ...} format.
 
     Returns a list of sample dicts with keys:
         - state: list[dict] — chat messages up to (but not including) the action
@@ -73,24 +89,22 @@ def collect_demonstrations(
         walkthrough = state.action_trajectory  # list of tool call strings
         tw_walkthrough = state.tw_extra_walkthrough  # raw textworld actions
 
-        # Build the full message sequence by stepping through the env
-        # Start with the initial observation
-        messages: list[dict[str, Any]] = list(state.new_messages)  # initial user msg
+        # Build system message
+        system_msg = {"role": "system", "content": state.system_prompt}
+
+        # Build initial user message using objective + description (not feedback)
+        tw_game_state = _get_initial_game_state(state)
+        initial_content = _make_initial_user_message(tw_game_state, env)
+        messages: list[dict[str, Any]] = [
+            system_msg,
+            {"role": "user", "content": initial_content},
+        ]
 
         for timestep, (action_text, tw_action) in enumerate(
             zip(walkthrough, tw_walkthrough)
         ):
             # The state is messages so far (what the model sees before generating)
             state_messages = list(messages)
-
-            # Maybe hide past observations
-            if hide_observations and len(state_messages) > first_obs_to_show:
-                state_messages = _hide_observations(
-                    state_messages,
-                    hidden_obs_content=hidden_obs_content,
-                    first_obs_to_show=first_obs_to_show,
-                    last_obs_to_show=last_obs_to_show,
-                )
 
             # The action is the assistant's tool call message
             action_msg = {"role": "assistant", "content": action_text}
@@ -108,67 +122,43 @@ def collect_demonstrations(
                 }
             )
 
-            # Now step the env to get the next observation
-            # Step the underlying textworld env directly
-            tw_game_state, tw_reward, tw_done = state.sample_tw_env.step(tw_action)
+            # Step the underlying textworld env to get the next observation
+            tw_game_state_raw, tw_reward, tw_done = state.sample_tw_env.step(tw_action)
 
-            # Build the next observation message
+            # Build the next observation message (role: tool -> content only)
             state_json = {
                 env._key(k): v
-                for k, v in tw_game_state.items()
+                for k, v in tw_game_state_raw.items()
                 if k in env.state_keys
             }
-            state_json["max_possible_score"] = tw_game_state["max_score"]
+            state_json["max_possible_score"] = tw_game_state_raw["max_score"]
             state_json["moves_left"] = env.max_turns - state_json["moves"]
             state_json["last_action"] = tw_action
-            from act_prm.environments.textworld.env import MESSAGE_TEMPLATE
 
             obs_content = MESSAGE_TEMPLATE.format(
-                action_feedback=tw_game_state["feedback"].strip(),
+                action_feedback=tw_game_state_raw["feedback"].strip(),
                 state_json=json.dumps(state_json, indent=2),
             )
 
-            # Add assistant action + env response to messages for next timestep
+            # Add assistant action + env response using only role + content
             messages.append(action_msg)
-            messages.append(
-                {
-                    "role": "tool",
-                    "type": "function_call_output",
-                    "call_id": f"call_{timestep}",
-                    "output": obs_content,
-                }
-            )
+            messages.append({"role": "tool", "content": obs_content})
 
     return samples
 
 
-def _hide_observations(
-    messages: list[dict[str, str]],
-    hidden_obs_content: str = "...",
-    first_obs_to_show: int = 2,
-    last_obs_to_show: int = 1,
-) -> list[dict[str, str]]:
-    """Hide past observations from messages."""
-    user_indices = [
-        idx
-        for idx, message in enumerate(messages)
-        if message["role"] in ["user", "tool"]
-    ]
-    last_message_idx = (
-        user_indices[-last_obs_to_show] if last_obs_to_show > 0 else len(messages)
-    )
-    return [
-        (
-            {"role": message["role"], "content": hidden_obs_content}
-            if (
-                message["role"] in ["user", "tool"]
-                and idx >= first_obs_to_show
-                and idx < last_message_idx
-            )
-            else message
-        )
-        for idx, message in enumerate(messages)
-    ]
+def _get_initial_game_state(state: Any) -> dict[str, Any]:
+    """
+    Extract the raw TextWorld game state dict from our TextWorldState,
+    reconstructing the keys the factory provides on reset.
+    """
+    return {
+        "objective": state.tw_objective,
+        "description": state.tw_description,
+        "score": state.tw_score,
+        "moves": state.tw_moves,
+        "max_score": state.tw_max_score,
+    }
 
 
 def main() -> None:
@@ -186,23 +176,6 @@ def main() -> None:
         help="Directory to save the HuggingFace dataset",
     )
     parser.add_argument(
-        "--actions_only",
-        action="store_true",
-        help="Strip reasoning traces, keep only tool calls",
-    )
-    parser.add_argument(
-        "--hide_observations",
-        action="store_true",
-        help="Hide past observations (replace with '...')",
-    )
-    parser.add_argument(
-        "--hidden_obs_content",
-        type=str,
-        default="...",
-    )
-    parser.add_argument("--first_obs_to_show", type=int, default=2)
-    parser.add_argument("--last_obs_to_show", type=int, default=1)
-    parser.add_argument(
         "--push_to_hub",
         type=str,
         default=None,
@@ -218,15 +191,7 @@ def main() -> None:
     # Collect demonstrations for train and test splits
     all_samples = []
     for split in ["train", "test"]:
-        samples = collect_demonstrations(
-            env,
-            split=split,
-            actions_only=args.actions_only,
-            hide_observations=args.hide_observations,
-            hidden_obs_content=args.hidden_obs_content,
-            first_obs_to_show=args.first_obs_to_show,
-            last_obs_to_show=args.last_obs_to_show,
-        )
+        samples = collect_demonstrations(env, split=split)
         for s in samples:
             s["split"] = split
         all_samples.extend(samples)
