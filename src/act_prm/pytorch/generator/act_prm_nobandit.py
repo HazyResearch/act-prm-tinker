@@ -1,5 +1,5 @@
 """
-PyTorch Generator for Act-PRM with proper sequential rollouts (non-bandit setting)
+PyTorch Generator for Act-PRM with proper parallel rollouts (non-bandit setting)
 
 Instead of generating N thoughts at each step, scoring them, and picking the best
 to commit to (bandit), we run N independent full rollouts in parallel.
@@ -26,7 +26,6 @@ from act_prm.generator.tinker_act_prm import process_state_messages_for_metrics
 
 from act_prm.llm_handlers import HuggingFaceLLM
 from act_prm.llm_handlers.action_utils import get_actions
-from act_prm.llm_handlers.types import ActionFromLLM
 from act_prm.replay_buffer.types import (
     EpisodeStep,
     Trajectory,
@@ -47,12 +46,16 @@ ROYGBIV = ["#FF0000", "#FF7F00", "#FFFF00", "#00FF00", "#0000FF", "#4B0082", "#9
 
 class NoBanditActionPromptActPrmGenerator(ActionPromptActPrmGenerator):
     """
-    Act-PRM generator with proper sequential rollouts (non-bandit).
+    Act-PRM generator with proper parallel rollouts (non-bandit).
 
     Each of the N rollouts independently generates thoughts at every step,
     producing N full trajectories. The per-step reward is the probability
     of the target action given the generated thought: P(action | thought, state).
     This enables computing proper discounted returns across the full episode.
+
+    Unlike the bandit version which picks the best thought at each step, all N
+    rollouts run in parallel (batch generation + batch logprob computation),
+    with done rollouts removed from the active batch as they complete.
     """
 
     def __init__(
@@ -63,262 +66,6 @@ class NoBanditActionPromptActPrmGenerator(ActionPromptActPrmGenerator):
         # Force reward_method to action_probs for nobandit
         kwargs.setdefault("reward_method", "action_probs")
         super().__init__(discount_factor=discount_factor, **kwargs)
-
-    def _do_single_rollout(
-        self,
-        gen_idx: int,
-        llm: HuggingFaceLLM,
-        env: Environment,
-        hf_tokenizer: PreTrainedTokenizerBase,
-        cfg: DictConfig,
-        sample_id: int,
-        batch_id: int,
-        split: str,
-        try_step: int,
-        max_tokens: int,
-        temperature: float,
-        device: torch.device,
-    ) -> dict[str, Trajectory]:
-        """
-        Run a single full sequential rollout, returning both policy and think_act_policy
-        trajectories with per-step action-probability rewards.
-        """
-        # Episode step accumulators for both trajectory types
-        policy_episode_steps: list[EpisodeStep] = []  # (state, action, thought)
-        think_act_episode_steps: list[EpisodeStep] = []  # (state, thought, action)
-
-        state: ActionProcessRewardState = env.reset(
-            sample_idx=sample_id,
-            generation_idx=gen_idx,
-            try_step=try_step,
-        )
-        try:
-            max_turns = len(state.assistant_indices)
-        except AttributeError:
-            max_turns = len(state.action_trajectory)
-
-        done = False
-        reward = 0.0
-
-        while not done:
-            state_messages: list[dict[str, Any]] = self._get_messages_from_state(state)
-
-            # Prompt for thoughts: append action + <thought> tag to prompt continuation
-            act_prompt_state_messages, input_ids = self._get_thought_prompt(
-                state_messages
-            )
-            input_ids = input_ids.to(device)
-
-            # Generate thought completion
-            outputs = llm.model.generate(
-                input_ids=input_ids,
-                max_new_tokens=max_tokens,
-                temperature=temperature,
-                num_return_sequences=1,
-                pad_token_id=hf_tokenizer.pad_token_id,
-            )
-            state_input_len = input_ids.shape[1]
-            decoded_text = hf_tokenizer.decode(
-                outputs[0, state_input_len:],
-                skip_special_tokens=True,
-                clean_up_tokenization_spaces=True,
-            )
-            thought = self._parse_thoughts(decoded_text)
-
-            # Build the standard chat (without few-shot, without last action)
-            first_msg_to_show = getattr(state, "first_obs_to_show", 0) - 3
-            standard_system_prompt = (
-                state.original_system_prompt or env.original_system_prompt
-            )
-            standard_chat: list[dict[str, str]] = process_state_messages_for_metrics(
-                state_messages,
-                system_prompt=standard_system_prompt,
-                first_msg_to_show=max(first_msg_to_show, 0),
-            )
-
-            # Compute action probability reward: P(action | thought, state)
-            state_thought_messages = [
-                standard_chat + [{"role": "assistant", "content": thought}]
-            ]
-            thought_act_messages: list[list[dict[str, str]]] = [
-                [
-                    {
-                        "role": "assistant",
-                        "content": f"{thought}\n\n{state.action_target}",
-                    }
-                ]
-            ]
-            state_thought_act_messages: list[list[dict[str, str]]] = [
-                standard_chat + _msgs for _msgs in thought_act_messages
-            ]
-            _outputs = get_act_logprobs_and_state_act_tokens_from_messages(
-                model=llm.model,
-                hf_tokenizer=hf_tokenizer,
-                state_messages=state_thought_messages,
-                state_action_messages=state_thought_act_messages,
-                state_continue_final_message=True,
-            )
-            act_logprobs: list[list[float]] = _outputs[0]
-            # Per-step reward: mean action logprob exponentiated.
-            # Note: We intentionally skip _compute_group_rewards here since each
-            # rollout is independent (no group to normalize against per-step).
-            # Group-level normalization happens via TrajectoryGroup/MeanCenteredTrajectoryGroup.
-            reward = np.exp(sum(act_logprobs[0]) / max(len(act_logprobs[0]), 1))
-
-            # Step environment
-            model_messages = [{"role": "assistant", "content": thought}]
-            parsed_actions: list[ActionFromLLM] = get_actions(model_messages)
-            env_step_result: EnvironmentStepResult = env.step(
-                parsed_actions=parsed_actions,
-                current_state=state,
-                current_messages=state_messages,
-            )
-            next_state = env_step_result.state
-            done = env_step_result.done
-            truncated = env_step_result.truncated
-            next_obs = [
-                {
-                    "role": msg["role"],
-                    "content": msg["output"]
-                    if msg.get("output", None)
-                    else msg["content"],
-                }
-                for msg in next_state.new_messages
-            ]
-
-            shared_kwargs = {
-                "next_obs": next_obs,
-                "tools": state.tools,
-                "temperature": temperature,
-                "reward": reward,
-                "done": done,
-                "truncated": truncated,
-                "timestep": state.timestep,
-                "try_step": try_step,
-                "batch_id": batch_id,
-                "unique_data_sample_id": sample_id,
-                "generation_id": gen_idx,
-                "split": split,
-                "action_prob": reward,
-            }
-
-            # 1. (state, thought, action) episode step — for SFT training
-            # Get state_len for standard_chat with generation prompt
-            state_len = len(
-                hf_tokenizer.apply_chat_template(
-                    standard_chat,
-                    add_generation_prompt=True,
-                    continue_final_message=False,
-                    tokenize=True,
-                )
-            )
-            # Recompute logprobs with continue_final_message=False for SFT-style tokens
-            _sft_outputs = get_act_logprobs_and_state_act_tokens_from_messages(
-                model=llm.model,
-                hf_tokenizer=hf_tokenizer,
-                state_messages=[standard_chat],
-                state_action_messages=state_thought_act_messages,
-                state_continue_final_message=False,
-            )
-            think_act_logprobs: list[float] = _sft_outputs[0][0]
-            state_thought_act_tokens: list[int] = _sft_outputs[1][0]
-
-            think_act_step = EpisodeStep(
-                state=standard_chat,
-                action=thought_act_messages[0][0],
-                state_action_tokens=state_thought_act_tokens,
-                state_len=state_len,
-                old_logprobs=think_act_logprobs,
-                **shared_kwargs,
-            )
-            think_act_episode_steps.append(think_act_step)
-
-            # 2. (state, action, thought) episode step — for RL training
-            state_action_thought_messages = deepcopy(act_prompt_state_messages)
-            state_action_thought_messages[-1]["content"] += decoded_text
-            state_act_thought_tokens = hf_tokenizer.apply_chat_template(
-                state_action_thought_messages,
-                add_generation_prompt=False,
-                continue_final_message=True,
-                tokenize=True,
-            )
-
-            # Compute logprobs for the thought tokens in action-prompted form
-            _act_prompt_outputs = get_act_logprobs_and_state_act_tokens_from_messages(
-                model=llm.model,
-                hf_tokenizer=hf_tokenizer,
-                state_messages=[act_prompt_state_messages],
-                state_action_messages=[state_action_thought_messages],
-                state_continue_final_message=True,
-            )
-            act_thought_logprobs: list[float] = _act_prompt_outputs[0][0]
-
-            policy_step = EpisodeStep(
-                state=state_messages,
-                action={"role": "assistant", "content": decoded_text},
-                state_action_tokens=state_act_thought_tokens,
-                state_len=state_input_len,
-                old_logprobs=act_thought_logprobs,
-                **shared_kwargs,
-            )
-            policy_episode_steps.append(policy_step)
-
-            # Verbose display
-            if self.verbose and gen_idx < self.samples_to_display:
-                header_text = (
-                    f"Batch {batch_id}, Split {split}, Try {try_step}, "
-                    f"Sample {sample_id}, Generation {gen_idx}, "
-                    f"Step {state.timestep} / {max_turns - 1}, "
-                    f"Reward {reward:.4f}"
-                )
-                panel_content = [
-                    f"Reward: [bright_green]{reward:.4f}[/bright_green]",
-                    f"Run url: [cyan]{self.run_url}[/cyan]",
-                    f"Run cmd: [bright_blue]{self.run_cmd}[/bright_blue]",
-                ]
-                if self.name_or_identifier:
-                    panel_content.append(
-                        f"Name/ID: [bright_yellow]{self.name_or_identifier}[/bright_yellow]"
-                    )
-                panel_content = "\n".join(panel_content)
-                try:
-                    state_thought_act_text = hf_tokenizer.decode(
-                        state_thought_act_tokens,
-                        skip_special_tokens=False,
-                        clean_up_tokenization_spaces=True,
-                    )
-                    rich_print_messages(
-                        msg_text=state_thought_act_text,
-                        bos_token="<|im_start|>",
-                        eos_token="<|im_end|>\n",
-                        assistant_color=ROYGBIV[gen_idx % len(ROYGBIV)],
-                    )
-                    console.print(Panel(panel_content, title=header_text, style="bold"))
-                except Exception as e:
-                    logger.error(f"{e.__class__.__name__}: {e}")
-                    print(f"{'-' * 50} {header_text} {'-' * 50}")
-                    print(panel_content)
-
-            # Transition
-            state = next_state
-
-        # Build Trajectory objects with per-step rewards for proper return computation
-        policy_trajectory = Trajectory(
-            episode_steps=policy_episode_steps,
-            try_step=try_step,
-            discount_factor=self.discount_factor,
-            final_reward=reward,
-        )
-        think_act_trajectory = Trajectory(
-            episode_steps=think_act_episode_steps,
-            try_step=try_step,
-            discount_factor=self.discount_factor,
-            final_reward=reward,
-        )
-        return {
-            "policy": policy_trajectory,
-            "think_act_policy": think_act_trajectory,
-        }
 
     def do_group_rollout(
         self,
@@ -337,16 +84,16 @@ class NoBanditActionPromptActPrmGenerator(ActionPromptActPrmGenerator):
         pbar_position: int = 0,
     ) -> dict[str, list[TrajectoryGroup]]:
         """
-        Generate N independent full rollouts for a single task sample.
+        Generate N independent full rollouts for a single task sample, in parallel.
 
-        Unlike the bandit version which picks the best thought at each step,
-        each rollout runs independently from start to finish. This produces
-        N complete trajectories with per-step rewards, enabling proper
-        discounted return computation.
+        All active rollouts are batch-generated and batch-scored at each step.
+        Rollouts that finish early are removed from the active batch. This produces
+        N complete trajectories with per-step rewards, enabling proper discounted
+        return computation.
 
         Returns dict with keys:
-        - "policy": TrajectoryGroups for (state, action, thought) — RL training
-        - "think_act_policy": TrajectoryGroups for (state, thought, action) — SFT training
+        - "policy": TrajectoryGroups for (state, action, thought) -- RL training
+        - "think_act_policy": TrajectoryGroups for (state, thought, action) -- SFT training
         """
         llm = llm or self.llm
         env = env or self.env
@@ -369,41 +116,300 @@ class NoBanditActionPromptActPrmGenerator(ActionPromptActPrmGenerator):
         )
 
         with torch.no_grad():
-            # Run N independent rollouts sequentially.
-            # Unlike the bandit version which batch-generates N thoughts per step,
-            # each rollout here has its own state trajectory so we process them
-            # one at a time. (The Tinker version uses asyncio.gather for parallelism,
-            # but with a single GPU model we can't batch different-length rollouts.)
-            all_trajectories: list[dict[str, Trajectory]] = []
-            for gen_idx in range(num_return_sequences):
-                traj_dict = self._do_single_rollout(
-                    gen_idx=gen_idx,
-                    llm=llm,
-                    env=env,
-                    hf_tokenizer=hf_tokenizer,
-                    cfg=cfg,
-                    sample_id=sample_id,
-                    batch_id=batch_id,
-                    split=split,
+            # Per-rollout accumulators (indexed by generation id)
+            all_policy_steps: list[list[EpisodeStep]] = [
+                [] for _ in range(num_return_sequences)
+            ]
+            all_think_act_steps: list[list[EpisodeStep]] = [
+                [] for _ in range(num_return_sequences)
+            ]
+            all_final_rewards: list[float] = [0.0] * num_return_sequences
+
+            # Active rollout tracking -- shrinks as rollouts finish
+            gen_ids_todo = list(range(num_return_sequences))
+            batch_states: list[ActionProcessRewardState] = [
+                env.reset(
+                    sample_idx=sample_id,
+                    generation_idx=gen_idx,
                     try_step=try_step,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
+                )
+                for gen_idx in gen_ids_todo
+            ]
+
+            while len(gen_ids_todo) > 0:
+                num_active = len(gen_ids_todo)
+
+                # -- 1. Build thought prompts for all active rollouts --
+                batch_state_messages: list[list[dict[str, Any]]] = [
+                    self._get_messages_from_state(state) for state in batch_states
+                ]
+                batch_act_prompt_msgs: list[list[dict[str, Any]]] = []
+                batch_input_ids_list: list[torch.Tensor] = []
+                for state_msgs in batch_state_messages:
+                    act_prompt_msgs, input_ids = self._get_thought_prompt(state_msgs)
+                    batch_act_prompt_msgs.append(act_prompt_msgs)
+                    batch_input_ids_list.append(input_ids.squeeze(0))
+
+                # Left-pad to uniform length for batch generation
+                max_input_len = max(ids.shape[0] for ids in batch_input_ids_list)
+                padded_input_ids = torch.full(
+                    (num_active, max_input_len),
+                    hf_tokenizer.pad_token_id,
+                    dtype=batch_input_ids_list[0].dtype,
                     device=device,
                 )
-                all_trajectories.append(traj_dict)
+                for i, ids in enumerate(batch_input_ids_list):
+                    padded_input_ids[i, max_input_len - len(ids) :] = ids.to(device)
 
-            # Group trajectories
-            policy_trajectories = [t["policy"] for t in all_trajectories]
-            think_act_trajectories = [t["think_act_policy"] for t in all_trajectories]
+                # -- 2. Batch-generate thoughts --
+                outputs = llm.model.generate(
+                    input_ids=padded_input_ids,
+                    max_new_tokens=max_tokens,
+                    temperature=temperature,
+                    num_return_sequences=1,
+                    pad_token_id=hf_tokenizer.pad_token_id,
+                )
+                decoded_texts = hf_tokenizer.batch_decode(
+                    outputs[:, max_input_len:],
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=True,
+                )
+                thoughts = [self._parse_thoughts(txt) for txt in decoded_texts]
+
+                # -- 3. Build standard chats and reward computation inputs --
+                batch_standard_chats: list[list[dict[str, str]]] = []
+                batch_state_thought_msgs: list[list[dict[str, str]]] = []
+                batch_thought_act_msgs: list[list[dict[str, str]]] = []
+                batch_state_thought_act_msgs: list[list[dict[str, str]]] = []
+
+                for i, state in enumerate(batch_states):
+                    first_msg_to_show = getattr(state, "first_obs_to_show", 0) - 3
+                    standard_system_prompt = (
+                        state.original_system_prompt or env.original_system_prompt
+                    )
+                    standard_chat = process_state_messages_for_metrics(
+                        batch_state_messages[i],
+                        system_prompt=standard_system_prompt,
+                        first_msg_to_show=max(first_msg_to_show, 0),
+                    )
+                    batch_standard_chats.append(standard_chat)
+
+                    batch_state_thought_msgs.append(
+                        standard_chat + [{"role": "assistant", "content": thoughts[i]}]
+                    )
+                    thought_act_msg = {
+                        "role": "assistant",
+                        "content": f"{thoughts[i]}\n\n{state.action_target}",
+                    }
+                    batch_thought_act_msgs.append([thought_act_msg])
+                    batch_state_thought_act_msgs.append(
+                        standard_chat + [thought_act_msg]
+                    )
+
+                # -- 4. Batch-compute action probability rewards --
+                _reward_outputs = get_act_logprobs_and_state_act_tokens_from_messages(
+                    model=llm.model,
+                    hf_tokenizer=hf_tokenizer,
+                    state_messages=batch_state_thought_msgs,
+                    state_action_messages=batch_state_thought_act_msgs,
+                    state_continue_final_message=True,
+                )
+                act_logprobs: list[list[float]] = _reward_outputs[0]
+                # Per-step reward: mean action logprob exponentiated.
+                # We skip _compute_group_rewards since each rollout is independent;
+                # group-level normalization happens via TrajectoryGroup.
+                rewards = [np.exp(sum(lps) / max(len(lps), 1)) for lps in act_logprobs]
+
+                # -- 5. Batch-compute SFT-style (state, thought, action) logprobs --
+                _sft_outputs = get_act_logprobs_and_state_act_tokens_from_messages(
+                    model=llm.model,
+                    hf_tokenizer=hf_tokenizer,
+                    state_messages=batch_standard_chats,
+                    state_action_messages=batch_state_thought_act_msgs,
+                    state_continue_final_message=False,
+                )
+                sft_logprobs: list[list[float]] = _sft_outputs[0]
+                sft_tokens: list[list[int]] = _sft_outputs[1]
+
+                sft_state_lens = [
+                    len(
+                        hf_tokenizer.apply_chat_template(
+                            sc,
+                            add_generation_prompt=True,
+                            continue_final_message=False,
+                            tokenize=True,
+                        )
+                    )
+                    for sc in batch_standard_chats
+                ]
+
+                # -- 6. Batch-compute action-prompted (state, action, thought) logprobs --
+                batch_sat_msgs: list[list[dict[str, Any]]] = []
+                for i in range(num_active):
+                    sat_msgs = deepcopy(batch_act_prompt_msgs[i])
+                    sat_msgs[-1]["content"] += decoded_texts[i]
+                    batch_sat_msgs.append(sat_msgs)
+
+                _policy_outputs = get_act_logprobs_and_state_act_tokens_from_messages(
+                    model=llm.model,
+                    hf_tokenizer=hf_tokenizer,
+                    state_messages=batch_act_prompt_msgs,
+                    state_action_messages=batch_sat_msgs,
+                    state_continue_final_message=True,
+                )
+                policy_logprobs: list[list[float]] = _policy_outputs[0]
+                policy_tokens: list[list[int]] = _policy_outputs[1]
+
+                policy_state_lens = [ids.shape[0] for ids in batch_input_ids_list]
+
+                # -- 7. Step environments and build episode steps --
+                done_indices: list[int] = []
+                for i in range(num_active):
+                    gen_id = gen_ids_todo[i]
+                    state = batch_states[i]
+                    reward = rewards[i]
+
+                    model_messages = [{"role": "assistant", "content": thoughts[i]}]
+                    parsed_actions = get_actions(model_messages)
+                    env_step_result: EnvironmentStepResult = env.step(
+                        parsed_actions=parsed_actions,
+                        current_state=state,
+                        current_messages=batch_state_messages[i],
+                    )
+                    next_state = env_step_result.state
+                    done = env_step_result.done
+                    truncated = env_step_result.truncated
+                    next_obs = [
+                        {
+                            "role": msg["role"],
+                            "content": msg["output"]
+                            if msg.get("output", None)
+                            else msg["content"],
+                        }
+                        for msg in next_state.new_messages
+                    ]
+
+                    shared_kwargs = {
+                        "next_obs": next_obs,
+                        "tools": state.tools,
+                        "temperature": temperature,
+                        "reward": reward,
+                        "done": done,
+                        "truncated": truncated,
+                        "timestep": state.timestep,
+                        "try_step": try_step,
+                        "batch_id": batch_id,
+                        "unique_data_sample_id": sample_id,
+                        "generation_id": gen_id,
+                        "split": split,
+                        "action_prob": reward,
+                    }
+
+                    # (state, thought, action) episode step -- for SFT
+                    think_act_step = EpisodeStep(
+                        state=batch_standard_chats[i],
+                        action=batch_thought_act_msgs[i][0],
+                        state_action_tokens=sft_tokens[i],
+                        state_len=sft_state_lens[i],
+                        old_logprobs=sft_logprobs[i],
+                        **shared_kwargs,
+                    )
+                    all_think_act_steps[gen_id].append(think_act_step)
+
+                    # (state, action, thought) episode step -- for RL
+                    policy_step = EpisodeStep(
+                        state=batch_state_messages[i],
+                        action={"role": "assistant", "content": decoded_texts[i]},
+                        state_action_tokens=policy_tokens[i],
+                        state_len=policy_state_lens[i],
+                        old_logprobs=policy_logprobs[i],
+                        **shared_kwargs,
+                    )
+                    all_policy_steps[gen_id].append(policy_step)
+
+                    all_final_rewards[gen_id] = reward
+
+                    # Verbose display
+                    if self.verbose and gen_id < self.samples_to_display:
+                        try:
+                            max_turns = len(state.assistant_indices)
+                        except AttributeError:
+                            max_turns = len(state.action_trajectory)
+                        header_text = (
+                            f"Batch {batch_id}, Split {split}, Try {try_step}, "
+                            f"Sample {sample_id}, Gen {gen_id}, "
+                            f"Step {state.timestep} / {max_turns - 1}, "
+                            f"Reward {reward:.4f}"
+                        )
+                        panel_parts = [
+                            f"Reward: [bright_green]{reward:.4f}[/bright_green]",
+                            f"Run url: [cyan]{self.run_url}[/cyan]",
+                            f"Run cmd: [bright_blue]{self.run_cmd}[/bright_blue]",
+                        ]
+                        if self.name_or_identifier:
+                            panel_parts.append(
+                                f"Name/ID: [bright_yellow]{self.name_or_identifier}[/bright_yellow]"
+                            )
+                        panel_content = "\n".join(panel_parts)
+                        try:
+                            sft_text = hf_tokenizer.decode(
+                                sft_tokens[i],
+                                skip_special_tokens=False,
+                                clean_up_tokenization_spaces=True,
+                            )
+                            rich_print_messages(
+                                msg_text=sft_text,
+                                bos_token="<|im_start|>",
+                                eos_token="<|im_end|>\n",
+                                assistant_color=ROYGBIV[gen_id % len(ROYGBIV)],
+                            )
+                            console.print(
+                                Panel(panel_content, title=header_text, style="bold")
+                            )
+                        except Exception as e:
+                            logger.error(f"{e.__class__.__name__}: {e}")
+                            print(f"{'-' * 50} {header_text} {'-' * 50}")
+                            print(panel_content)
+
+                    # Update state or mark done
+                    if done:
+                        done_indices.append(i)
+                    else:
+                        batch_states[i] = next_state
+
+                # Remove finished rollouts in reverse order to preserve indices
+                for idx in reversed(done_indices):
+                    gen_ids_todo.pop(idx)
+                    batch_states.pop(idx)
+
+            # -- Build multi-step Trajectory objects with proper returns --
+            policy_trajectories = [
+                Trajectory(
+                    episode_steps=all_policy_steps[gen_id],
+                    try_step=try_step,
+                    discount_factor=discount_factor,
+                    final_reward=all_final_rewards[gen_id],
+                )
+                for gen_id in range(num_return_sequences)
+            ]
+            think_act_trajectories = [
+                Trajectory(
+                    episode_steps=all_think_act_steps[gen_id],
+                    try_step=try_step,
+                    discount_factor=discount_factor,
+                    final_reward=all_final_rewards[gen_id],
+                )
+                for gen_id in range(num_return_sequences)
+            ]
 
             policy_group = self._get_trajectory_group(
                 trajectories=policy_trajectories,
-                final_rewards=[t.final_reward for t in policy_trajectories],
+                final_rewards=all_final_rewards,
                 discount_factor=discount_factor,
             )
             think_act_group = self._get_trajectory_group(
                 trajectories=think_act_trajectories,
-                final_rewards=[t.final_reward for t in think_act_trajectories],
+                final_rewards=all_final_rewards,
                 discount_factor=discount_factor,
             )
 
