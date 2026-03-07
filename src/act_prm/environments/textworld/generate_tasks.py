@@ -69,24 +69,23 @@ def gen_treasure(out_dir: Path, level: int, seed: int, only_last_action: bool = 
     Generate a treasure hunter game
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"tw_treasure_lvl{level:03d}_seed{seed:03d}.z8"
+    out_name = f"tw_treasure_lvl{level:03d}_seed{seed:03d}.z8"
     if only_last_action:
-        out = out.replace(".z8", "_last_act.z8")
+        out_name = out_name.replace(".z8", "_last_act.z8")
+    out = out_dir / out_name
     cmd = [
-        [
-            "tw-make",
-            "tw-treasure_hunter",
-            "--level",
-            str(level),
-            "--seed",
-            str(seed),
-            "--output",
-            str(out),
-            "--format",
-            "z8",
-            "-f",
-            "--silent",
-        ]
+        "tw-make",
+        "tw-treasure_hunter",
+        "--level",
+        str(level),
+        "--seed",
+        str(seed),
+        "--output",
+        str(out),
+        "--format",
+        "z8",
+        "-f",
+        "--silent",
     ]
     if only_last_action:
         cmd.append("--only-last-action")
@@ -98,24 +97,23 @@ def gen_coin(out_dir: Path, level: int, seed: int, only_last_action: bool = Fals
     Generate a coin collector game
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"tw_coin_lvl{level:03d}_seed{seed:03d}.z8"
+    out_name = f"tw_coin_lvl{level:03d}_seed{seed:03d}.z8"
     if only_last_action:
-        out = out.replace(".z8", "_last_act.z8")
+        out_name = out_name.replace(".z8", "_last_act.z8")
+    out = out_dir / out_name
     cmd = [
-        [
-            "tw-make",
-            "tw-coin_collector",
-            "--level",
-            str(level),
-            "--seed",
-            str(seed),
-            "--output",
-            str(out),
-            "--format",
-            "z8",
-            "-f",
-            "--silent",
-        ]
+        "tw-make",
+        "tw-coin_collector",
+        "--level",
+        str(level),
+        "--seed",
+        str(seed),
+        "--output",
+        str(out),
+        "--format",
+        "z8",
+        "-f",
+        "--silent",
     ]
     if only_last_action:
         cmd.append("--only-last-action")
@@ -139,9 +137,10 @@ def gen_cooking(
     Generate a cooking game
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"tw_cook_r{recipe:03d}_go{go:03d}_seed{seed:03d}_{split}.z8"
+    out_name = f"tw_cook_r{recipe:03d}_go{go:03d}_seed{seed:03d}_{split}.z8"
     if only_last_action:
-        out = out.replace(".z8", "_last_act.z8")
+        out_name = out_name.replace(".z8", "_last_act.z8")
+    out = out_dir / out_name
     take = take or recipe  # Following Intelligent-Go-Explore (which BALROG uses): https://github.com/conglu1997/intelligent-go-explore/blob/821ad194080a30b1df7055fc6250cf45ccfcb477/textworld/misc/make_cooking.py#L51
     cmd = [
         "tw-make",
