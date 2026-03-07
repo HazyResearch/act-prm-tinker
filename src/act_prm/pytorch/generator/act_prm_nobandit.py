@@ -99,7 +99,11 @@ class NoBanditActionPromptActPrmGenerator(ActionPromptActPrmGenerator):
         env = env or self.env
         cfg = cfg or self.cfg
         env.split = split
-        discount_factor = discount_factor or self.discount_factor or cfg.discount_factor
+        discount_factor = (
+            discount_factor
+            if discount_factor is not None
+            else (self.discount_factor or cfg.discount_factor)
+        )
 
         was_training = llm.model.training
         llm.model.eval()
