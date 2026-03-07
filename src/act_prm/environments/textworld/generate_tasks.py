@@ -64,13 +64,15 @@ def run(cmd: list[str]) -> None:
     subprocess.run(cmd, check=True)
 
 
-def gen_treasure(out_dir: Path, level: int, seed: int) -> None:
+def gen_treasure(out_dir: Path, level: int, seed: int, only_last_action: bool = False) -> None:
     """
     Generate a treasure hunter game
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"tw_treasure_lvl{level:03d}_seed{seed:03d}.z8"
-    run(
+    if only_last_action:
+        out = out.replace(".z8", "_last_act.z8")
+    cmd = [
         [
             "tw-make",
             "tw-treasure_hunter",
@@ -85,16 +87,21 @@ def gen_treasure(out_dir: Path, level: int, seed: int) -> None:
             "-f",
             "--silent",
         ]
-    )
+    ]
+    if only_last_action:
+        cmd.append("--only-last-action")
+    run(cmd)
 
 
-def gen_coin(out_dir: Path, level: int, seed: int) -> None:
+def gen_coin(out_dir: Path, level: int, seed: int, only_last_action: bool = False) -> None:
     """
     Generate a coin collector game
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"tw_coin_lvl{level:03d}_seed{seed:03d}.z8"
-    run(
+    if only_last_action:
+        out = out.replace(".z8", "_last_act.z8")
+    cmd = [
         [
             "tw-make",
             "tw-coin_collector",
@@ -109,7 +116,10 @@ def gen_coin(out_dir: Path, level: int, seed: int) -> None:
             "-f",
             "--silent",
         ]
-    )
+    ]
+    if only_last_action:
+        cmd.append("--only-last-action")
+    run(cmd)
 
 
 def gen_cooking(
@@ -123,12 +133,15 @@ def gen_cooking(
     drop: bool,
     split: str,
     take: int | None = None,
+    only_last_action: bool = False,
 ) -> None:
     """
     Generate a cooking game
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"tw_cook_r{recipe:03d}_go{go:03d}_seed{seed:03d}_{split}.z8"
+    if only_last_action:
+        out = out.replace(".z8", "_last_act.z8")
     take = take or recipe  # Following Intelligent-Go-Explore (which BALROG uses): https://github.com/conglu1997/intelligent-go-explore/blob/821ad194080a30b1df7055fc6250cf45ccfcb477/textworld/misc/make_cooking.py#L51
     cmd = [
         "tw-make",
@@ -158,6 +171,8 @@ def gen_cooking(
         cmd.append("--cut")
     if drop:
         cmd.append("--drop")
+    if only_last_action:
+        cmd.append("--only-last-action")
     run(cmd)
 
 
@@ -172,6 +187,8 @@ def main() -> None:
 
     parser.add_argument("--n", type=int, default=100)
     parser.add_argument("--seed_start", type=int, default=0)
+
+    parser.add_argument("--only_last_action", action="store_true")
 
     # treasure/coin
     parser.add_argument("--level", type=int, default=10)
@@ -194,9 +211,9 @@ def main() -> None:
         seed = args.seed_start + i
         try:
             if args.task.startswith("treasure_hunter"):
-                gen_treasure(out_dir, level=args.level, seed=seed)
+                gen_treasure(out_dir, level=args.level, seed=seed, only_last_action=args.only_last_action)
             elif args.task.startswith("coin_collector"):
-                gen_coin(out_dir, level=args.level, seed=seed)
+                gen_coin(out_dir, level=args.level, seed=seed, only_last_action=args.only_last_action)
             else:
                 gen_cooking(
                     out_dir=out_dir,
@@ -208,6 +225,7 @@ def main() -> None:
                     cut=args.cut,
                     drop=args.drop,
                     split=args.split,
+                    only_last_action=args.only_last_action,
                 )
             num_generated += 1
         except subprocess.CalledProcessError as e:

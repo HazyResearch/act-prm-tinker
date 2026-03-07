@@ -97,6 +97,31 @@ For example, `--level 210` generates a hard game with `quest_length=10`, `30` to
 rooms, and `randomly placed` distractors — matching the paper's "L10, hard"
 setting.
 
+### Only Last Action
+
+```bash
+# Quest lengths 5, 10, 15, 20, 25
+# --- EASY (no distractors) ---
+for QL in 5 10 15 20 25; do
+  uv run python ./src/act_prm/environments/textworld/generate_tasks.py \
+    --cache_dir ./data/textworld/easy_last_act/ \
+    --task coin_collector --n 20 --seed_start 0 --level $QL --only_last_action
+done
+
+# --- MEDIUM (1 distractor per chain room, simple dead ends) ---
+for QL in 5 10 15 20 25; do
+  uv run python ./src/act_prm/environments/textworld/generate_tasks.py \
+    --cache_dir ./data/textworld/medium_last_act/ \
+    --task coin_collector --n 20 --seed_start 0 --level $((100 + QL)) --only_last_action
+done
+
+# --- HARD (2 distractors per chain room, randomly placed) ---
+for QL in 5 10 15 20 25; do
+  uv run python ./src/act_prm/environments/textworld/generate_tasks.py \
+    --cache_dir ./data/textworld/hard_last_act/ \
+    --task coin_collector --n 20 --seed_start 0 --level $((200 + QL)) --only_last_action
+done
+```
 
 #### Treasure Hunter
 

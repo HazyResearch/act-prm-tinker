@@ -303,6 +303,7 @@ class TextWorldEnv(Environment):
             for k, v in tw_game_state.items()
             if k in SHARED_GAMESTATE_KEYS
         }
+        breakpoint()
         # Display the ground-truth action trajectory
         if sample_idx == 0 and generation_idx == 0 and try_step == 0:
             for _ix, _tw_action in enumerate(
