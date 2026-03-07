@@ -159,7 +159,10 @@ class NoBanditActionPromptActPrmGenerator(ActionPromptActPrmGenerator):
                 state_continue_final_message=True,
             )
             act_logprobs: list[list[float]] = _outputs[0]
-            # Per-step reward: mean action logprob exponentiated
+            # Per-step reward: mean action logprob exponentiated.
+            # Note: We intentionally skip _compute_group_rewards here since each
+            # rollout is independent (no group to normalize against per-step).
+            # Group-level normalization happens via TrajectoryGroup/MeanCenteredTrajectoryGroup.
             reward = np.exp(sum(act_logprobs[0]) / max(len(act_logprobs[0]), 1))
 
             # Step environment
@@ -366,7 +369,11 @@ class NoBanditActionPromptActPrmGenerator(ActionPromptActPrmGenerator):
         )
 
         with torch.no_grad():
-            # Run N independent rollouts sequentially
+            # Run N independent rollouts sequentially.
+            # Unlike the bandit version which batch-generates N thoughts per step,
+            # each rollout here has its own state trajectory so we process them
+            # one at a time. (The Tinker version uses asyncio.gather for parallelism,
+            # but with a single GPU model we can't batch different-length rollouts.)
             all_trajectories: list[dict[str, Trajectory]] = []
             for gen_idx in range(num_return_sequences):
                 traj_dict = self._do_single_rollout(
