@@ -55,6 +55,15 @@ def get_run_name(
 
     # Last cleanups (brevity, ensure no unintended directory separators)
     run_name = make_shorter(run_name.replace("/", "_"))
+    # Hacks
+    list_replace_pairs: list[tuple[str, str]] = [
+        ("tw_coin_collector", "tw_coin"),
+        ("tw_treasure_hunter", "tw_treasure"),
+        ("tw_cooking_game", "tw_cook"),
+    ]
+    for _pair in list_replace_pairs:
+        run_name = run_name.replace(*_pair)
+    
     return run_name
 
 

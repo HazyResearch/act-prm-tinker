@@ -17,7 +17,8 @@ def get_args() -> argparse.Namespace:
     Load and process experiment arguments
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--project_name", type=str, default="act-prm-tinker")
+    # parser.add_argument("--project_name", type=str, default="act-prm-tinker")
+    parser.add_argument("--project_name", type=str, default="act-prm-cc")
 
     # Necessary arguments + configs (to load default args from)
     parser.add_argument(

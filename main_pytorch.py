@@ -186,7 +186,7 @@ def main() -> None:
     base_env = get_env(**base_env_cfg) if base_env_cfg is not None else None
     env = get_env(**env_cfg, base_env=base_env)  # For ActPrmEnvWithBaseEnv
     # Reuse env if eval_env not specified; we always specify the split for loading new tasks
-    eval_env = get_env(**eval_env_cfg) if args.eval_env_config else env
+    eval_env = get_env(**eval_env_cfg) if args.eval_env_config else base_env or env
 
     env.tokenizer = llm.tokenizer
     eval_env.tokenizer = llm.tokenizer
