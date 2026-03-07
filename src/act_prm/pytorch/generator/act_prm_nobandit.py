@@ -162,8 +162,10 @@ class NoBanditActionPromptActPrmGenerator(ActionPromptActPrmGenerator):
                     padded_input_ids[i, max_input_len - len(ids) :] = ids.to(device)
 
                 # -- 2. Batch-generate thoughts --
+                attention_mask = (padded_input_ids != hf_tokenizer.pad_token_id).long()
                 outputs = llm.model.generate(
                     input_ids=padded_input_ids,
+                    attention_mask=attention_mask,
                     max_new_tokens=max_tokens,
                     temperature=temperature,
                     num_return_sequences=1,
