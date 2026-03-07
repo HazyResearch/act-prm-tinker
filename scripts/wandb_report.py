@@ -13,16 +13,14 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
-import wandb
+import matplotlib.pyplot as plt  # noqa: E402
+import wandb  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
