@@ -245,7 +245,7 @@ class TextWorldEnv(Environment):
             f"\n-> number of available '{self.task}' tasks: {num_tasks}"
         )
 
-    def _build_system_prompt(self, system_prompt: str | None = None) -> str:
+    def build_system_prompt(self, system_prompt: str | None = None) -> str:
         # put task instructions into system prompt to keep user obs clean
         system_prompt = system_prompt or self.system_prompt
         instr = get_instruction_prompt(self.task, max_turns=self.max_turns)
@@ -313,7 +313,7 @@ class TextWorldEnv(Environment):
                     f"\n[bold]{action_trajectory[_ix]}[/bold]\n{'-' * 100}"
                 )
         return TextWorldState(
-            system_prompt=self._build_system_prompt(),
+            system_prompt=self.build_system_prompt(),
             new_messages=messages,
             model_response=None,
             prior_messages=[],

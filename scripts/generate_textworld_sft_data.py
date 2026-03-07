@@ -126,7 +126,8 @@ def collect_demonstrations(
         tw_walkthrough = state.tw_extra_walkthrough  # raw textworld actions
 
         # Build system message (raw, without instruction prompt appended)
-        system_msg = {"role": "system", "content": env.system_prompt}
+        # system_msg = {"role": "system", "content": env.system_prompt}
+        system_msg = {"role": "system", "content": env.build_system_prompt()}
 
         # Build initial user message from raw feedback (includes banner + objective + room)
         initial_content = _make_initial_user_message(state, env)
@@ -134,6 +135,8 @@ def collect_demonstrations(
             system_msg,
             {"role": "user", "content": initial_content},
         ]
+
+        is_train = split == "train"
 
         for timestep, (action_text, tw_action) in enumerate(
             zip(walkthrough, tw_walkthrough)
@@ -150,17 +153,23 @@ def collect_demonstrations(
 
             # The action is the assistant's tool call message
             action_msg = {"role": "assistant", "content": action_text}
+            done = timestep == len(walkthrough) - 1
+            reward = 1.0 if done else 0.0
+            return_ = 0.9 ** (len(walkthrough) - 1 - timestep)  # discount factor = 0.9
 
             samples.append(
                 {
                     "state": state_messages,
                     "action": action_msg,
+                    "done": done,
+                    "reward": reward,
+                    "is_train": is_train,
                     "tools": tools,
                     "unique_data_sample_id": sample_idx,
                     "timestep": timestep,
                     "generation_id": 0,
-                    "return_": 1.0,
-                    "advantage": 1.0,
+                    "return_": return_,
+                    "advantage": return_,
                 }
             )
 
