@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-import random
+import numpy as np
 from copy import copy
 from typing import Any, Annotated
 
@@ -197,8 +197,8 @@ class TextWorldEnv(Environment):
         # Shuffle all game indices before splitting into train/test
         total_needed = self.num_train_samples + self.num_test_samples
         all_indices = list(range(total_needed))
-        random.seed(self.data_seed)
-        random.shuffle(all_indices)
+        np.random.seed(self.data_seed)
+        np.random.shuffle(all_indices)
 
         test_indices = all_indices[: self.num_test_samples]
         train_indices = all_indices[self.num_test_samples : total_needed]
@@ -215,8 +215,8 @@ class TextWorldEnv(Environment):
             )
             total_with_val = total_needed + self.num_val_samples
             all_indices_val = list(range(total_with_val))
-            random.seed(self.data_seed)
-            random.shuffle(all_indices_val)
+            np.random.seed(self.data_seed)
+            np.random.shuffle(all_indices_val)
             test_indices = all_indices_val[: self.num_test_samples]
             eval_indices = all_indices_val[
                 self.num_test_samples : self.num_test_samples + self.num_val_samples
