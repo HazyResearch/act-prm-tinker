@@ -100,11 +100,10 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
             first_msg_to_show = getattr(state, "first_obs_to_show", 0) - 3
             # ^-1 ActPRM environment previously counts system prompt as first message,
             # but we apply after system_prompt in process_state_messages_for_metrics
+            standard_system_prompt = state.original_system_prompt or env.original_system_prompt
             standard_chat = process_state_messages_for_metrics(
                 state_messages,
-                system_prompt=getattr(
-                    env, "original_system_prompt", state.system_prompt
-                ),
+                system_prompt=standard_system_prompt,
                 first_msg_to_show=max(first_msg_to_show, 0),
             )
             group_metrics = await compute_group_thought_action_metrics(

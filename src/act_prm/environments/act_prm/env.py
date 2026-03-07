@@ -154,6 +154,7 @@ class ActionProcessRewardState(EnvironmentState):
     chat_step_idx: int
     action_trajectory: list[dict[str, str]]  # True action-only trajectory
     assistant_indices: list[int]
+    original_system_prompt: str | None = None
 
 
 class ActionProcessRewardStepResult(EnvironmentStepResult):
@@ -220,7 +221,7 @@ class ActPrmEnv(Environment):
         self.split = split
 
         self.system_prompt = system_prompt
-        self.original_system_prompt = original_system_prompt
+        self.original_system_prompt = original_system_prompt  # should ignore?
         self.datasets = self.init_data()
 
     def get_default_context(self) -> list[dict[str, str]]:
@@ -296,6 +297,13 @@ class ActPrmEnv(Environment):
             0
         ]  # [:self.max_messages]
         tools: list[dict[str, Any]] = action_trajectory_and_tools[1]
+
+        # If system prompt included, extract and evict it
+        if action_trajectory[0]["role"] == "system":
+            original_system_prompt = action_trajectory[0]["content"]
+            action_trajectory = action_trajectory[1:]
+        else:
+            original_system_prompt = self.original_system_prompt
         # Initial sample is just first (obs, action) of the trajectory, i.e.,
         # [{"role": "user", "content": "..."},
         #  {"role": "assistant", "content": <tool_call> ... </tool_call>}]
@@ -334,7 +342,8 @@ class ActPrmEnv(Environment):
             chat_step_idx=chat_step_idx,
             action_trajectory=action_trajectory,
             assistant_indices=assistant_indices,
-            thought_action_chat=messages,  # (state, action)
+            # thought_action_chat=messages,  # (state, action)
+            original_system_prompt=original_system_prompt,
             # Step-wise metadata
             sample_id=sample_idx,
             generation_id=generation_idx,
@@ -449,6 +458,7 @@ class ActPrmEnv(Environment):
                 chat_step_idx=chat_step_idx,
                 action_trajectory=action_trajectory,
                 assistant_indices=assistant_indices,
+                original_system_prompt=current_state.original_system_prompt,
                 # Step-wise metadata
                 sample_id=sample_id,
                 generation_id=generation_id,
