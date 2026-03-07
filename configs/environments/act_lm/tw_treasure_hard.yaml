@@ -1,9 +1,9 @@
-# TextWorld coin_collector easy SFT demonstrations
+# TextWorld treasure_hunter medium SFT demonstrations
 name: "action_lm"
 is_async: false
 dataset_config:
-  path: "mzio/tw-sft-coin-collector-easy"
-  cache_dir: "./data/textworld/easy/coin_collector"
+  path: "mzio/tw-sft-treasure-hunter-hard"
+  cache_dir: "./data/textworld/hard/treasure_hunter"
 
 fp32_loss: false
 loss_on_past_assistant_messages: true

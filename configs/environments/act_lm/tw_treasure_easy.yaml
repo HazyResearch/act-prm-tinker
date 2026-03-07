@@ -4,7 +4,6 @@ is_async: false
 dataset_config:
   path: "mzio/tw-sft-treasure-hunter-easy"
   cache_dir: "./data/textworld/easy/treasure_hunter"
-  split: "train"
 
 fp32_loss: false
 loss_on_past_assistant_messages: true
@@ -34,6 +33,7 @@ max_turns: null
 num_tries: 1
 eval_num_tries: 1
 seed: 0
+data_seed: 0
 split: "train"
 system_prompt: "You are a helpful tool-calling assistant."
 original_system_prompt: "You are a helpful tool-calling assistant."
