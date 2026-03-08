@@ -7,6 +7,7 @@ Ported from act_prm/trainer/act_prm_joint.py (Tinker version).
 """
 
 import logging
+import os
 import random
 import time
 from os.path import join
@@ -83,7 +84,6 @@ class ActPrmJointTrainer(RLTrainer):
             self.checkpoint_path, "step_best_gen_think"
         )
 
-        import os
         os.makedirs(self.best_think_act_checkpoint_path, exist_ok=True)
         os.makedirs(self.best_gen_think_checkpoint_path, exist_ok=True)
 
@@ -127,9 +127,13 @@ class ActPrmJointTrainer(RLTrainer):
             t_start = time.time()
 
             # === Evaluations ===
-            if (
-                eval_every > 0 and batch_idx % eval_every == 0
-            ) or batch_idx == num_steps - 1:
+            no_initial_eval = cfg.get("no_initial_eval", False)
+            do_eval = (
+                eval_every > 0
+                and (batch_idx % eval_every == 0 or batch_idx == num_steps - 1)
+                and not (no_initial_eval and batch_idx == 0)
+            )
+            if do_eval:
                 with timed("run_evals", metrics):
                     llm.model.eval()
 
@@ -296,6 +300,7 @@ class ActPrmJointTrainer(RLTrainer):
                 hf_tokenizer=hf_tokenizer,
                 batch_size=dataloader_batch_size,
                 shuffle=True,
+                batch_idx=batch_idx,
             )
             metrics.update(_minibatch_metrics)
 
@@ -343,6 +348,13 @@ class ActPrmJointTrainer(RLTrainer):
                 logger.error("Error logging metrics: %s: %s", type(e).__name__, e)
             torch.cuda.empty_cache()
 
-        # Load best think_act checkpoint at end
-        llm.model = load_lora(llm.model, self.best_think_act_checkpoint_path)
+        # Load best think_act checkpoint at end (if one was saved)
+        if self.best_metric_think_act > -float("inf"):
+            llm.model = load_lora(llm.model, self.best_think_act_checkpoint_path)
+            logger.info(
+                "Loaded best think_act checkpoint (metric=%f)",
+                self.best_metric_think_act,
+            )
+        else:
+            logger.warning("No best think_act checkpoint was saved; returning current model")
         return llm
