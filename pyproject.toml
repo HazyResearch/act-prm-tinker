@@ -25,6 +25,7 @@ dependencies = [
     "transformers>=4.57.3",
     "wandb>=0.23.1",
     "tau2 @ git+https://github.com/sierra-research/tau2-bench.git",
+    "claude-agent-sdk>=0.1.0",
 ]
 
 [build-system]
