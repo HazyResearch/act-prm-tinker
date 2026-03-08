@@ -14,11 +14,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from dotenv import load_dotenv
 
-load_dotenv()
-
-from act_prm.llm_handlers.claude_agent_sdk import (  # noqa: E402
+from act_prm.llm_handlers.claude_agent_sdk import (
     ClaudeAgentResponse,
     ClaudeClientLLM,
     ClaudeQueryLLM,
@@ -27,6 +24,14 @@ from act_prm.llm_handlers.claude_agent_sdk import (  # noqa: E402
     _messages_to_prompt,
     _response_to_message_dicts,
 )
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _load_env():
+    """Load .env file for credentials used by live tests."""
+    from dotenv import load_dotenv
+
+    load_dotenv()
 
 
 # ---------------------------------------------------------------------------
@@ -569,8 +574,9 @@ class TestClaudeQueryLLMLive:
         response = responses[0]
         assert response is not None
         # Check that tokens were tracked
-        assert llm.prompt_tokens > 0 or llm.completion_tokens > 0, (
-            "Token counts should be incremented"
+        assert llm.prompt_tokens > 0 and llm.completion_tokens > 0, (
+            f"Both token counts should be > 0, got prompt={llm.prompt_tokens}, "
+            f"completion={llm.completion_tokens}"
         )
 
     def test_get_actions_from_live_response(self):
@@ -778,6 +784,10 @@ class TestLLMGraderWithClaudeQuery:
         assert "test/acc" in grader.running_metrics
         assert "test/total" in grader.running_metrics
         assert grader.running_metrics["test/total"] == 2
+        # First should be correct (4==4), second incorrect (7!=6)
+        assert grader.running_metrics["test/correct"] == 1, (
+            f"Expected 1 correct, got {grader.running_metrics['test/correct']}"
+        )
 
     def test_grader_via_load_llm(self):
         """LLMGraderForQA should work when instantiated via grader_model_config."""
@@ -797,3 +807,30 @@ class TestLLMGraderWithClaudeQuery:
             response="The sky is blue.",
         )
         assert is_correct, f"Expected correct, grader said: {msg}"
+
+
+@pytest.mark.live
+class TestClaudeClientLLMLive:
+    """Live tests for ClaudeClientLLM (persistent session)."""
+
+    def test_connect_sample_disconnect(self):
+        """Basic lifecycle: connect, sample, disconnect."""
+        llm = ClaudeClientLLM(model="claude-sonnet-4-6", max_turns=1)
+        llm.connect(system_prompt="Respond with one word only.")
+
+        try:
+            responses = llm.sample(
+                system_prompt=None,
+                messages=[{"role": "user", "content": "Say hello."}],
+                tools=[],
+            )
+            assert len(responses) == 1
+            response = responses[0]
+            assert response is not None, "Response should not be None"
+
+            actions = llm.get_actions(response)
+            assert len(actions) > 0, "Should have at least one action"
+            text_actions = [a for a in actions if a.type == "message"]
+            assert len(text_actions) > 0, "Should have at least one text message"
+        finally:
+            llm.disconnect()

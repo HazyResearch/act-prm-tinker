@@ -15,10 +15,6 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 
-# Allow launching Claude Code from within another Claude Code session
-# (e.g., when running tests from inside Claude Code).
-os.environ.pop("CLAUDECODE", None)
-
 from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
@@ -31,6 +27,19 @@ from claude_agent_sdk import (
 
 from .base import LLM
 from .types import ActionFromLLM
+
+# Default timeout (seconds) for async operations run from sync wrappers
+_ASYNC_TIMEOUT = 300
+
+
+def _clear_nested_session_guard() -> None:
+    """Remove CLAUDECODE env var to allow launching Claude Code subprocess.
+
+    The Claude Agent SDK spawns Claude Code as a subprocess, which refuses to
+    start if CLAUDECODE is set (to prevent nested sessions). We clear it only
+    when actually making SDK calls, not at import time.
+    """
+    os.environ.pop("CLAUDECODE", None)
 
 
 @dataclass
@@ -216,6 +225,7 @@ class ClaudeQueryLLM(LLM):
         **generation_kwargs: Any,
     ) -> ClaudeAgentResponse | None:
         """Run a single query() call and collect the response."""
+        _clear_nested_session_guard()
         prompt = _messages_to_prompt(system_prompt, messages)
 
         mcp_servers, allowed_tools = _convert_tools_to_mcp_server(tools or [])
@@ -369,11 +379,11 @@ class ClaudeClientLLM(LLM):
             self._loop_thread.start()
         return self._loop
 
-    def _run_async(self, coro: Any) -> Any:
+    def _run_async(self, coro: Any, timeout: float | None = _ASYNC_TIMEOUT) -> Any:
         """Run an async coroutine on the persistent event loop."""
         loop = self._ensure_loop()
         future = asyncio.run_coroutine_threadsafe(coro, loop)
-        return future.result()
+        return future.result(timeout=timeout)
 
     def _get_options(
         self,
@@ -397,6 +407,7 @@ class ClaudeClientLLM(LLM):
         tools: list[dict[str, Any]] | None = None,
     ) -> None:
         """Connect the client and start a session."""
+        _clear_nested_session_guard()
         options = self._get_options(system_prompt, tools)
         self._client = ClaudeSDKClient(options=options)
         self._run_async(self._client.connect())
