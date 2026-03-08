@@ -310,7 +310,9 @@ class ActionPromptActPrmGenerator(HuggingFaceGenerator):
                 first_msg_to_show = getattr(state, "first_obs_to_show", 0) - 3
                 # ^-1 ActPRM environment previously counts system prompt as first message,
                 # but we apply after system_prompt in process_state_messages_for_metrics
-                standard_system_prompt = state.original_system_prompt or env.original_system_prompt
+                standard_system_prompt = (
+                    state.original_system_prompt or env.original_system_prompt
+                )
                 standard_chat: list[dict[str, str]] = (
                     process_state_messages_for_metrics(
                         state_messages,

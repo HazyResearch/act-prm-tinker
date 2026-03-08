@@ -209,6 +209,7 @@ class ActPrmForSftTrainer(RLTrainer):
                     trajectory_key="think_act_policy",
                     dataset_prefix="mzio/aprm-sft_thinkact",
                     dataset_suffix="-ap1",
+                    split="train_eval",
                 )
 
             # 1. Sample rollouts for training
@@ -317,5 +318,6 @@ class ActPrmForSftTrainer(RLTrainer):
             trajectory_key="think_act_policy",
             dataset_prefix="mzio/aprm-sft_genthinkact",
             dataset_suffix="-ap1_best",
+            split="train_eval",
         )
         return llm

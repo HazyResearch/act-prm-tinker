@@ -18,9 +18,7 @@ logger = logging.getLogger(__name__)
 class GetDescriptionsTool(BaseTool):
     """Get list of available financial tables for a company."""
 
-    def __call__(
-        self, company_name: str, backend: Any, **kwargs: Any
-    ) -> str:
+    def __call__(self, company_name: str, backend: Any, **kwargs: Any) -> str:
         return backend.get_descriptions(company_name)
 
     def get_tool_desc(self) -> dict[str, Any]:
@@ -116,8 +114,7 @@ class SqlQueryTool(BaseTool):
                     "query": {
                         "type": "string",
                         "description": (
-                            "SQL SELECT query with WHERE filters. "
-                            "No SELECT * allowed."
+                            "SQL SELECT query with WHERE filters. No SELECT * allowed."
                         ),
                     },
                 },

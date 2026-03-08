@@ -27,6 +27,7 @@ TINKER_API_KEY="<your_tinker_api_key>"
 HF_TOKEN="<your_huggingface_token>"
 WANDB_API_KEY="<your_wandb_api_key>"
 WANDB_ENTITY="hazy-research"
+OPENAI_API_KEY="<your_openai_api_key>" 
 ```
 
 If you haven't already, add this `.env` file to your `.gitignore` file to avoid leaking keys and committing it to the repository.

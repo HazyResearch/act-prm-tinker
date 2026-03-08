@@ -64,9 +64,7 @@ def _hide_observations(
 ) -> list[dict[str, str]]:
     """Replace past tool/user observations with hidden content."""
     obs_indices = [
-        idx
-        for idx, msg in enumerate(messages)
-        if msg["role"] in ["user", "tool"]
+        idx for idx, msg in enumerate(messages) if msg["role"] in ["user", "tool"]
     ]
     last_visible_idx = (
         obs_indices[-last_obs_to_show] if last_obs_to_show > 0 else len(messages)
@@ -197,7 +195,6 @@ def collect_demonstrations(
     return samples
 
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate TextWorld SFT data")
     parser.add_argument(
@@ -271,9 +268,7 @@ def main() -> None:
 
     if args.push_to_hub:
         ds.push_to_hub(args.push_to_hub)
-        rich_print(
-            f"[bold bright_blue]Pushed to {args.push_to_hub}[/bold bright_blue]"
-        )
+        rich_print(f"[bold bright_blue]Pushed to {args.push_to_hub}[/bold bright_blue]")
 
 
 if __name__ == "__main__":

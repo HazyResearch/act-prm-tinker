@@ -63,7 +63,7 @@ def get_run_name(
     ]
     for _pair in list_replace_pairs:
         run_name = run_name.replace(*_pair)
-    
+
     return run_name
 
 

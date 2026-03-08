@@ -1,6 +1,7 @@
 """
 Test memory-efficient logprobs: gather + logsumexp vs original F.log_softmax.
 """
+
 import torch
 import torch.nn.functional as F
 
@@ -31,7 +32,9 @@ def efficient_get_action_logprobs(logits, input_ids, attention_mask, state_lens)
     attention_mask = attention_mask.bool()
     shift_logits = logits[:, :-1, :]
     shift_labels = labels[:, 1:]
-    gathered_logits = shift_logits.gather(dim=-1, index=shift_labels.unsqueeze(-1)).squeeze(-1)
+    gathered_logits = shift_logits.gather(
+        dim=-1, index=shift_labels.unsqueeze(-1)
+    ).squeeze(-1)
     log_normalizer = shift_logits.logsumexp(dim=-1)
     logprobs = gathered_logits.float() - log_normalizer.float()
     a_starts = [state_len - 1 for state_len in state_lens]
@@ -56,13 +59,19 @@ def test_fp32_exact_match():
     attention_mask[1, -5:] = 0
     state_lens = [8, 12]
 
-    orig, _ = original_get_action_logprobs(logits, input_ids, attention_mask, state_lens)
-    eff, _ = efficient_get_action_logprobs(logits, input_ids, attention_mask, state_lens)
+    orig, _ = original_get_action_logprobs(
+        logits, input_ids, attention_mask, state_lens
+    )
+    eff, _ = efficient_get_action_logprobs(
+        logits, input_ids, attention_mask, state_lens
+    )
 
     for b in range(B):
         assert len(orig[b]) == len(eff[b])
         for i, (o, e) in enumerate(zip(orig[b], eff[b])):
-            assert abs(o - e) < 1e-5, f"fp32 mismatch at batch {b}, pos {i}: diff={abs(o-e)}"
+            assert abs(o - e) < 1e-5, (
+                f"fp32 mismatch at batch {b}, pos {i}: diff={abs(o - e)}"
+            )
     print("PASS: test_fp32_exact_match")
 
 
@@ -75,8 +84,12 @@ def test_fp32_large_vocab():
     attention_mask = torch.ones(B, L, dtype=torch.long)
     state_lens = [10]
 
-    orig, _ = original_get_action_logprobs(logits, input_ids, attention_mask, state_lens)
-    eff, _ = efficient_get_action_logprobs(logits, input_ids, attention_mask, state_lens)
+    orig, _ = original_get_action_logprobs(
+        logits, input_ids, attention_mask, state_lens
+    )
+    eff, _ = efficient_get_action_logprobs(
+        logits, input_ids, attention_mask, state_lens
+    )
 
     max_diff = max(abs(o - e) for o, e in zip(orig[0], eff[0]))
     assert max_diff < 1e-4, f"fp32 large vocab max diff: {max_diff}"
@@ -96,10 +109,16 @@ def test_bf16_precision():
 
     # Ground truth: fp32 throughout
     logits_fp32 = logits_bf16.float()
-    gt, _ = original_get_action_logprobs(logits_fp32, input_ids, attention_mask, state_lens)
+    gt, _ = original_get_action_logprobs(
+        logits_fp32, input_ids, attention_mask, state_lens
+    )
 
-    orig, _ = original_get_action_logprobs(logits_bf16, input_ids, attention_mask, state_lens)
-    eff, _ = efficient_get_action_logprobs(logits_bf16, input_ids, attention_mask, state_lens)
+    orig, _ = original_get_action_logprobs(
+        logits_bf16, input_ids, attention_mask, state_lens
+    )
+    eff, _ = efficient_get_action_logprobs(
+        logits_bf16, input_ids, attention_mask, state_lens
+    )
 
     orig_err = max(abs(g - o) for g, o in zip(gt[0], orig[0]))
     eff_err = max(abs(g - e) for g, e in zip(gt[0], eff[0]))
@@ -124,10 +143,14 @@ def test_batch_configs():
         attention_mask = torch.ones(B, L, dtype=torch.long)
         for b in range(B):
             pad = torch.randint(0, L // 4, (1,)).item()
-            attention_mask[b, L - pad:] = 0
+            attention_mask[b, L - pad :] = 0
 
-        orig, _ = original_get_action_logprobs(logits, input_ids, attention_mask, state_lens)
-        eff, _ = efficient_get_action_logprobs(logits, input_ids, attention_mask, state_lens)
+        orig, _ = original_get_action_logprobs(
+            logits, input_ids, attention_mask, state_lens
+        )
+        eff, _ = efficient_get_action_logprobs(
+            logits, input_ids, attention_mask, state_lens
+        )
 
         for b in range(B):
             assert len(orig[b]) == len(eff[b])
@@ -154,7 +177,9 @@ def test_memory_savings():
     # Efficient first (less memory, won't pollute allocator)
     torch.cuda.reset_peak_memory_stats()
     baseline = torch.cuda.memory_allocated()
-    eff_logprobs, _ = efficient_get_action_logprobs(logits, input_ids, attention_mask, state_lens)
+    eff_logprobs, _ = efficient_get_action_logprobs(
+        logits, input_ids, attention_mask, state_lens
+    )
     eff_peak = torch.cuda.max_memory_allocated() - baseline
     del eff_logprobs
     torch.cuda.empty_cache()
@@ -162,14 +187,20 @@ def test_memory_savings():
     # Original
     torch.cuda.reset_peak_memory_stats()
     baseline = torch.cuda.memory_allocated()
-    orig_logprobs, _ = original_get_action_logprobs(logits, input_ids, attention_mask, state_lens)
+    orig_logprobs, _ = original_get_action_logprobs(
+        logits, input_ids, attention_mask, state_lens
+    )
     orig_peak = torch.cuda.max_memory_allocated() - baseline
     del orig_logprobs
     torch.cuda.empty_cache()
 
     savings_pct = (1 - eff_peak / orig_peak) * 100
-    print(f"PASS: test_memory_savings (orig={orig_peak/1e9:.2f}GB, eff={eff_peak/1e9:.2f}GB, savings={savings_pct:.1f}%)")
-    assert eff_peak < orig_peak, f"Expected memory savings: eff={eff_peak}, orig={orig_peak}"
+    print(
+        f"PASS: test_memory_savings (orig={orig_peak / 1e9:.2f}GB, eff={eff_peak / 1e9:.2f}GB, savings={savings_pct:.1f}%)"
+    )
+    assert eff_peak < orig_peak, (
+        f"Expected memory savings: eff={eff_peak}, orig={orig_peak}"
+    )
 
 
 if __name__ == "__main__":
