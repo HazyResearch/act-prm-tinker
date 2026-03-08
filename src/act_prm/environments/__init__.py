@@ -15,14 +15,17 @@ def get_env(name: str, is_async: bool = False, **kwargs: Any) -> Environment:
     if name == "act_prm":
         if is_async:
             from .act_prm import AsyncActPrmEnv
+
             return AsyncActPrmEnv(**kwargs)
         else:
             from .act_prm import ActPrmEnv
+
             return ActPrmEnv(**kwargs)
 
     elif name == "act_prm_with_base_env":
         if is_async:
             from .act_prm import AsyncActPrmEnvWithBaseEnv
+
             return AsyncActPrmEnvWithBaseEnv(**kwargs)
         else:
             raise NotImplementedError(
@@ -36,39 +39,66 @@ def get_env(name: str, is_async: bool = False, **kwargs: Any) -> Environment:
             )
         else:
             from .action_lm import ActionLmEnv
+
             return ActionLmEnv(**kwargs)
 
     elif name == "textworld":
         if is_async:
             from .textworld import AsyncTextWorldEnv
+
             return AsyncTextWorldEnv(**kwargs)
         else:
             from .textworld import TextWorldEnv
+
             return TextWorldEnv(**kwargs)
 
     elif name == "hotpotqa_mc":
         if is_async:
             from .hotpotqa_mc import AsyncHotpotQAMultipleChoiceEnv
+
             return AsyncHotpotQAMultipleChoiceEnv(**kwargs)
         else:
             from .hotpotqa_mc import HotpotQAMultipleChoiceEnv
+
             return HotpotQAMultipleChoiceEnv(**kwargs)
+
+    elif name == "snorkel_finance":
+        if is_async:
+            from .snorkel_finance import AsyncSnorkelFinanceEnv
+
+            return AsyncSnorkelFinanceEnv(**kwargs)
+        else:
+            from .snorkel_finance import SnorkelFinanceEnv
+
+            return SnorkelFinanceEnv(**kwargs)
 
     elif name == "browsecomp_plus_search":
         if is_async:
             from .browsecomp_plus import AsyncBrowseCompPlusSearchEnv
+
             return AsyncBrowseCompPlusSearchEnv(**kwargs)
         else:
             from .browsecomp_plus import BrowseCompPlusSearchEnv
+
             return BrowseCompPlusSearchEnv(**kwargs)
 
     elif name == "longbench_v2":
         if is_async:
             from .longbench_v2 import AsyncLongBenchEnvironment
+
             return AsyncLongBenchEnvironment(**kwargs)
         else:
             from .longbench_v2 import LongBenchEnvironment
+
             return LongBenchEnvironment(**kwargs)
+
+    elif name == "tau2bench":
+        if is_async:
+            from .tau2bench import AsyncTau2BenchEnv
+            return AsyncTau2BenchEnv(**kwargs)
+        else:
+            from .tau2bench import Tau2BenchEnv
+            return Tau2BenchEnv(**kwargs)
 
     raise NotImplementedError(f"Sorry invalid environment: '{name}'.")
 

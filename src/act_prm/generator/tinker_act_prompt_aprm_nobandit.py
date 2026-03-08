@@ -25,6 +25,7 @@ from .tinker_act_prm import (
 from .tinker_act_prompt_aprm import (
     TinkerActionPromptActPrmGenerator,
 )
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,6 +33,7 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
     """
     Tinker Generator with Action Process Reward Models and proper returns (non-bandit setting)
     """
+
     def __init__(self, discount_factor: float = 1.0, **kwargs: Any) -> None:
         super().__init__(discount_factor=discount_factor, **kwargs)
         self.reward_method = "action_probs"
@@ -77,7 +79,9 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
             # Generate model responses and step through the environment
             state_messages: list[dict[str, Any]] = self._get_messages_from_state(state)
             # Prompt for thoughts
-            act_prompt_state_messages, input_ids = self._get_thought_prompt(state_messages)
+            act_prompt_state_messages, input_ids = self._get_thought_prompt(
+                state_messages
+            )
             tinker_input = ModelInput.from_ints(input_ids)
             # 1. Generate model responses (thoughts + actions)
             response: TokensWithLogprobsAndText = await llm.generate(
@@ -96,10 +100,13 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
             first_msg_to_show = getattr(state, "first_obs_to_show", 0) - 3
             # ^-1 ActPRM environment previously counts system prompt as first message,
             # but we apply after system_prompt in process_state_messages_for_metrics
+            standard_system_prompt = (
+                state.original_system_prompt or env.original_system_prompt
+            )
             standard_chat = process_state_messages_for_metrics(
-                state_messages, 
-                system_prompt=getattr(env, "original_system_prompt", state.system_prompt),
-                first_msg_to_show=max(first_msg_to_show, 0)
+                state_messages,
+                system_prompt=standard_system_prompt,
+                first_msg_to_show=max(first_msg_to_show, 0),
             )
             group_metrics = await compute_group_thought_action_metrics(
                 state_messages=standard_chat,
@@ -118,7 +125,7 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
             except IndexError as e:
                 logger.error(f"IndexError: {e}")
                 breakpoint()
-  
+
             env_step_result: EnvironmentStepResult = await env.step_async(
                 parsed_actions=parsed_actions,
                 # model_response=model_messages,
@@ -126,13 +133,16 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
                 current_messages=state_messages,
             )
             next_state = env_step_result.state
-            truncated  = env_step_result.truncated
-            done       = env_step_result.done
+            truncated = env_step_result.truncated
+            done = env_step_result.done
             next_obs = [
                 {
                     "role": msg["role"],
-                    "content": msg["output"] if msg.get("output", None) else msg["content"]
-                } for msg in next_state.new_messages
+                    "content": msg["output"]
+                    if msg.get("output", None)
+                    else msg["content"],
+                }
+                for msg in next_state.new_messages
             ]
 
             # ---------- Save episode steps for each generation ----------
@@ -140,7 +150,7 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
                 rewards_in_group=group_metrics["target_action_probs"],
                 split=split,
             )[0]
-            
+
             shared_kwargs = {
                 "next_obs": next_obs,
                 "tools": state.tools,
@@ -173,7 +183,7 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
                 **shared_kwargs,
             )
             episode_steps.append(episode_step)
-        
+
             # 2. Get state-action-thought artifacts (for RL; (action-thought) policy
             state_action_thought_messages = deepcopy(act_prompt_state_messages)
             state_action_thought_messages[-1]["content"] += response.text
@@ -185,8 +195,12 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
                 # tools=state.tools, # no tools for action-prompted generation
             )
             action_token_len = len(state_action_thought_tokens) - len(input_ids)
-            state_action_thought_tinker_input = ModelInput.from_ints(state_action_thought_tokens)
-            act_thought_logps = await llm.compute_logprobs_async(state_action_thought_tinker_input)
+            state_action_thought_tinker_input = ModelInput.from_ints(
+                state_action_thought_tokens
+            )
+            act_thought_logps = await llm.compute_logprobs_async(
+                state_action_thought_tinker_input
+            )
             act_thought_logps = act_thought_logps[-action_token_len:]
             action_msgs = [{"role": "assistant", "content": response.text}]
 
@@ -281,18 +295,20 @@ class TinkerActionPromptNoBanditActPrmGenerator(TinkerActionPromptActPrmGenerato
         # (state, action, thought) samples for policy RL
         all_trajectory_groups: list[TrajectoryGroup] = [
             self._get_trajectory_group(
-                trajectories=[traj["policy"] for traj in trajectories_in_group], 
+                trajectories=[traj["policy"] for traj in trajectories_in_group],
                 discount_factor=self.discount_factor,
             )
         ]
         # (state, thought, action) samples for SFT
         all_thought_action_trajectory_groups: list[TrajectoryGroup] = [
             self._get_trajectory_group(
-                trajectories=[traj["think_act_policy"] for traj in trajectories_in_group], 
+                trajectories=[
+                    traj["think_act_policy"] for traj in trajectories_in_group
+                ],
                 discount_factor=self.discount_factor,
             )
         ]
         return {
             "policy": all_trajectory_groups,
-            "think_act_policy": all_thought_action_trajectory_groups, 
+            "think_act_policy": all_thought_action_trajectory_groups,
         }

@@ -58,6 +58,7 @@ def is_nonempty_jsonl(path: Path) -> bool:
     except FileNotFoundError:
         return False
 
+
 def should_stage(path: Path, kind: str) -> bool:
     if not path.exists() or not path.is_file():
         return False
@@ -188,6 +189,7 @@ def main() -> None:
         return
 
     git_add(unique_to_stage, repo_root=repo_root, dry_run=args.dry_run)
+
 
 if __name__ == "__main__":
     main()

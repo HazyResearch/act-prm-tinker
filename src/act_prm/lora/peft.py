@@ -5,6 +5,7 @@ Helper functions for Hugging Face PEFT implementation of LoRA
 from typing import Any
 
 from rich import print as rich_print
+
 # Enable and disable adapters
 from peft import LoraConfig, PeftModel, TaskType, get_peft_model
 from peft.tuners.tuners_utils import BaseTunerLayer
@@ -62,7 +63,8 @@ def count_parameters(model: PreTrainedModel, trainable_only: bool = False) -> in
     If trainable_only is True, only counts trainable parameters.
     """
     return sum(
-        p.numel() for p in model.parameters()
+        p.numel()
+        for p in model.parameters()
         if ((p.requires_grad and trainable_only) or not trainable_only)
     )
 
@@ -72,13 +74,15 @@ def display_trainable_parameter_count(model: PreTrainedModel) -> None:
     Displays the total number of trainable parameters in a PyTorch model.
     """
     trainable_count = count_parameters(model, trainable_only=True)
-    total_count     = count_parameters(model)
+    total_count = count_parameters(model)
     trainable_ratio = trainable_count / total_count
-    _text = "\n".join([
-        f"-> [bright_blue]Trainable parameters:[/bright_blue] {trainable_count}",
-        f"-> [bright_red]Total parameters:[/bright_red]     {total_count}",
-        f"-> [bright_magenta]Trainable percentage:[/bright_magenta] {trainable_ratio * 100:.2f}%",
-    ])
+    _text = "\n".join(
+        [
+            f"-> [bright_blue]Trainable parameters:[/bright_blue] {trainable_count}",
+            f"-> [bright_red]Total parameters:[/bright_red]     {total_count}",
+            f"-> [bright_magenta]Trainable percentage:[/bright_magenta] {trainable_ratio * 100:.2f}%",
+        ]
+    )
     rich_print(f"[bold]LoRA Parameter Counts[/bold]\n{_text}")
     return trainable_count, total_count, trainable_ratio
 

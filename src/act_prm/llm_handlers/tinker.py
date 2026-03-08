@@ -29,6 +29,7 @@ class TokensWithLogprobs:
     """
     Object to store tokens and logprobs for single model generation
     """
+
     tokens: list[int]
     maybe_logprobs: list[float] | None
 
@@ -47,6 +48,7 @@ class TokensWithLogprobsAndText(TokensWithLogprobs):
     """
     Object to store tokens, logprobs, and text content from single model generation
     """
+
     text: str
     is_complete: bool
 
@@ -55,6 +57,7 @@ class TinkerCompleter:
     """
     Base class for async Tinker completers (model generation)
     """
+
     def __init__(
         self,
         sampling_client: tinker.SamplingClient,
@@ -119,19 +122,18 @@ class TinkerCompleter:
             # Decode the response
             parsed_message, is_complete = self.renderer.parse_response(sampled_tokens)
             text_content = get_text_content(parsed_message)
-            
+
             return TokensWithLogprobsAndText(
                 tokens=sampled_tokens,
                 maybe_logprobs=sampled_logprobs,
                 text=text_content,
-                is_complete=is_complete
+                is_complete=is_complete,
             )
         # except tinker.BadRequestError as e:
         except Exception as e:
             _exception_class = type(e).__name__
             logger.error(f"[red]Tinker {_exception_class}: {e}[/red]")
             return None
-        
 
     async def get_actions(self, response: list[dict[str, Any]]) -> list[ActionFromLLM]:
         """
@@ -145,7 +147,9 @@ class TinkerCompleter:
         """
         return get_messages_from_text(text, **self.tool_call_parse_kwargs)
 
-    async def compute_logprobs_async(self, model_input: tinker.ModelInput) -> list[float]:
+    async def compute_logprobs_async(
+        self, model_input: tinker.ModelInput
+    ) -> list[float]:
         """
         Compute logprobs for a model input
         """

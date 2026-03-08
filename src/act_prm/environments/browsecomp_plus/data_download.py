@@ -3,6 +3,7 @@ Data download helper functions for BrowseComp Plus Environment
 
 Copied and modified from https://huggingface.co/datasets/Tevatron/browsecomp-plus
 """
+
 import base64
 import hashlib
 import json
@@ -42,7 +43,7 @@ def transform_decrypt(obj, password, skip_keys):
 
 
 def load_browsecomp_plus_dataset(
-    path: str = "Tevatron/browsecomp-plus", 
+    path: str = "Tevatron/browsecomp-plus",
     cache_dir: str = "./data/browsecomp_plus",
     save_name: str = "decrypted.jsonl",
 ) -> None:

@@ -24,7 +24,10 @@ from ..llm_handlers.action_utils import get_actions
 from ..llm_handlers.tinker import TinkerCompleter, TokensWithLogprobsAndText
 from ..llm_handlers.types import ActionFromLLM
 from ..replay_buffer.types import (
-    EpisodeStep, Trajectory, TrajectoryGroup, MeanCenteredTrajectoryGroup,
+    EpisodeStep,
+    Trajectory,
+    TrajectoryGroup,
+    MeanCenteredTrajectoryGroup,
 )
 
 from .utils_display import display_state_action_next_obs
@@ -36,12 +39,14 @@ class TinkerGenerator:
     """
     Compute rollouts using Tinker Completer (SamplingClient)
     """
+
     def __init__(
         self,
         llm: TinkerCompleter,
         env: Environment,
         hf_tokenizer: PreTrainedTokenizerBase,
-        enable_thinking: bool | None = None,  # default to HF template, but often set to False 
+        enable_thinking: bool
+        | None = None,  # default to HF template, but often set to False
         discount_factor: float = 0.9,
         mean_center: bool = False,
         verbose: bool = False,
@@ -54,7 +59,7 @@ class TinkerGenerator:
         self.env = env
         self.hf_tokenizer = hf_tokenizer
         self.enable_thinking = enable_thinking
-        
+
         self.discount_factor = discount_factor
         self.mean_center = mean_center
         self.verbose = verbose
@@ -88,7 +93,7 @@ class TinkerGenerator:
         """
         # First add prior observations + model's last response
         messages = (
-            (state.prior_messages or []) 
+            (state.prior_messages or [])
             + (state.model_response or [])
             + state.new_messages
         )
@@ -198,14 +203,16 @@ class TinkerGenerator:
                 current_messages=state_messages,
             )
             next_state = env_step_result.state
-            reward     = env_step_result.reward
-            done       = env_step_result.done
-            truncated  = env_step_result.truncated
+            reward = env_step_result.reward
+            done = env_step_result.done
+            truncated = env_step_result.truncated
             # 3. Save EpisodeStep
             next_obs = [
                 {
                     "role": msg["role"],
-                    "content": msg["output"] if msg.get("output", None) else msg["content"]
+                    "content": msg["output"]
+                    if msg.get("output", None)
+                    else msg["content"],
                 }
                 for msg in next_state.new_messages
             ]
@@ -281,7 +288,7 @@ class TinkerGenerator:
         Generate a group of trajectories in the environment, and return a list of the trajectory
         group(s).
 
-        By default, we should just return a singleton with 1 TrajectoryGroup. However, there may 
+        By default, we should just return a singleton with 1 TrajectoryGroup. However, there may
         be cases for >1 TrajectoryGroups, e.g., if we're generating multiple actions per step,
         and we want advantages over each (state, action, next_obs) tuple across generations
         """
@@ -294,14 +301,15 @@ class TinkerGenerator:
         # final_rewards_in_group: list[float] = [t.final_reward for t in trajectories_in_group]
         all_trajectory_groups = [
             self._get_trajectory_group(
-                trajectories=trajectories_in_group, 
+                trajectories=trajectories_in_group,
                 # final_rewards=final_rewards_in_group,
                 discount_factor=self.discount_factor,
             )
         ]
         return {"policy": all_trajectory_groups}
 
-    def display_state_action_next_obs(self,
+    def display_state_action_next_obs(
+        self,
         state_messages: list[dict[str, Any]],
         action_messages: list[dict[str, Any]],
         next_obs_messages: list[dict[str, Any]],

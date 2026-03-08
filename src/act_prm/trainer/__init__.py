@@ -1,6 +1,7 @@
 """
 Tinker trainers
 """
+
 from typing import Any
 
 from .act_prm import ActPrmTrainer
@@ -21,10 +22,12 @@ def get_trainer(name: str, **kwargs: Any) -> ActPrmTrainer | RLTrainer | SFTTrai
 
     elif name == "act_prm_sft_rl":
         from .act_prm_sft_rl import ActPrmSftRlTrainer
+
         return ActPrmSftRlTrainer(**kwargs)
 
     elif name == "act_prm_joint":
         from .act_prm_joint import ActPrmJointTrainer
+
         return ActPrmJointTrainer(**kwargs)
 
     elif name == "rl":
@@ -32,7 +35,7 @@ def get_trainer(name: str, **kwargs: Any) -> ActPrmTrainer | RLTrainer | SFTTrai
 
     elif name == "sft":
         return SFTTrainer(**kwargs)
-    
+
     else:
         raise NotImplementedError(f"Trainer {name} not implemented")
 

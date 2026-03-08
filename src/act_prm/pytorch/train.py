@@ -53,7 +53,7 @@ def run_rollouts(
     with torch.no_grad():
         llm.model.eval()
         env.split = split  # Select task split
-        
+
         generator = generator_constructor(
             llm=llm,
             hf_tokenizer=hf_tokenizer,
@@ -62,15 +62,22 @@ def run_rollouts(
             enable_thinking=cfg.get("enable_thinking", False),
             name_or_identifier=name_or_identifier,
         )
-        batch_size = tasks_per_update or len(env)  # len(env) is the number of tasks or problems
+        batch_size = tasks_per_update or len(
+            env
+        )  # len(env) is the number of tasks or problems
         num_return_sequences = num_return_sequences or (
             cfg.group_size if split == "train" else cfg.eval_group_size
         )
         all_eval_metrics = {}
         keys_for_correct = []
         eval_metric_keys = [
-            "final_reward", "first_return", "action_prob", "last_state_len",
-            "timesteps", "correct", "total",
+            "final_reward",
+            "first_return",
+            "action_prob",
+            "last_state_len",
+            "timesteps",
+            "correct",
+            "total",
         ]
         # Store new trajectories to return
         new_trajectories: dict[str, list[Trajectory]] = {}
@@ -111,21 +118,33 @@ def run_rollouts(
 
         # Save metrics and samples
         trajectory_keys = all_trajectory_groups[0].keys()
-        _metric_prefix = f"{checkpoint_name}_{split}" if checkpoint_name is not None else split
-        
+        _metric_prefix = (
+            f"{checkpoint_name}_{split}" if checkpoint_name is not None else split
+        )
+
         for _key in trajectory_keys:
-            for trajectory_groups in all_trajectory_groups:     # list of list of trajectory groups
-                for traj_group in trajectory_groups[_key]:      # len(trajectory_groups) usually 1,
-                    for trajectory in traj_group.trajectories:  # can be >1, e.g., if step-wise adv
+            for (
+                trajectory_groups
+            ) in all_trajectory_groups:  # list of list of trajectory groups
+                for traj_group in trajectory_groups[
+                    _key
+                ]:  # len(trajectory_groups) usually 1,
+                    for (
+                        trajectory
+                    ) in traj_group.trajectories:  # can be >1, e.g., if step-wise adv
                         if _key == "policy":
                             # Only store metrics for the default "policy" trajectory group
                             for metric_key in eval_metric_keys:
-                                _metric_key = f"{_metric_prefix}/try_{try_idx}/{metric_key}"
+                                _metric_key = (
+                                    f"{_metric_prefix}/try_{try_idx}/{metric_key}"
+                                )
                                 if metric_key == "correct":
                                     keys_for_correct.append(_metric_key)
                                 if _metric_key not in all_eval_metrics:
                                     all_eval_metrics[_metric_key] = []
-                                val = getattr(trajectory, metric_key, 1)  # 1 for total samples
+                                val = getattr(
+                                    trajectory, metric_key, 1
+                                )  # 1 for total samples
                                 all_eval_metrics[_metric_key].append(val)
                         # Add trajectory to list of new trajectories
                         if _key not in new_trajectories:
@@ -168,7 +187,9 @@ def prepare_minibatch(
     for trajectory in new_trajectories:
         for episode_step in trajectory.episode_steps:
             sa_input_ids = episode_step.state_action_tokens
-            act_logprobs = episode_step.old_logprobs  # 1. "full" action len, first token counts (maybe not)
+            act_logprobs = (
+                episode_step.old_logprobs
+            )  # 1. "full" action len, first token counts (maybe not)
             # input_tokens = sa_input_ids[:-1]
             # target_tokens = sa_input_ids[1:]
             state_len = episode_step.state_len
@@ -208,19 +229,23 @@ def prepare_minibatch(
                 print(f"len(act_logprobs): {len(act_logprobs)}")
                 breakpoint()
 
-            data_dict.append({
-                "input_ids": sa_input_ids,
-                "attention_mask": [True] * len(sa_input_ids),
-                "advantages": padded_advantages,  # Note that advantages and logprobs are already 
-                "logprobs": padded_logprobs,      # shifted to account for next-token prediction
-                "label_mask": padded_mask,
-                "state_len": target_state_len,
-                "action_len": len(act_logprobs),
-                "labels": sa_labels,
-            })
+            data_dict.append(
+                {
+                    "input_ids": sa_input_ids,
+                    "attention_mask": [True] * len(sa_input_ids),
+                    "advantages": padded_advantages,  # Note that advantages and logprobs are already
+                    "logprobs": padded_logprobs,  # shifted to account for next-token prediction
+                    "label_mask": padded_mask,
+                    "state_len": target_state_len,
+                    "action_len": len(act_logprobs),
+                    "labels": sa_labels,
+                }
+            )
 
     dataset = HFDataset.from_list(data_dict)
-    collate_fn = DataCollatorForPolicyGradient(tokenizer=hf_tokenizer, return_tensors="pt")
+    collate_fn = DataCollatorForPolicyGradient(
+        tokenizer=hf_tokenizer, return_tensors="pt"
+    )
     dataloader = DataLoader(
         dataset, batch_size=batch_size, collate_fn=collate_fn, **dataloader_kwargs
     )
@@ -231,15 +256,19 @@ def hide_observations(
     messages: list[dict[str, str]],
     hidden_obs_content: str = "...",
     first_obs_to_show: int = 2,  # e.g., to keep prompt
-    last_obs_to_show: int = 1,   # e.g., to keep last observation
+    last_obs_to_show: int = 1,  # e.g., to keep last observation
 ) -> list[dict[str, str]]:
     """
     Maybe hide past observations from messages
     """
     user_indices = [
-        idx for idx, message in enumerate(messages) if message["role"] in ["user", "tool"]
+        idx
+        for idx, message in enumerate(messages)
+        if message["role"] in ["user", "tool"]
     ]
-    last_message_idx = user_indices[-last_obs_to_show] if last_obs_to_show > 0 else len(messages)
+    last_message_idx = (
+        user_indices[-last_obs_to_show] if last_obs_to_show > 0 else len(messages)
+    )
     return [
         {"role": message["role"], "content": hidden_obs_content}
         if (

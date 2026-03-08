@@ -19,7 +19,10 @@ from ..generator import get_generator_constructor
 from ..generator.tinker import TinkerGenerator
 # from ..replay_buffer.types import Trajectory
 
-from .tinker.update import compute_full_batch_metrics_and_get_sampling_client, train_step
+from .tinker.update import (
+    compute_full_batch_metrics_and_get_sampling_client,
+    train_step,
+)
 from .tinker.utils import timed
 
 
@@ -30,13 +33,14 @@ class BaseTrainer(ABC):
     """
     Parent class for SFT trainers
     """
+
     def __init__(
-        self, 
+        self,
         cfg: DictConfig,
         training_client: tinker.TrainingClient,
         service_client: tinker.ServiceClient,
         generator_cfg: DictConfig,
-        env: Environment,       # used to get training samples
+        env: Environment,  # used to get training samples
         eval_env: Environment,  # could be the same as env, but update env.split
         ml_logger: ml_log.Logger,
         hf_tokenizer: PreTrainedTokenizerBase | None = None,
@@ -68,15 +72,19 @@ class BaseTrainer(ABC):
         # self.best_sampling_client_path = ""
         self.run_name = run_name
 
-    def get_generator_constructor(self, **kwargs: Any) -> Callable[..., TinkerGenerator]:
+    def get_generator_constructor(
+        self, **kwargs: Any
+    ) -> Callable[..., TinkerGenerator]:
         """
         Get a (partially initialized) TinkerGenerator constructor by name
         """
-        return get_generator_constructor(**kwargs, ml_logger=self.ml_logger, cfg=self.cfg)
+        return get_generator_constructor(
+            **kwargs, ml_logger=self.ml_logger, cfg=self.cfg
+        )
 
     @abstractmethod
     async def train(
-        self, 
+        self,
         start_batch: int,
         end_batch: int,
         cfg: DictConfig | None = None,
@@ -91,7 +99,9 @@ class BaseTrainer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def prepare_minibatch(self, **kwargs: Any) -> tuple[list[tinker.Datum], dict[str, Any]]:
+    async def prepare_minibatch(
+        self, **kwargs: Any
+    ) -> tuple[list[tinker.Datum], dict[str, Any]]:
         """
         Prepare a minibatch of trajectories for training
         """
@@ -119,7 +129,7 @@ class BaseTrainer(ABC):
 
         mini_batch_size = mini_batch_size or cfg.mini_batch_size
         num_substeps = num_substeps or cfg.num_substeps
-        
+
         metrics = {}
         # Move the minibatch creation to outside this function
         prepare_minibatch_metrics = prepare_minibatch_metrics or {}
@@ -138,10 +148,10 @@ class BaseTrainer(ABC):
         elif num_substeps:
             if mini_batch_size:
                 # Potentially supersample data_D to hit mini_batch_size * num_substeps
-                data_D = data_D[:mini_batch_size * num_substeps]
+                data_D = data_D[: mini_batch_size * num_substeps]
                 while len(data_D) < mini_batch_size * num_substeps:
                     data_D.extend(random.sample(data_D, k=len(data_D)))
-                data_D = data_D[:mini_batch_size * num_substeps]
+                data_D = data_D[: mini_batch_size * num_substeps]
         else:
             raise ValueError("Either mini_batch_size or num_substeps must be specified")
         # Randomly subsample training data if not evenly divisible by num_substeps (# of mini-batches)
@@ -159,7 +169,10 @@ class BaseTrainer(ABC):
                 num_substeps,
                 loss_fn,
             )
-        sampling_client, full_batch_metrics = await compute_full_batch_metrics_and_get_sampling_client(
+        (
+            sampling_client,
+            full_batch_metrics,
+        ) = await compute_full_batch_metrics_and_get_sampling_client(
             training_client,
             batch_idx + 1,  # NOTE: saving the checkpoint as the i + 1 step
             data_D,
@@ -179,7 +192,7 @@ class BaseTrainer(ABC):
         messages: list[dict[str, str]],
         hidden_obs_content: str | None = None,
         first_obs_to_show: int = 2,  # e.g., to keep prompt
-        last_obs_to_show: int = 1,   # e.g., to keep last observation
+        last_obs_to_show: int = 1,  # e.g., to keep last observation
     ) -> list[dict[str, str]]:
         """
         Maybe hide past observations from messages
@@ -189,9 +202,13 @@ class BaseTrainer(ABC):
 
         hidden_obs_content = hidden_obs_content or self.hidden_obs_content
         user_indices = [
-            idx for idx, message in enumerate(messages) if message["role"] in ["user", "tool"]
+            idx
+            for idx, message in enumerate(messages)
+            if message["role"] in ["user", "tool"]
         ]
-        last_message_idx = user_indices[-last_obs_to_show] if last_obs_to_show > 0 else len(messages)
+        last_message_idx = (
+            user_indices[-last_obs_to_show] if last_obs_to_show > 0 else len(messages)
+        )
         return [
             {"role": message["role"], "content": hidden_obs_content}
             if (

@@ -8,7 +8,9 @@ from typing import Any, Callable
 from .tinker import TinkerGenerator
 
 
-def get_generator_constructor(name: str, **kwargs: Any) -> Callable[..., TinkerGenerator]:
+def get_generator_constructor(
+    name: str, **kwargs: Any
+) -> Callable[..., TinkerGenerator]:
     """
     Get a (partially initialized) TinkerGenerator constructor by name
 
@@ -25,18 +27,24 @@ def get_generator_constructor(name: str, **kwargs: Any) -> Callable[..., TinkerG
 
     elif name == "act_prm":
         from .tinker_act_prm import TinkerActPrmGenerator
+
         return partial(TinkerActPrmGenerator, **kwargs)
 
     elif name == "action_prompt_act_prm":
         from .tinker_act_prompt_aprm import TinkerActionPromptActPrmGenerator
+
         return partial(TinkerActionPromptActPrmGenerator, **kwargs)
 
     elif name == "action_prompt_act_prm_nobandit":
-        from .tinker_act_prompt_aprm_nobandit import TinkerActionPromptNoBanditActPrmGenerator
+        from .tinker_act_prompt_aprm_nobandit import (
+            TinkerActionPromptNoBanditActPrmGenerator,
+        )
+
         return partial(TinkerActionPromptNoBanditActPrmGenerator, **kwargs)
 
     else:
         raise NotImplementedError(f"Sorry, generator {name} is not implemented yet.")
+
 
 __all__ = [
     "get_generator_constructor",

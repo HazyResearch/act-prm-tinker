@@ -1,0 +1,35 @@
+# TextWorld coin_collector medium demonstrations (act_prm format)
+name: "act_prm"
+is_async: false
+dataset_config:
+  path: "mzio/tw-sft-coin-collector-medium-sp"
+  cache_dir: "./data/textworld/medium/coin_collector"
+  split: "train"
+
+success_rollouts_only: true
+actions_only: true
+
+hide_observations: false
+hidden_obs_content: "..."
+first_obs_to_show: 2
+last_obs_to_show: 1
+
+num_fewshot_prompts: 1
+action_bos: "<tool_call>"
+action_eos: "</tool_call>"
+final_answer_bos: "Final Answer: "
+
+num_train_samples: 64
+num_val_samples: 16
+num_test_samples: 0
+
+max_turns: 60
+num_tries: 1
+eval_num_tries: 1
+seed: 0
+data_seed: 0
+split: "train"
+system_prompt: "You are a helpful assistant that infers reasoning thoughts behind your own observed actions."
+original_system_prompt: "You are a helpful tool-calling assistant."
+truncation_message: "Sorry, you have reached the maximum number of steps. Please try again."
+verbose: false

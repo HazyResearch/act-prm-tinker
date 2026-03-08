@@ -8,7 +8,7 @@ Based on the Generator, we do this via two setups:
 
 1. `TinkerActionPromptActPrmGenerator`: To bootstrap generations, we first give the ground-truth
    action to the LLM first, and ask it to generate the thought that leads to that action.
-   
+
 2. `TinkerActPrmGenerator`: We can then optionally train the LLM to generate thoughts
     based on just the present state (i.e., it does not see the action as a hint).
 """
@@ -30,14 +30,118 @@ from .utils import (
 
 SYSTEM_PROMPT_MESSAGE = {
     "role": "system",
-    "content": "You are a helpful assistant that infers reasoning thoughts behind observed actions."
+    "content": "You are a helpful assistant that infers reasoning thoughts behind observed actions.",
 }
 
 THOUGHT_ACTION_FEWSHOT_PROMPTS = [
-    [{'role': 'user', 'content': "## Instruction\nGiven a list of titles, think and call tools to answer this question:\n'''\nWhich documentary is about Finnish rock groups, Adam Clayton Powell or The Saimaa Gesture?\n'''\n\nYou may only visit the titles provided. Only call the `visit` tool once per turn.\n\nYour final answer should be a concise sentence, in the following format: 'Final Answer: <put your answer here>'.\n\n## Tool Calling\nYou can only search the following titles:\n\n- 'Adam (musical)'\n- 'Adam Clayton Powell (film)'\n- 'Adam Clayton Powell Jr.'\n- 'Adam Clayton Powell IV'\n- 'Seventh Avenue (Manhattan)'\n- 'Mother African Methodist Episcopal Zion Church'\n- 'Abyssinian Baptist Church'\n- 'Adam Clayton Powell Jr. State Office Building'\n- 'The Saimaa Gesture'\n- 'Adam Clayton Powell Sr.'\n\n## Instruction (again)\nNow answer the original question. Recall the question is:\n'''\nWhich documentary is about Finnish rock groups, Adam Clayton Powell or The Saimaa Gesture?\n'''\n\nVERY IMPORTANT: You may only use the provided `visit` tool once per turn, and only use the given titles to answer this question. If you provide a title not in the given titles, the tool call will fail."}, {'role': 'assistant', 'content': 'I need to search Adam Clayton Powell and The Saimaa Gesture, and find which documentary is about Finnish rock groups.\n\n<tool_call>\n{"name": "visit", "arguments": {"title": "Adam Clayton Powell"}}\n</tool_call>'}, {'role': 'tool', 'content': "Could not find [Adam Clayton Powell]. Similar: ['Adam Clayton Powell III', 'Seventh Avenue (Manhattan)', 'Adam Clayton Powell Jr. State Office Building', 'Isabel Washington Powell', 'Adam Powell', 'Adam Clayton Powell (film)', 'Giancarlo Esposito']."}, {'role': 'assistant', 'content': 'To find the documentary, I can search Adam Clayton Powell (film).\n\n<tool_call>\n{"name": "visit", "arguments": {"title": "Adam Clayton Powell (film)"}}\n</tool_call>'}, {'role': 'tool', 'content': 'Adam Clayton Powell is a 1989 American documentary film directed by Richard Kilberg.'}, {'role': 'assistant', 'content': 'Adam Clayton Powell (film) is a documentary about an African-American politician, not Finnish rock groups. So the documentary about Finnish rock groups must instead be The Saimaa Gesture.\n\nFinal Answer: The Saimaa Gesture'}, {'role': 'user', 'content': '# RESULT: CORRECT!'}],
-    [{'role': 'user', 'content': "## Instruction\nGiven a list of titles, think and call tools to answer this question:\n'''\nWhat profession does Nicholas Ray and Elia Kazan have in common?\n'''\n\nYou may only visit the titles provided. Only call the `visit` tool once per turn.\n\nYour final answer should be a concise sentence, in the following format: 'Final Answer: <put your answer here>'.\n\n## Tool Calling\nYou can only search the following titles:\n\n- 'Baby Doll'\n- 'Nicholas Ray'\n- 'Elia Kazan'\n- 'Art &amp; Gadg'\n- 'A Letter to Elia'\n- 'The Visitors (1972 film)'\n- 'Truckline Cafe'\n- 'All My Sons'\n- 'Maya Kazan'\n- 'Macao (film)'\n\n## Instruction (again)\nNow answer the original question. Recall the question is:\n'''\nWhat profession does Nicholas Ray and Elia Kazan have in common?\n'''\n\nVERY IMPORTANT: You may only use the provided `visit` tool once per turn, and only use the given titles to answer this question. If you provide a title not in the given titles, the tool call will fail."}, {'role': 'assistant', 'content': 'I need to search Nicholas Ray and Elia Kazan, find their professions, then find the profession they have in common.\n\n<tool_call>\n{"name": "visit", "arguments": {"title": "Nicholas Ray"}}\n</tool_call>'}, {'role': 'tool', 'content': 'Nicholas Ray (born Raymond Nicholas Kienzle Jr., August 7, 1911 – June 16, 1979) was an American film director, screenwriter, and actor best known for the 1955 film Rebel Without a Cause.'}, {'role': 'assistant', 'content': 'Professions of Nicholas Ray are director, screenwriter, and actor. I need to search Elia Kazan next and find his professions.\n\n<tool_call>\n{"name": "visit", "arguments": {"title": "Elia Kazan"}}\n</tool_call>'}, {'role': 'tool', 'content': 'Elia Kazan was an American film and theatre director, producer, screenwriter and actor.'}, {'role': 'assistant', 'content': 'Professions of Elia Kazan are director, producer, screenwriter, and actor. So profession Nicholas Ray and Elia Kazan have in common is director, screenwriter, and actor.\n\nFinal Answer: director, screenwriter, actor'}, {'role': 'user', 'content': '# RESULT: CORRECT!'}],
-    [{'role': 'user', 'content': "## Instruction\nGiven a list of titles, think and call tools to answer this question:\n'''\nWhich magazine was started first Arthur's Magazine or First for Women?\n'''\n\nYou may only visit the titles provided. Only call the `visit` tool once per turn.\n\nYour final answer should be a concise sentence, in the following format: 'Final Answer: <put your answer here>'.\n\n## Tool Calling\nYou can only search the following titles:\n\n- 'Radio City (Indian radio station)'\n- 'History of Albanian football'\n- 'Echosmith'\n- 'Women's colleges in the Southern United States'\n- 'First Arthur County Courthouse and Jail'\n- 'Arthur's Magazine'\n- '2014–15 Ukrainian Hockey Championship'\n- 'First for Women'\n- 'Freeway Complex Fire'\n- 'William Rast'\n\n## Instruction (again)\nNow answer the original question. Recall the question is:\n'''\nWhich magazine was started first Arthur's Magazine or First for Women?\n'''\n\nVERY IMPORTANT: You may only use the provided `visit` tool once per turn, and only use the given titles to answer this question. If you provide a title not in the given titles, the tool call will fail."}, {'role': 'assistant', 'content': 'I need to search Arthur\'s Magazine and First for Women, and find which was started first.\n\n<tool_call>\n{"name": "visit", "arguments": {"title": "Arthur\'s Magazine"}}\n</tool_call>'}, {'role': 'tool', 'content': "Arthur's Magazine (1844-\x80\x931846) was an American literary periodical published in Philadelphia in the 19th century."}, {'role': 'assistant', 'content': 'Arthur\'s Magazine was started in 1844. I need to search First for Women next.\n\n<tool_call>\n{"name": "visit", "arguments": {"title": "First for Women"}}\n</tool_call>'}, {'role': 'tool', 'content': "First for Women is a woman's magazine published by Bauer Media Group in the USA.[1] The magazine was started in 1989."}, {'role': 'assistant', 'content': "First for Women was started in 1989. 1844 (Arthur's Magazine) < 1989 (First for Women), so Arthur's Magazine was started first.\n\nFinal Answer: Arthur's Magazine"}, {'role': 'user', 'content': '# RESULT: CORRECT!'}],
-    [{'role': 'user', 'content': "## Instruction\nGiven a list of titles, think and call tools to answer this question:\n'''\nWere Pavel Urysohn and Leonid Levin known for the same type of work?\n'''\n\nYou may only visit the titles provided. Only call the `visit` tool once per turn.\n\nYour final answer should be a concise sentence, in the following format: 'Final Answer: <put your answer here>'.\n\n## Tool Calling\nYou can only search the following titles:\n\n- 'Leonid Ramzin'\n- 'Leftover hash lemma'\n- 'Phthinosaurus'\n- 'Kate Dillon Levin'\n- 'Tony Levin'\n- 'Gabriel Levin'\n- 'Leonid Levin'\n- 'Pavel Urysohn'\n- 'Meyer Levin'\n- 'Leonid Bunimovich'\n\n## Instruction (again)\nNow answer the original question. Recall the question is:\n'''\nWere Pavel Urysohn and Leonid Levin known for the same type of work?\n'''\n\nVERY IMPORTANT: You may only use the provided `visit` tool once per turn, and only use the given titles to answer this question. If you provide a title not in the given titles, the tool call will fail."}, {'role': 'assistant', 'content': 'I need to search Pavel Urysohn and Leonid Levin, find their types of work, then find if they are the same.\n\n<tool_call>\n{"name": "visit", "arguments": {"title": "Pavel Urysohn"}}\n</tool_call>'}, {'role': 'tool', 'content': 'Pavel Samuilovich Urysohn (February 3, 1898 â\x80\x93 August 17, 1924) was a Soviet mathematician who is best known for his contributions in dimension theory.'}, {'role': 'assistant', 'content': 'Pavel Urysohn is a mathematician. I need to search Leonid Levin next and find its type of work.\n\n<tool_call>\n{"name": "visit", "arguments": {"title": "Leonid Levin"}}\n</tool_call>'}, {'role': 'tool', 'content': 'Leonid Anatolievich Levin is a Soviet-American mathematician and computer scientist.'}, {'role': 'assistant', 'content': 'Leonid Levin is a mathematician and computer scientist. So Pavel Urysohn and Leonid Levin have the same type of work.\n\nFinal Answer: yes'}, {'role': 'user', 'content': '# RESULT: CORRECT!'}],
+    [
+        {
+            "role": "user",
+            "content": "## Instruction\nGiven a list of titles, think and call tools to answer this question:\n'''\nWhich documentary is about Finnish rock groups, Adam Clayton Powell or The Saimaa Gesture?\n'''\n\nYou may only visit the titles provided. Only call the `visit` tool once per turn.\n\nYour final answer should be a concise sentence, in the following format: 'Final Answer: <put your answer here>'.\n\n## Tool Calling\nYou can only search the following titles:\n\n- 'Adam (musical)'\n- 'Adam Clayton Powell (film)'\n- 'Adam Clayton Powell Jr.'\n- 'Adam Clayton Powell IV'\n- 'Seventh Avenue (Manhattan)'\n- 'Mother African Methodist Episcopal Zion Church'\n- 'Abyssinian Baptist Church'\n- 'Adam Clayton Powell Jr. State Office Building'\n- 'The Saimaa Gesture'\n- 'Adam Clayton Powell Sr.'\n\n## Instruction (again)\nNow answer the original question. Recall the question is:\n'''\nWhich documentary is about Finnish rock groups, Adam Clayton Powell or The Saimaa Gesture?\n'''\n\nVERY IMPORTANT: You may only use the provided `visit` tool once per turn, and only use the given titles to answer this question. If you provide a title not in the given titles, the tool call will fail.",
+        },
+        {
+            "role": "assistant",
+            "content": 'I need to search Adam Clayton Powell and The Saimaa Gesture, and find which documentary is about Finnish rock groups.\n\n<tool_call>\n{"name": "visit", "arguments": {"title": "Adam Clayton Powell"}}\n</tool_call>',
+        },
+        {
+            "role": "tool",
+            "content": "Could not find [Adam Clayton Powell]. Similar: ['Adam Clayton Powell III', 'Seventh Avenue (Manhattan)', 'Adam Clayton Powell Jr. State Office Building', 'Isabel Washington Powell', 'Adam Powell', 'Adam Clayton Powell (film)', 'Giancarlo Esposito'].",
+        },
+        {
+            "role": "assistant",
+            "content": 'To find the documentary, I can search Adam Clayton Powell (film).\n\n<tool_call>\n{"name": "visit", "arguments": {"title": "Adam Clayton Powell (film)"}}\n</tool_call>',
+        },
+        {
+            "role": "tool",
+            "content": "Adam Clayton Powell is a 1989 American documentary film directed by Richard Kilberg.",
+        },
+        {
+            "role": "assistant",
+            "content": "Adam Clayton Powell (film) is a documentary about an African-American politician, not Finnish rock groups. So the documentary about Finnish rock groups must instead be The Saimaa Gesture.\n\nFinal Answer: The Saimaa Gesture",
+        },
+        {"role": "user", "content": "# RESULT: CORRECT!"},
+    ],
+    [
+        {
+            "role": "user",
+            "content": "## Instruction\nGiven a list of titles, think and call tools to answer this question:\n'''\nWhat profession does Nicholas Ray and Elia Kazan have in common?\n'''\n\nYou may only visit the titles provided. Only call the `visit` tool once per turn.\n\nYour final answer should be a concise sentence, in the following format: 'Final Answer: <put your answer here>'.\n\n## Tool Calling\nYou can only search the following titles:\n\n- 'Baby Doll'\n- 'Nicholas Ray'\n- 'Elia Kazan'\n- 'Art &amp; Gadg'\n- 'A Letter to Elia'\n- 'The Visitors (1972 film)'\n- 'Truckline Cafe'\n- 'All My Sons'\n- 'Maya Kazan'\n- 'Macao (film)'\n\n## Instruction (again)\nNow answer the original question. Recall the question is:\n'''\nWhat profession does Nicholas Ray and Elia Kazan have in common?\n'''\n\nVERY IMPORTANT: You may only use the provided `visit` tool once per turn, and only use the given titles to answer this question. If you provide a title not in the given titles, the tool call will fail.",
+        },
+        {
+            "role": "assistant",
+            "content": 'I need to search Nicholas Ray and Elia Kazan, find their professions, then find the profession they have in common.\n\n<tool_call>\n{"name": "visit", "arguments": {"title": "Nicholas Ray"}}\n</tool_call>',
+        },
+        {
+            "role": "tool",
+            "content": "Nicholas Ray (born Raymond Nicholas Kienzle Jr., August 7, 1911 – June 16, 1979) was an American film director, screenwriter, and actor best known for the 1955 film Rebel Without a Cause.",
+        },
+        {
+            "role": "assistant",
+            "content": 'Professions of Nicholas Ray are director, screenwriter, and actor. I need to search Elia Kazan next and find his professions.\n\n<tool_call>\n{"name": "visit", "arguments": {"title": "Elia Kazan"}}\n</tool_call>',
+        },
+        {
+            "role": "tool",
+            "content": "Elia Kazan was an American film and theatre director, producer, screenwriter and actor.",
+        },
+        {
+            "role": "assistant",
+            "content": "Professions of Elia Kazan are director, producer, screenwriter, and actor. So profession Nicholas Ray and Elia Kazan have in common is director, screenwriter, and actor.\n\nFinal Answer: director, screenwriter, actor",
+        },
+        {"role": "user", "content": "# RESULT: CORRECT!"},
+    ],
+    [
+        {
+            "role": "user",
+            "content": "## Instruction\nGiven a list of titles, think and call tools to answer this question:\n'''\nWhich magazine was started first Arthur's Magazine or First for Women?\n'''\n\nYou may only visit the titles provided. Only call the `visit` tool once per turn.\n\nYour final answer should be a concise sentence, in the following format: 'Final Answer: <put your answer here>'.\n\n## Tool Calling\nYou can only search the following titles:\n\n- 'Radio City (Indian radio station)'\n- 'History of Albanian football'\n- 'Echosmith'\n- 'Women's colleges in the Southern United States'\n- 'First Arthur County Courthouse and Jail'\n- 'Arthur's Magazine'\n- '2014–15 Ukrainian Hockey Championship'\n- 'First for Women'\n- 'Freeway Complex Fire'\n- 'William Rast'\n\n## Instruction (again)\nNow answer the original question. Recall the question is:\n'''\nWhich magazine was started first Arthur's Magazine or First for Women?\n'''\n\nVERY IMPORTANT: You may only use the provided `visit` tool once per turn, and only use the given titles to answer this question. If you provide a title not in the given titles, the tool call will fail.",
+        },
+        {
+            "role": "assistant",
+            "content": 'I need to search Arthur\'s Magazine and First for Women, and find which was started first.\n\n<tool_call>\n{"name": "visit", "arguments": {"title": "Arthur\'s Magazine"}}\n</tool_call>',
+        },
+        {
+            "role": "tool",
+            "content": "Arthur's Magazine (1844-\x80\x931846) was an American literary periodical published in Philadelphia in the 19th century.",
+        },
+        {
+            "role": "assistant",
+            "content": 'Arthur\'s Magazine was started in 1844. I need to search First for Women next.\n\n<tool_call>\n{"name": "visit", "arguments": {"title": "First for Women"}}\n</tool_call>',
+        },
+        {
+            "role": "tool",
+            "content": "First for Women is a woman's magazine published by Bauer Media Group in the USA.[1] The magazine was started in 1989.",
+        },
+        {
+            "role": "assistant",
+            "content": "First for Women was started in 1989. 1844 (Arthur's Magazine) < 1989 (First for Women), so Arthur's Magazine was started first.\n\nFinal Answer: Arthur's Magazine",
+        },
+        {"role": "user", "content": "# RESULT: CORRECT!"},
+    ],
+    [
+        {
+            "role": "user",
+            "content": "## Instruction\nGiven a list of titles, think and call tools to answer this question:\n'''\nWere Pavel Urysohn and Leonid Levin known for the same type of work?\n'''\n\nYou may only visit the titles provided. Only call the `visit` tool once per turn.\n\nYour final answer should be a concise sentence, in the following format: 'Final Answer: <put your answer here>'.\n\n## Tool Calling\nYou can only search the following titles:\n\n- 'Leonid Ramzin'\n- 'Leftover hash lemma'\n- 'Phthinosaurus'\n- 'Kate Dillon Levin'\n- 'Tony Levin'\n- 'Gabriel Levin'\n- 'Leonid Levin'\n- 'Pavel Urysohn'\n- 'Meyer Levin'\n- 'Leonid Bunimovich'\n\n## Instruction (again)\nNow answer the original question. Recall the question is:\n'''\nWere Pavel Urysohn and Leonid Levin known for the same type of work?\n'''\n\nVERY IMPORTANT: You may only use the provided `visit` tool once per turn, and only use the given titles to answer this question. If you provide a title not in the given titles, the tool call will fail.",
+        },
+        {
+            "role": "assistant",
+            "content": 'I need to search Pavel Urysohn and Leonid Levin, find their types of work, then find if they are the same.\n\n<tool_call>\n{"name": "visit", "arguments": {"title": "Pavel Urysohn"}}\n</tool_call>',
+        },
+        {
+            "role": "tool",
+            "content": "Pavel Samuilovich Urysohn (February 3, 1898 â\x80\x93 August 17, 1924) was a Soviet mathematician who is best known for his contributions in dimension theory.",
+        },
+        {
+            "role": "assistant",
+            "content": 'Pavel Urysohn is a mathematician. I need to search Leonid Levin next and find its type of work.\n\n<tool_call>\n{"name": "visit", "arguments": {"title": "Leonid Levin"}}\n</tool_call>',
+        },
+        {
+            "role": "tool",
+            "content": "Leonid Anatolievich Levin is a Soviet-American mathematician and computer scientist.",
+        },
+        {
+            "role": "assistant",
+            "content": "Leonid Levin is a mathematician and computer scientist. So Pavel Urysohn and Leonid Levin have the same type of work.\n\nFinal Answer: yes",
+        },
+        {"role": "user", "content": "# RESULT: CORRECT!"},
+    ],
 ]
 
 
@@ -45,16 +149,19 @@ class ActionProcessRewardState(EnvironmentState):
     """
     State of the ActionProcessReward environment
     """
+
     action_target: str
     chat_step_idx: int
-    action_trajectory: list[dict[str, str]]    # True action-only trajectory
+    action_trajectory: list[dict[str, str]]  # True action-only trajectory
     assistant_indices: list[int]
+    original_system_prompt: str | None = None
 
 
 class ActionProcessRewardStepResult(EnvironmentStepResult):
     """
     Step result of the ActionProcessReward environment
     """
+
     state: ActionProcessRewardState
     reward: float
     done: bool
@@ -93,7 +200,7 @@ class ActPrmEnv(Environment):
         self.actions_only = actions_only
         self.num_fewshot_prompts = num_fewshot_prompts
         # self.max_messages = max_messages
-        
+
         # Use for parsing thoughts and actions from LLM messages
         self.action_bos = action_bos
         self.action_eos = action_eos
@@ -105,7 +212,7 @@ class ActPrmEnv(Environment):
         }
         # Build fewshot examples, i.e., default context, for all samples
         self.default_context = self.get_default_context()
-        
+
         self.num_train_samples = num_train_samples
         self.num_val_samples = num_val_samples
         self.num_test_samples = num_test_samples
@@ -114,7 +221,7 @@ class ActPrmEnv(Environment):
         self.split = split
 
         self.system_prompt = system_prompt
-        self.original_system_prompt = original_system_prompt
+        self.original_system_prompt = original_system_prompt  # should ignore?
         self.datasets = self.init_data()
 
     def get_default_context(self) -> list[dict[str, str]]:
@@ -122,7 +229,9 @@ class ActPrmEnv(Environment):
         Build fewshot examples, i.e., default context, for all samples
         """
         fewshot_prompts = []
-        for fewshot_prompt in THOUGHT_ACTION_FEWSHOT_PROMPTS[:self.num_fewshot_prompts]:
+        for fewshot_prompt in THOUGHT_ACTION_FEWSHOT_PROMPTS[
+            : self.num_fewshot_prompts
+        ]:
             fewshot_prompts.extend(fewshot_prompt)
         return fewshot_prompts
 
@@ -142,11 +251,13 @@ class ActPrmEnv(Environment):
 
         # Organize source samples into Act-PRM samples
         # -> Each Act-PRM sample is a single trajectory (a list of chat dicts), i.e.,
-        #    [{"role": "user", "content": "..."}, 
-        #    {"role": "assistant", "content": <tool_call> ... </tool_call>}, 
+        #    [{"role": "user", "content": "..."},
+        #    {"role": "assistant", "content": <tool_call> ... </tool_call>},
         #    ...]  # (^Note that we only have actions, no thoughts in these trajectories)
         all_trajectories_and_tools = get_full_trajectories_from_dataset(
-            ds, actions_only=self.actions_only, **self.thought_action_kwargs,
+            ds,
+            actions_only=self.actions_only,
+            **self.thought_action_kwargs,
         )
 
         # Organize into dataset splits
@@ -155,16 +266,19 @@ class ActPrmEnv(Environment):
             self.num_train_samples + self.num_val_samples + self.num_test_samples,
         )
         shuffle_indices = list(range(num_samples))
-        np.random.seed(self.seed)
+        np.random.seed(self.data_seed)
         np.random.shuffle(shuffle_indices)
         last_eval_idx = self.num_train_samples + self.num_val_samples
-        train_indices = shuffle_indices[:self.num_train_samples]
-        eval_indices  = shuffle_indices[self.num_train_samples:last_eval_idx]
-        test_indices  = shuffle_indices[last_eval_idx:]
+        train_indices = shuffle_indices[: self.num_train_samples]
+        eval_indices = shuffle_indices[self.num_train_samples : last_eval_idx]
+        test_indices = shuffle_indices[last_eval_idx:]
         datasets = {
             "train": [all_trajectories_and_tools[i] for i in train_indices],
-            "eval":  [all_trajectories_and_tools[i] for i in eval_indices],
-            "test":  [all_trajectories_and_tools[i] for i in test_indices],
+            "eval": [all_trajectories_and_tools[i] for i in eval_indices],
+            "test": [all_trajectories_and_tools[i] for i in test_indices],
+            "train_eval": [
+                all_trajectories_and_tools[i] for i in train_indices + eval_indices
+            ],
         }
         return datasets
 
@@ -178,10 +292,21 @@ class ActPrmEnv(Environment):
         """
         Reset environment (starting new episode + loading a new task)
         """
-        sample_idx_adj = self.adjust_sample_idx(sample_idx)  # Wrap around if out of bounds
+        sample_idx_adj = self.adjust_sample_idx(
+            sample_idx
+        )  # Wrap around if out of bounds
         action_trajectory_and_tools = self.datasets[self.split][sample_idx_adj]
-        action_trajectory: list[dict[str, Any]] = action_trajectory_and_tools[0]  # [:self.max_messages]
+        action_trajectory: list[dict[str, Any]] = action_trajectory_and_tools[
+            0
+        ]  # [:self.max_messages]
         tools: list[dict[str, Any]] = action_trajectory_and_tools[1]
+
+        # If system prompt included, extract and evict it
+        if action_trajectory[0]["role"] == "system":
+            original_system_prompt = action_trajectory[0]["content"]
+            action_trajectory = action_trajectory[1:]
+        else:
+            original_system_prompt = self.original_system_prompt
         # Initial sample is just first (obs, action) of the trajectory, i.e.,
         # [{"role": "user", "content": "..."},
         #  {"role": "assistant", "content": <tool_call> ... </tool_call>}]
@@ -203,12 +328,12 @@ class ActPrmEnv(Environment):
                 self.default_context = self.default_context[:-1]
             messages[0]["content"] = (
                 f"Great! Now do the same for the next task:\n\n"
-                f"## Next Task:\n\n{messages[0]["content"]}"
+                f"## Next Task:\n\n{messages[0]['content']}"
             )
         # MZ 1/18/26: Note that we add default context here
         # -> but we may want to filter it out for thought-action SFT trajectories
         new_messages = self.default_context + messages
-        
+
         return ActionProcessRewardState(
             system_prompt=self.system_prompt,
             new_messages=new_messages,
@@ -220,7 +345,8 @@ class ActPrmEnv(Environment):
             chat_step_idx=chat_step_idx,
             action_trajectory=action_trajectory,
             assistant_indices=assistant_indices,
-            thought_action_chat=messages,  # (state, action)
+            # thought_action_chat=messages,  # (state, action)
+            original_system_prompt=original_system_prompt,
             # Step-wise metadata
             sample_id=sample_idx,
             generation_id=generation_idx,
@@ -228,7 +354,8 @@ class ActPrmEnv(Environment):
             try_step=try_step,
             timestep=0,
             # Past observations to show (account for default context, system prompt)
-            first_obs_to_show=len(new_messages) + 1, # system + default context + user message
+            first_obs_to_show=len(new_messages)
+            + 1,  # system + default context + user message
         )
 
     def step(
@@ -281,7 +408,9 @@ class ActPrmEnv(Environment):
         if action.type == "message":
             # Parse the generated thought
             thought_text = action.text or ""
-            thought_text = thought_text.split("<thought>")[-1].strip()      # Extract if in tags
+            thought_text = thought_text.split("<thought>")[
+                -1
+            ].strip()  # Extract if in tags
             thought_text = thought_text.split("</thought>")[0].strip()
             # Extract thought as text before action or final answer
             if len(thought_text.split(self.action_bos)) > 1:
@@ -297,7 +426,7 @@ class ActPrmEnv(Environment):
             # 1. Update last assistant message to include the generated thought
             current_messages[-1] = {
                 "role": "assistant",
-                "content": f"{thought_text}\n\n{action_target}"
+                "content": f"{thought_text}\n\n{action_target}",
             }
             # 2. Add next_obs and next_action as new messages
             env_messages = [
@@ -332,6 +461,7 @@ class ActPrmEnv(Environment):
                 chat_step_idx=chat_step_idx,
                 action_trajectory=action_trajectory,
                 assistant_indices=assistant_indices,
+                original_system_prompt=current_state.original_system_prompt,
                 # Step-wise metadata
                 sample_id=sample_id,
                 generation_id=generation_id,
@@ -347,7 +477,7 @@ class ActPrmEnv(Environment):
             # No interpretable thoughts generated, just ask to try again
             new_state = deepcopy(current_state)
             new_state.timestep = timestep
-            
+
         return ActionProcessRewardStepResult(
             state=new_state,
             reward=reward,
@@ -361,6 +491,7 @@ class AsyncActPrmEnv(ActPrmEnv):
     """
     Asynchronous environment for ActionFirstProcessRewardEnv
     """
+
     async def reset_async(self, **kwargs: Any) -> ActionProcessRewardState:
         """
         Asynchronous reset -> assumes super().reset() is fast and non-blocking

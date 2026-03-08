@@ -21,6 +21,7 @@ class ExpandTool(BaseTool):
     """
     Expand a search result given its `doc_id`
     """
+
     def __init__(
         self,
         doc_dict: dict[str, dict[str, Any]] | None = None,
@@ -32,7 +33,9 @@ class ExpandTool(BaseTool):
         self.doc_dict = doc_dict
         self.doc_dataset = doc_dataset
         self.ds_corpus_index = ds_corpus_index
-        assert self.doc_dict or self.doc_dataset, "Either doc_dict or doc_dataset must be provided"
+        assert self.doc_dict or self.doc_dataset, (
+            "Either doc_dict or doc_dataset must be provided"
+        )
         if self.doc_dataset is not None:
             assert self.ds_corpus_index is not None, (
                 "ds_corpus_index must be provided if doc_dataset is provided"
@@ -53,7 +56,7 @@ class ExpandTool(BaseTool):
         else:
             doc_dict = doc_dict or self.doc_dict
             doc: dict[str, Any] = doc_dict[doc_id]
-        
+
         result_str = f"# Document {doc_id}:\n\n"
         # Give some minor indication of where the document is in the context
         if doc["past_scroll_id"] is not None:
@@ -63,7 +66,7 @@ class ExpandTool(BaseTool):
             ):
                 result_str += "[Scroll up for more...] "
         # Add document text
-        result_str += f"{doc["text"]}"
+        result_str += f"{doc['text']}"
         # Give some minor indication of where the document is in the context
         if doc["next_scroll_id"] is not None:
             if not (

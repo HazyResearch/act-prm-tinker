@@ -55,7 +55,9 @@ def build_retriever(
         corpus_tokens = bm25s.tokenize(corpus, stopwords=stopwords, stemmer=stemmer)
         # Create the BM25 model and index the corpus
         retriever = (
-            bm25s.BM25(**retriever_config) if retriever_config is not None else bm25s.BM25()
+            bm25s.BM25(**retriever_config)
+            if retriever_config is not None
+            else bm25s.BM25()
         )
     else:
         raise NotImplementedError(f"Sorry, retriever {retriever_name} not implemented")
@@ -89,11 +91,11 @@ class SearchTool(BaseTool):
         self.tokenizer = tokenizer
 
         self.retriever_name = retriever_name
-        self.stemmer = Stemmer("english") if use_stemmer else None  
+        self.stemmer = Stemmer("english") if use_stemmer else None
         self.retriever_config = retriever_config
         self.top_k = top_k
         self.max_preview_tokens = max_preview_tokens
-        
+
         if save_path is not None:
             save_path = join(save_path, f"{retriever_name}")
         self.retriever = build_retriever(
@@ -121,7 +123,7 @@ class SearchTool(BaseTool):
             # Query the corpus
             bm25_query_tokens = bm25s.tokenize(query.lower(), self.stemmer)
             results, scores = self.retriever.retrieve(bm25_query_tokens, k=self.top_k)
-            
+
             # For each top-k result, get the preview text
             llm_query_input_ids = self.tokenizer(query)["input_ids"]
             topk_result_preview: list[dict] = []
@@ -225,7 +227,7 @@ def best_window_total_hits_np(
     - Use for slightly more intelligent preview of document text vs just
       returning the first window tokens (i.e., doc[:window])
 
-    Returns: 
+    Returns:
     - start_idx: index of the start of the best window
     - score: number of query tokens in the best window
     - best_window_slice: slice of the document that matches the query best

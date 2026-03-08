@@ -248,14 +248,16 @@ class OpenAIResponsesLLM(LLM):
                         _error_class = type(arguments_e).__name__
                         print(f"Arguments Exception: {_error_class}: {arguments_e}")
                         arguments_str = output.arguments
-                        arguments_error = f"Arguments Exception: ({_error_class}: {arguments_e})"
+                        arguments_error = (
+                            f"Arguments Exception: ({_error_class}: {arguments_e})"
+                        )
                     text_repr = json.dumps(
                         {"name": name_str, "arguments": arguments_str}
                     )
                     action_list.append(
                         ActionFromLLM(
                             role="assistant",  # role=output.role,
-                            type="message",    # type="function_call",
+                            type="message",  # type="function_call",
                             text=text_repr,
                             call_id=None,
                             name=name_str,
@@ -293,7 +295,9 @@ class OpenAIResponsesLLM(LLM):
                 except Exception as e:
                     _error_class = type(e).__name__
                     print("-> Error with OpenAIResponsesLLM.get_actions:")
-                    print(f"  -> output.type: {output.type}\n  -> error: {_error_class}: {e}")
+                    print(
+                        f"  -> output.type: {output.type}\n  -> error: {_error_class}: {e}"
+                    )
             else:
                 raise ValueError(f"Unknown output type: {output.type}")
         return action_list

@@ -17,7 +17,7 @@ def get_actions(
     **tool_call_parse_kwargs: Any,
 ) -> list[ActionFromLLM]:
     """
-    Parse chat response into list of actions, where 
+    Parse chat response into list of actions, where
     response is a (singleton) list: [{"role": "assistant", "content": <response_text>}].
     """
     action_list = []
@@ -123,7 +123,9 @@ def get_messages_from_text(
             _invalid_tool_call_text = text.split(tool_call_bos)[-1].strip()
             assert _invalid_tool_call_text != "", "Invalid tool call"
             try:
-                _invalid_tool_call_text = _invalid_tool_call_text.split(tool_call_eos)[0].strip()
+                _invalid_tool_call_text = _invalid_tool_call_text.split(tool_call_eos)[
+                    0
+                ].strip()
                 assert _invalid_tool_call_text != "", "Invalid tool call"
             except AssertionError:
                 pass

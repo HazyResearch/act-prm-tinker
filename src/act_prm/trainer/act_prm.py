@@ -4,7 +4,6 @@ Tinker Trainers for fully synchronous Act-PRM training
 
 import logging
 import time
-from os.path import join
 from typing import Any, Callable
 
 import torch
@@ -36,8 +35,9 @@ class ActPrmTrainer(RLTrainer):
     """
     Trainer for fully synchronous Act-PRM training
     """
+
     def __init__(
-        self, 
+        self,
         cfg: DictConfig,
         training_client: tinker.TrainingClient,
         service_client: tinker.ServiceClient,
@@ -69,7 +69,7 @@ class ActPrmTrainer(RLTrainer):
         self.action_prompt_generator_constructor = self.get_generator_constructor(
             name="action_prompt_act_prm",
             keep_top_k=cfg.get("action_prompt_keep_top_k", None),
-            **{k: v for k, v in generator_cfg.items() if k != "name"}
+            **{k: v for k, v in generator_cfg.items() if k != "name"},
         )
 
     async def do_rl_loop(
@@ -119,7 +119,9 @@ class ActPrmTrainer(RLTrainer):
                         tinker.Datum(
                             model_input=tinker.ModelInput.from_ints(input_tokens),
                             loss_fn_inputs={
-                                "target_tokens": TensorData.from_torch(torch.tensor(target_tokens)),
+                                "target_tokens": TensorData.from_torch(
+                                    torch.tensor(target_tokens)
+                                ),
                                 "weights": TensorData.from_torch(torch.tensor(weights)),
                             },
                         )
@@ -128,9 +130,9 @@ class ActPrmTrainer(RLTrainer):
 
     # Modified from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L989
     async def train(
-        self, 
-        start_batch: int, 
-        end_batch: int, 
+        self,
+        start_batch: int,
+        end_batch: int,
         cfg: DictConfig | None = None,
         env: Environment | None = None,
         eval_env: Environment | None = None,
@@ -163,10 +165,14 @@ class ActPrmTrainer(RLTrainer):
             start_batch=start_batch,
         )
 
-        model_name = cfg.model_name or self.training_client.get_info().model_data.model_name
+        model_name = (
+            cfg.model_name or self.training_client.get_info().model_data.model_name
+        )
         hf_tokenizer = self.hf_tokenizer or self.training_client.get_tokenizer()
         # ^Same as tinker_cookbook.tokenizer_utils.get_tokenizer(cfg.model_name)?
-        renderer_name = cfg.renderer_name or model_info.get_recommended_renderer_name(model_name)
+        renderer_name = cfg.renderer_name or model_info.get_recommended_renderer_name(
+            model_name
+        )
         renderer = renderers.get_renderer(renderer_name, hf_tokenizer)
         logger.info("Using renderer: %s", renderer_name)
 
@@ -175,7 +181,9 @@ class ActPrmTrainer(RLTrainer):
         # via TinkerActionPromptActPrmGenerator (via self.action_prompt_generator_constructor)
         if cfg.action_prompts:
             if cfg.num_batches_action_prompts > 0:
-                logger.info("Starting first stage of training (include actions in prompts)")
+                logger.info(
+                    "Starting first stage of training (include actions in prompts)"
+                )
                 best_action_prompt_sampling_client_path = await self.do_rl_loop(
                     start_batch=0,
                     end_batch=cfg.num_batches_action_prompts,
@@ -187,11 +195,15 @@ class ActPrmTrainer(RLTrainer):
                 )
                 # Get best action-prompted sampling client
                 # sampling_client = self.service_client.create_sampling_client(
-                sampling_client = await self.training_client.create_sampling_client_async(
-                    model_path=best_action_prompt_sampling_client_path,
+                sampling_client = (
+                    await self.training_client.create_sampling_client_async(
+                        model_path=best_action_prompt_sampling_client_path,
+                    )
                 )
             # Generate thought-action rollouts for all tasks in the ActPrmEnv
-            logger.info("Generating thought-action rollouts for all tasks in the Act-PRM env")
+            logger.info(
+                "Generating thought-action rollouts for all tasks in the Act-PRM env"
+            )
             _end_batch = len(self.env) // cfg.batch_size
             all_new_trajectories: list[Trajectory] = []
             for batch_idx in range(0, _end_batch):
@@ -218,8 +230,10 @@ class ActPrmTrainer(RLTrainer):
             # Can also sample on just 100 or 500 tasks, and see if it can perform well?
 
             # Train new policy LLM with the thought-action rollouts
-            self.training_client = await self.service_client.create_lora_training_client_async(
-                cfg.model_name, rank=cfg.lora_rank
+            self.training_client = (
+                await self.service_client.create_lora_training_client_async(
+                    cfg.model_name, rank=cfg.lora_rank
+                )
             )
             data_D, prepare_minibatch_metrics = await self.prepare_sft_minibatch(
                 new_trajectories=all_new_trajectories,
@@ -237,13 +251,18 @@ class ActPrmTrainer(RLTrainer):
                 ) * cfg.action_prompt_num_epochs
                 logger.info(
                     "Using %d epochs, batch size %d, %d total substeps for SFT training",
-                    cfg.action_prompt_num_epochs, cfg.action_prompt_mini_batch_size, num_substeps
+                    cfg.action_prompt_num_epochs,
+                    cfg.action_prompt_mini_batch_size,
+                    num_substeps,
                 )
             else:
                 num_substeps = cfg.get("action_prompt_num_substeps", 1)
                 logger.info("Using %d substeps for SFT training", num_substeps)
 
-            sampling_client, update_metrics = await self.do_train_step_and_get_sampling_client(
+            (
+                sampling_client,
+                update_metrics,
+            ) = await self.do_train_step_and_get_sampling_client(
                 batch_idx=0,
                 training_client=self.training_client,
                 data_D=data_D,
@@ -254,9 +273,11 @@ class ActPrmTrainer(RLTrainer):
                 num_substeps=num_substeps,
             )
             logger.info("Updated sampling client from SFT training")
-        
+
         # ---------- Second stage of training (generate thoughts from states only) ----------
-        logger.info("Starting second stage of training (generate thoughts from states only)")
+        logger.info(
+            "Starting second stage of training (generate thoughts from states only)"
+        )
         num_batches = end_batch - start_batch
         for batch_idx in range(start_batch, end_batch):
             metrics = {
@@ -282,14 +303,18 @@ class ActPrmTrainer(RLTrainer):
                         split="eval",
                         num_tries=cfg.eval_num_tries,
                         # Just use all eval tasks
-                        start_idx=0,  
+                        start_idx=0,
                         tasks_per_update=len(self.eval_env),
                     )
                     metrics.update(eval_rollout_metrics)
 
                 # Save best checkpoints
-                _metric_prefix = "eval" if checkpoint_name is None else f"{checkpoint_name}_eval"
-                best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
+                _metric_prefix = (
+                    "eval" if checkpoint_name is None else f"{checkpoint_name}_eval"
+                )
+                best_metric_key = (
+                    f"{_metric_prefix}/try_{cfg.eval_num_tries - 1}/{cfg.best_metric}"
+                )
                 last_metric = eval_rollout_metrics[best_metric_key]
                 best_ckpt_name = (
                     f"{batch_idx:06d}_best"
@@ -306,23 +331,34 @@ class ActPrmTrainer(RLTrainer):
                         kind="both",
                     )
                     best_sampling_client_path = path_dict["sampler_path"]
-                    logger.info("Saved best sampling client to %s", best_sampling_client_path)
+                    logger.info(
+                        "Saved best sampling client to %s", best_sampling_client_path
+                    )
                     logger.info(
                         "Updated best %s to %f at batch %d",
-                        cfg.best_metric, self.best_metric, batch_idx,
+                        cfg.best_metric,
+                        self.best_metric,
+                        batch_idx,
                     )
-                    metrics.update({
-                        f"{_metric_prefix}/best_batch": batch_idx,
-                        f"{_metric_prefix}/best_metric": self.best_metric,
-                        f"{_metric_prefix}/best_sampling_client_path": best_sampling_client_path,
-                    })
+                    metrics.update(
+                        {
+                            f"{_metric_prefix}/best_batch": batch_idx,
+                            f"{_metric_prefix}/best_metric": self.best_metric,
+                            f"{_metric_prefix}/best_sampling_client_path": best_sampling_client_path,
+                        }
+                    )
                     try:  # Saving replay buffer
-                        self.replay_buffer.save_to_hf_dataset(self.best_replay_buffer_path)
-                        logger.info("Saved best replay buffer to %s", self.best_replay_buffer_path)
+                        self.replay_buffer.save_to_hf_dataset(
+                            self.best_replay_buffer_path
+                        )
+                        logger.info(
+                            "Saved best replay buffer to %s",
+                            self.best_replay_buffer_path,
+                        )
                     except SchemaInferenceError:
                         logger.warning(
                             "Failed to save best replay buffer to %s\nIs replay buffer empty?",
-                            self.best_replay_buffer_path
+                            self.best_replay_buffer_path,
                         )
 
             # 1. Sample rollouts for training
@@ -356,7 +392,10 @@ class ActPrmTrainer(RLTrainer):
                 kl_penalty_coef=cfg.kl_penalty_coef,
                 kl_discount_factor=cfg.kl_discount_factor,
             )
-            sampling_client, update_metrics = await self.do_train_step_and_get_sampling_client(
+            (
+                sampling_client,
+                update_metrics,
+            ) = await self.do_train_step_and_get_sampling_client(
                 batch_idx=batch_idx,
                 training_client=self.training_client,
                 data_D=data_D,

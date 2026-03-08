@@ -19,14 +19,14 @@ def print_header(x, border="both") -> None:
     """
     match border:
         case "both":
-            prefix = f"{"-" * len(x)}\n"
-            suffix = f"\n{"-" * len(x)}"
+            prefix = f"{'-' * len(x)}\n"
+            suffix = f"\n{'-' * len(x)}"
         case "top":
-            prefix = f"{"-" * len(x)}\n"
+            prefix = f"{'-' * len(x)}\n"
             suffix = ""
         case "bottom":
             prefix = ""
-            suffix = f"\n{"-" * len(x)}"
+            suffix = f"\n{'-' * len(x)}"
         case _:
             raise ValueError(f"Invalid border: {border}")
     rich_print(f"{prefix}{x}{suffix}")
@@ -48,12 +48,12 @@ def print_config(config: DictConfig, name: str = "CONFIG", style="bright") -> No
             elif isinstance(config_section, ListConfig):
                 branch_content = OmegaConf.to_yaml(config_section, resolve=True)
             branch.add(Syntax(branch_content, "yaml"))
-        
+
         # except InterpolationResolutionError as e:
         except Exception as e:
             _error_text = f"({type(e).__name__}: {e})"
             print(f"-> Error resolving interpolation: {_error_text}")
             print(f"-> Field: {field}")
             print(f"-> Config section: {config_section}")
-        
+
     rich_print(tree)

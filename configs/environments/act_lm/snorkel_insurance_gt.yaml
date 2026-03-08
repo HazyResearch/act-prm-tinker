@@ -34,6 +34,7 @@ max_turns: null
 num_tries: 1
 eval_num_tries: 1
 seed: 0
+data_seed: 0
 split: "train"
 system_prompt: "You are a helpful tool-calling assistant."
 original_system_prompt: "You are a helpful tool-calling assistant."

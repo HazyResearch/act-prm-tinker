@@ -61,6 +61,7 @@ class RLTrainer(BaseTrainer):
     """
     PyTorch trainer for policy gradient with Hugging Face Transformers models
     """
+
     def __init__(
         self,
         cfg: DictConfig,
@@ -68,7 +69,9 @@ class RLTrainer(BaseTrainer):
         log_path: str | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(cfg=cfg, checkpoint_path=checkpoint_path, log_path=log_path, **kwargs)
+        super().__init__(
+            cfg=cfg, checkpoint_path=checkpoint_path, log_path=log_path, **kwargs
+        )
 
         # Checkpointing and best metrics
         self.best_checkpoint_path = join(self.checkpoint_path, "step_best")
@@ -80,7 +83,6 @@ class RLTrainer(BaseTrainer):
         self.best_metric = float("-inf")
         self.best_metric_step = -1
         self.best_metric_name = cfg.best_metric
-        
 
     def compute_loss(
         self,
@@ -95,16 +97,17 @@ class RLTrainer(BaseTrainer):
         """
         fp32_loss = fp32_loss or self.fp32_loss
         device = model.device
-        
+
         # Get advantages, logprobs, label mask (advantages are 0 for non-label tokens)
         # -> Next-token shifted as targets, see ../train.py prepare_minibatch()
         advantages = batch["advantages"].to(device)
         old_logprobs = batch["logprobs"].to(device)
         label_mask = batch["label_mask"].to(device)
-        
+
         # Compute on-policy logprobs
         model_inputs = {
-            k: v.to(device) for k, v in batch.items()
+            k: v.to(device)
+            for k, v in batch.items()
             if k in ["input_ids", "attention_mask"]
         }
         logits = model(**model_inputs, use_cache=False).logits[:, :-1, :]
@@ -114,7 +117,9 @@ class RLTrainer(BaseTrainer):
         # Xent needs (N, C, d) inputs and (N, d) labels,
         # -> So we transpose from (B, L-1, V) -> (B, V, L-1)
         new_logprobs = -F.cross_entropy(
-            logits.transpose(1, 2).to(dtype=dtype), labels, reduction="none",
+            logits.transpose(1, 2).to(dtype=dtype),
+            labels,
+            reduction="none",
         ).to(dtype=logits.dtype)
 
         # new_logprobs_2 = -F.cross_entropy(
@@ -125,7 +130,7 @@ class RLTrainer(BaseTrainer):
 
         # print(new_logprobs * label_mask, new_logprobs_2)
         # breakpoint()
-        
+
         # Get importance-weighted loss; non-surrogate form for clarity
         try:
             ratio = torch.exp(new_logprobs.detach() - old_logprobs.to(device))
@@ -140,17 +145,23 @@ class RLTrainer(BaseTrainer):
 
         # Compute additional logging metrics
         ppl = torch.exp(-(new_logprobs * label_mask).sum() / num_label_tokens).item()
-        mean_advantage = (advantages.sum() / num_label_tokens).item()  # advantages already padded
-        num_gen_tokens = label_mask.sum(dim=-1).tolist()     # average generated tokens per sample
+        mean_advantage = (
+            advantages.sum() / num_label_tokens
+        ).item()  # advantages already padded
+        num_gen_tokens = label_mask.sum(
+            dim=-1
+        ).tolist()  # average generated tokens per sample
         num_gen_tokens = sum(num_gen_tokens) / len(num_gen_tokens)
 
         del advantages, old_logprobs, model_inputs, logits, labels, num_label_tokens
         torch.cuda.empty_cache()
 
         return {
-            "loss": loss, "ppl": ppl, "advantage": mean_advantage, "num_gen_tokens": num_gen_tokens
+            "loss": loss,
+            "ppl": ppl,
+            "advantage": mean_advantage,
+            "num_gen_tokens": num_gen_tokens,
         }
-
 
     def train(
         self,
@@ -184,8 +195,14 @@ class RLTrainer(BaseTrainer):
 
         # 1. Determine mechanical dataset batch size and number of epochs
         num_steps = num_steps or cfg.get("num_steps", None) or cfg.num_batches
-        num_substeps = num_substeps or cfg.num_substeps  # number of effective gradient updates per sampling batch
-        dataloader_batch_size = 1 if cfg.get("group_size", 1) == 1 else 2  # HF behavior w/ batches and padding, also GPU poor
+        num_substeps = (
+            num_substeps or cfg.num_substeps
+        )  # number of effective gradient updates per sampling batch
+        dataloader_batch_size = (
+            1 if cfg.get("group_size", 1) == 1 else 2
+        )  # HF behavior w/ batches and padding, also GPU poor
+        # MZ 03/07/2026: just set this to 1 for now
+        dataloader_batch_size = 1
         # mini_batch_size = mini_batch_size or cfg.mini_batch_size
         # grad_accum_step = gradient_accumulation_steps or cfg.gradient_accumulation_steps or 1
         # dataloader_batch_size = mini_batch_size // grad_accum_step
@@ -202,7 +219,9 @@ class RLTrainer(BaseTrainer):
             t_start = time.time()
 
             # Run evaluations
-            if (eval_every > 0 and batch_idx % eval_every == 0) or batch_idx == num_steps - 1:
+            if (
+                eval_every > 0 and batch_idx % eval_every == 0
+            ) or batch_idx == num_steps - 1:
                 with timed("run_evals", metrics):
                     eval_env.split = "eval"
                     llm.model.eval()
@@ -217,15 +236,21 @@ class RLTrainer(BaseTrainer):
                         split="eval",
                         num_tries=cfg.eval_num_tries,
                         # Just use all eval tasks
-                        start_idx=0,  
+                        start_idx=0,
                         tasks_per_update=len(eval_env),
                         name_or_identifier=name_or_identifier,
                     )
                     metrics.update(eval_rollout_metrics)
-                    display_metrics(eval_rollout_metrics, title=f"Rollout Eval Metrics, Step {batch_idx}", style="bright_yellow")
+                    display_metrics(
+                        eval_rollout_metrics,
+                        title=f"Rollout Eval Metrics, Step {batch_idx}",
+                        style="bright_yellow",
+                    )
 
                 # Save best checkpoints
-                best_metric_key = [k for k in eval_rollout_metrics.keys() if self.best_metric_name in k][0]
+                best_metric_key = [
+                    k for k in eval_rollout_metrics.keys() if self.best_metric_name in k
+                ][0]
                 last_metric = eval_rollout_metrics[best_metric_key]
                 if is_better(last_metric, self.best_metric, self.best_metric_name):
                     self.best_metric = last_metric
@@ -235,23 +260,32 @@ class RLTrainer(BaseTrainer):
                         f"RL EVAL (Step {batch_idx}): "
                         f"Updated best metric to {last_metric} at step {batch_idx}"
                     )
-                    metrics.update({
-                        f"eval/{self.best_metric_name}": last_metric,
-                        f"eval/{self.best_metric_name}_best": self.best_metric,
-                        f"eval/{self.best_metric_name}_best_step": self.best_metric_step,
-                    })
+                    metrics.update(
+                        {
+                            f"eval/{self.best_metric_name}": last_metric,
+                            f"eval/{self.best_metric_name}_best": self.best_metric,
+                            f"eval/{self.best_metric_name}_best_step": self.best_metric_step,
+                        }
+                    )
                     try:  # Saving replay buffer
-                        self.replay_buffer.save_to_hf_dataset(self.best_replay_buffer_path)
-                        logger.info("Saved best replay buffer to %s", self.best_replay_buffer_path)
+                        self.replay_buffer.save_to_hf_dataset(
+                            self.best_replay_buffer_path
+                        )
+                        logger.info(
+                            "Saved best replay buffer to %s",
+                            self.best_replay_buffer_path,
+                        )
                     except SchemaInferenceError:
                         logger.warning(
                             "Failed to save best replay buffer to %s\nIs replay buffer empty?",
-                            self.best_replay_buffer_path
+                            self.best_replay_buffer_path,
                         )
 
             # Generate and save trajectories to a HF Dataset
             _save_rollouts_every = cfg.get("save_rollouts_every", num_steps)
-            do_save_rollouts = (batch_idx + 1) % _save_rollouts_every == 0 or (batch_idx + 1 == num_steps)
+            do_save_rollouts = (batch_idx + 1) % _save_rollouts_every == 0 or (
+                batch_idx + 1 == num_steps
+            )
             if _save_rollouts_every > 0 and do_save_rollouts:
                 self.generate_and_save_trajectories(
                     cfg=cfg,
@@ -266,7 +300,7 @@ class RLTrainer(BaseTrainer):
             if rl_start_idx + cfg.batch_size > wen_shuffle:
                 random.shuffle(env.datasets["train"])
                 wen_shuffle += len(env.datasets["train"])
-            
+
             train_rollout_metrics, new_trajectories = run_rollouts(
                 llm=llm,
                 hf_tokenizer=hf_tokenizer,
@@ -282,8 +316,12 @@ class RLTrainer(BaseTrainer):
                 name_or_identifier=name_or_identifier,
             )
             metrics.update(train_rollout_metrics)
-            display_metrics(train_rollout_metrics, title=f"Rollout Training Metrics, Step {batch_idx}", style="bright_cyan")
-            
+            display_metrics(
+                train_rollout_metrics,
+                title=f"Rollout Training Metrics, Step {batch_idx}",
+                style="bright_cyan",
+            )
+
             # Save replay buffer samples
             for trajectory in new_trajectories["policy"]:
                 self.replay_buffer.add_trajectory(trajectory)
@@ -291,7 +329,7 @@ class RLTrainer(BaseTrainer):
 
             # 2. Update policy LLM with generated rollouts
             llm.model.train()
-            
+
             train_loader, _minibatch_metrics = self.prepare_minibatch(
                 new_trajectories=new_trajectories["policy"],
                 hf_tokenizer=hf_tokenizer,
@@ -303,15 +341,21 @@ class RLTrainer(BaseTrainer):
 
             # For now, auto-calculate gradient accumulation steps based on num_substeps
             gradient_accumulation_steps = max(1, len(train_loader) // num_substeps)
-            pbar_substep = tqdm(total=num_substeps, desc="Number of substeps", colour="blue", position=2)
-            pbar_dataloader = tqdm(train_loader, desc="Dataloader batches", colour="cyan", position=3)
+            pbar_substep = tqdm(
+                total=num_substeps, desc="Number of substeps", colour="blue", position=2
+            )
+            pbar_dataloader = tqdm(
+                train_loader, desc="Dataloader batches", colour="cyan", position=3
+            )
 
             for mini_batch_idx, mini_batch in enumerate(pbar_dataloader):
                 # Sanity-check model inputs
                 if mini_batch_idx == 0 or (mini_batch_idx + 1) % 10 == 0:
                     self._check_model_inputs(mini_batch, hf_tokenizer, cfg)
 
-                loss_metrics = self.compute_loss(llm.model, mini_batch, fp32_loss=self.fp32_loss)
+                loss_metrics = self.compute_loss(
+                    llm.model, mini_batch, fp32_loss=self.fp32_loss
+                )
                 loss = loss_metrics["loss"]
                 loss = loss / gradient_accumulation_steps
                 loss.backward()
@@ -322,7 +366,8 @@ class RLTrainer(BaseTrainer):
                     pbar_substep.update(1)
 
                 loss_metrics = {
-                    f"train/{k}": get_item(v) for k, v in loss_metrics.items()
+                    f"train/{k}": get_item(v)
+                    for k, v in loss_metrics.items()
                     # if v.numel() == 1  # manually ensure in compute_loss that these are scalars
                 }
                 metrics.update(loss_metrics)
@@ -335,7 +380,9 @@ class RLTrainer(BaseTrainer):
             except Exception as e:
                 _error_class = e.__class__.__name__
                 _error_message = str(e)
-                rich_print(f"[red]Error logging metrics: {_error_class}: {_error_message}[/red]")
+                rich_print(
+                    f"[red]Error logging metrics: {_error_class}: {_error_message}[/red]"
+                )
                 for k, v in metrics.items():
                     print(k, type(v))
                 breakpoint()
@@ -345,7 +392,6 @@ class RLTrainer(BaseTrainer):
         # llm.model = load_lora(llm.model, self.best_lm_checkpoint_path)
         llm.model = load_lora(llm.model, self.best_checkpoint_path)
         return llm
-
 
     def generate_and_save_trajectories(
         self,
@@ -359,6 +405,7 @@ class RLTrainer(BaseTrainer):
         trajectory_key: str = "policy",
         dataset_prefix: str = "mzio/aprm-sft_rollouts",
         dataset_suffix: str = "",
+        split: str | None = None,
     ) -> list[list[Trajectory]]:
         """
         Generate trajectories for all tasks in an environment
@@ -368,12 +415,18 @@ class RLTrainer(BaseTrainer):
         env = save_env or self.env
         cfg = cfg or self.cfg
         hf_tokenizer = hf_tokenizer or self.hf_tokenizer
-        
-        env.split = "train"
+
+        if split is not None:
+            dataset_suffix = f"-{split}" if len(dataset_suffix) > 0 else f"{split}"
+        split = split or "train"
+
+        env.split = split
         was_training = copy(llm.model.training)
         llm.model.eval()
-        
-        logger.info("Generating trajectories for all %d tasks in the environment", len(env))
+
+        logger.info(
+            "Generating trajectories for all %d tasks in the environment", len(env)
+        )
         _, new_trajectories = run_rollouts(
             llm=llm,
             hf_tokenizer=hf_tokenizer,
@@ -382,7 +435,7 @@ class RLTrainer(BaseTrainer):
             cfg=cfg,
             batch_id=save_batch_idx,
             checkpoint_name="sft_gen",
-            split="train",
+            split=split,
             num_tries=cfg.num_tries,
             start_idx=0,  # Sequentially generate trajectories for all tasks
             tasks_per_update=len(env),
@@ -391,19 +444,57 @@ class RLTrainer(BaseTrainer):
         # Save thought-action rollouts so far to a HF Dataset and push to hub
         # -> Then can evaluate by seeing how training another LLM from scratch performs
         # -> Will overwrite existing dataset if it already exists (e.g., to hit total samples)
-        ds_identifier = "-".join([
-            f"{delim[:1].upper()}{self.run_name.split(delim)[-1].split("-")[0]}"
-            for delim in ["enco=", "geco=", "se=", "re="]  # env, generator, seed, replicate
-        ])
+        # Build ds_identifier from run_name, extracting abbreviated key=value pairs:
+        #   E<env_config>-G<generator_config>-S<seed>-R<replicate>
+        # e.g. "Eact_prm_snorkel-Gaprm_qwen3_ap_nobandit-S42-R0"
+        ds_identifier = "-".join(
+            [
+                f"{delim[:1].upper()}{self.run_name.split(delim)[-1].split('-')[0]}"
+                for delim in [
+                    "enco=",  # E: --env_config
+                    "geco=",  # G: --generator_config
+                    "se=",  # S: --seed
+                    "re=",  # R: --replicate
+                ]
+            ]
+        )
         if "joint" in self.run_name:
             ds_identifier += "-joint"
-        ds_name = f"{dataset_prefix}-{ds_identifier}{dataset_suffix}-b{save_batch_idx:03d}"
-        if len(ds_name) > 96:  # hacks to cut down on HuggingFace dataset hub name length
-            ds_name = ds_name.replace("tau_bench", "tau").replace("act_prm", "aprm").replace("qwen3", "qw3")
+        ds_name = (
+            f"{dataset_prefix}-{ds_identifier}{dataset_suffix}-b{save_batch_idx:03d}"
+        )
+        if (
+            len(ds_name) > 96
+        ):  # hacks to cut down on HuggingFace dataset hub name length
+            ds_name = (
+                ds_name.replace("tau_bench", "tau")
+                .replace("act_prm", "aprm")
+                .replace("qwen3", "qw3")
+            )
+        ds_name = _sanitize_hf_repo_name(ds_name)
         cfg.dataset_url_sft = f"https://huggingface.co/datasets/{ds_name}"
+
+        # Build metadata for the dataset card
+        _trajectories = new_trajectories[trajectory_key]
+        metadata = {
+            "run_name": self.run_name,
+            "run_cmd": self.run_cmd,
+            "env_config": cfg.get("env_config", None),
+            "generator_config": cfg.get("generator_config", None),
+            "trainer_config": cfg.get("trainer_config", None),
+            "model_name": cfg.get("model_name", None),
+            "seed": cfg.get("seed", None),
+            "replicate": cfg.get("replicate", None),
+            "batch_idx": save_batch_idx,
+            "split": split,
+            "trajectory_key": trajectory_key,
+            "num_trajectories": len(_trajectories),
+            "num_episodes": sum(len(t.episode_steps) for t in _trajectories),
+            "group_size": cfg.get("group_size", None),
+            "batch_size": cfg.get("batch_size", None),
+        }
         try:
-            _save_trajectories_to_hf_dataset(new_trajectories[trajectory_key], ds_name)
-            # logger.info("Saved trajectories to HF Dataset: %s", ds_name)
+            _save_trajectories_to_hf_dataset(_trajectories, ds_name, metadata=metadata)
             logger.info("Saved trajectories to HF Dataset: %s", cfg.dataset_url_sft)
         except Exception as e:
             _error_text = f"({type(e).__name__}: {e})"
@@ -412,8 +503,38 @@ class RLTrainer(BaseTrainer):
 
         if was_training:
             llm.model.train()
-        
+
         return new_trajectories[trajectory_key]
+
+
+def _sanitize_hf_repo_name(name: str, max_length: int = 96) -> str:
+    """
+    Sanitize a HuggingFace repo name to comply with Hub restrictions:
+    - Only alphanumeric, '-', '_', '.' allowed
+    - '--' and '..' are forbidden
+    - Cannot start or end with '-' or '.'
+    - Max length is 96
+    """
+    import re
+
+    # Keep only allowed characters
+    name = re.sub(r"[^a-zA-Z0-9/_\-.]", "_", name)
+    # Collapse '--' and '..' sequences
+    while "--" in name:
+        name = name.replace("--", "-")
+    while ".." in name:
+        name = name.replace("..", ".")
+    # Strip leading/trailing '-' and '.' from the repo name part (after namespace/)
+    if "/" in name:
+        namespace, repo = name.split("/", 1)
+        repo = repo.strip("-.")
+        name = f"{namespace}/{repo}"
+    else:
+        name = name.strip("-.")
+    # Truncate to max length
+    if len(name) > max_length:
+        name = name[:max_length].rstrip("-.")
+    return name
 
 
 def _save_trajectories_to_hf_dataset(
@@ -421,9 +542,10 @@ def _save_trajectories_to_hf_dataset(
     dataset_name: str,
     exclude_keys: list[str] | None = None,
     private: bool = False,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     """
-    Save a list of trajectories to a HF Dataset
+    Save a list of trajectories to a HF Dataset, with optional metadata in the README
     """
     exclude_keys = exclude_keys or ["state_action_tokens", "old_logprobs"]
     ds_samples = [
@@ -433,9 +555,37 @@ def _save_trajectories_to_hf_dataset(
     ]  # Flatten to get dicts from list of EpisodeSteps in each Trajectory
     try:
         Dataset.from_list(ds_samples).push_to_hub(dataset_name, private=private)
+        if metadata:
+            _push_dataset_card(dataset_name, metadata)
     except Exception as e:
         _error_text = f"({type(e).__name__}: {e})"
         logger.error("Failed to save trajectories to HF Dataset: %s", _error_text)
         dataset_name = dataset_name.replace("/", "-")
         Dataset.from_list(ds_samples).save_to_disk(dataset_name)
         logger.info("Saved trajectories to local directory: %s", dataset_name)
+
+
+def _push_dataset_card(
+    dataset_name: str,
+    metadata: dict[str, Any],
+) -> None:
+    """
+    Push a DatasetCard (README.md) with metadata to the HuggingFace Hub
+    """
+    from huggingface_hub import DatasetCard, DatasetCardData
+
+    # Standard HF card fields
+    card_data = DatasetCardData(
+        license="mit",
+        tags=["act-prm", "rollouts"],
+    )
+    # Build card body with run metadata
+    body_lines = ["# Act-PRM Rollout Dataset\n"]
+    body_lines.append("## Run Metadata\n")
+    for key, value in metadata.items():
+        if value is not None:
+            body_lines.append(f"- **{key}**: `{value}`")
+    body = "\n".join(body_lines)
+
+    card = DatasetCard.from_template(card_data, template_str=body)
+    card.push_to_hub(dataset_name)

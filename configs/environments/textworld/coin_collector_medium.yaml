@@ -1,0 +1,25 @@
+name: "textworld"
+is_async: false
+task: "coin_collector"
+state_keys: ["description", "score", "moves"]
+dataset_config:
+  cache_dir: "./data/textworld/medium"
+
+hide_observations: false
+hidden_obs_content: "..."
+first_obs_to_show: 1
+last_obs_to_show: 0
+
+num_train_samples: 80
+num_val_samples: null
+num_test_samples: 20
+
+max_turns: 60
+num_tries: 1
+eval_num_tries: 1
+seed: 0
+data_seed: 0
+split: "train"
+system_prompt: "You are a helpful tool-calling assistant."
+truncation_message: "Sorry, you have reached the maximum number of steps. Please try again."
+verbose: false
