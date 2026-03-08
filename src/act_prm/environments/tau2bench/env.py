@@ -2,7 +2,7 @@
 Online tau2-bench environment for step-by-step rollouts.
 
 Wraps tau2's AgentGymEnv to provide a live interactive environment where an
-LLM agent interacts with a simulated user and domain-specific tools. 
+LLM agent interacts with a simulated user and domain-specific tools.
 This enables rollout evaluation and RL training on tau2-bench tasks.
 """
 
@@ -32,6 +32,7 @@ class Tau2BenchState(EnvironmentState):
     it's not a Pydantic-serializable object), along with task metadata and
     the latest info dict from tau2.
     """
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # Live tau2 gym environment for this episode (excluded from serialization)
@@ -46,6 +47,7 @@ class Tau2BenchState(EnvironmentState):
 
 class Tau2BenchStepResult(EnvironmentStepResult):
     """Result of a step in the tau2-bench environment."""
+
     state: Tau2BenchState
     reward: float
     done: bool
@@ -96,8 +98,12 @@ class Tau2BenchEnv(Environment):
         **kwargs: Any,
     ) -> None:
         super().__init__(
-            max_turns=max_turns, num_tries=num_tries, eval_num_tries=eval_num_tries,
-            seed=seed, split=split, **kwargs
+            max_turns=max_turns,
+            num_tries=num_tries,
+            eval_num_tries=eval_num_tries,
+            seed=seed,
+            split=split,
+            **kwargs,
         )
         self.domain = domain
         self.user_llm = user_llm
@@ -147,13 +153,15 @@ class Tau2BenchEnv(Environment):
 
         # Split by index: test first (for stable eval), then train
         # (same ordering convention as TextWorldEnv)
-        test_tasks = all_tasks[:self.num_test_tasks]
-        train_tasks = all_tasks[self.num_test_tasks:self.num_test_tasks + self.num_train_tasks]
+        test_tasks = all_tasks[: self.num_test_tasks]
+        train_tasks = all_tasks[
+            self.num_test_tasks : self.num_test_tasks + self.num_train_tasks
+        ]
         eval_tasks = test_tasks  # default: eval = test
 
         if self.num_val_tasks is not None:
             val_start = self.num_test_tasks + self.num_train_tasks
-            eval_tasks = all_tasks[val_start:val_start + self.num_val_tasks]
+            eval_tasks = all_tasks[val_start : val_start + self.num_val_tasks]
 
         datasets = {
             "train": train_tasks,
@@ -242,7 +250,7 @@ class Tau2BenchEnv(Environment):
             Initial Tau2BenchState with tools, system prompt, and first user message.
         """
         # Close any previous episode's environment to prevent resource leaks
-        if hasattr(self, '_current_tau2_env') and self._current_tau2_env is not None:
+        if hasattr(self, "_current_tau2_env") and self._current_tau2_env is not None:
             try:
                 self._current_tau2_env.close()
             except Exception as e:
@@ -270,7 +278,9 @@ class Tau2BenchEnv(Environment):
         messages = [{"role": "user", "content": user_content}]
 
         if self.verbose and sample_idx == 0 and generation_idx == 0 and try_step == 0:
-            logger.info(f"tau2bench reset: task_id={task.id}, obs={user_content[:100]}...")
+            logger.info(
+                f"tau2bench reset: task_id={task.id}, obs={user_content[:100]}..."
+            )
 
         return Tau2BenchState(
             system_prompt=self._full_system_prompt,
@@ -289,7 +299,8 @@ class Tau2BenchEnv(Environment):
             try_step=try_step,
             timestep=0,
             metadata={"correct": 0, "total": 1},
-            first_obs_to_show=len(messages) + 1,  # keep system + initial user message visible
+            first_obs_to_show=len(messages)
+            + 1,  # keep system + initial user message visible
         )
 
     def step(self, **kwargs: Any) -> Tau2BenchStepResult:
@@ -349,12 +360,14 @@ class Tau2BenchEnv(Environment):
                     tau2_info = info
 
                     # Tool result confirming message was sent
-                    env_messages.append({
-                        "role": "tool",
-                        "type": "function_call_output",
-                        "call_id": action.call_id,
-                        "output": "Message sent to user.",
-                    })
+                    env_messages.append(
+                        {
+                            "role": "tool",
+                            "type": "function_call_output",
+                            "call_id": action.call_id,
+                            "output": "Message sent to user.",
+                        }
+                    )
 
                     reward = float(step_reward)
                     done = bool(terminated) or bool(step_truncated)
@@ -365,18 +378,22 @@ class Tau2BenchEnv(Environment):
                     if not done:
                         user_response = parse_observation(obs)
                         if user_response:
-                            env_messages.append({
-                                "role": "user",
-                                "content": user_response,
-                            })
+                            env_messages.append(
+                                {
+                                    "role": "user",
+                                    "content": user_response,
+                                }
+                            )
                     made_tool_call = True
 
                 else:
                     # Regular tool call: format as JSON and send to tau2
-                    action_str = json.dumps({
-                        "name": fc_name,
-                        "arguments": fc_args,
-                    })
+                    action_str = json.dumps(
+                        {
+                            "name": fc_name,
+                            "arguments": fc_args,
+                        }
+                    )
                     try:
                         obs, step_reward, terminated, step_truncated, info = (
                             tau2_env.step(action_str)
@@ -385,12 +402,14 @@ class Tau2BenchEnv(Environment):
 
                         # Parse tool result from observation
                         tool_output = parse_observation(obs) if obs else "No output."
-                        env_messages.append({
-                            "role": "tool",
-                            "type": "function_call_output",
-                            "call_id": action.call_id,
-                            "output": tool_output,
-                        })
+                        env_messages.append(
+                            {
+                                "role": "tool",
+                                "type": "function_call_output",
+                                "call_id": action.call_id,
+                                "output": tool_output,
+                            }
+                        )
 
                         reward = float(step_reward)
                         done = bool(terminated) or bool(step_truncated)
@@ -399,14 +418,18 @@ class Tau2BenchEnv(Environment):
                         made_tool_call = True
 
                     except Exception as e:
-                        error_msg = f"Tool call error for '{fc_name}': {type(e).__name__}: {e}"
+                        error_msg = (
+                            f"Tool call error for '{fc_name}': {type(e).__name__}: {e}"
+                        )
                         logger.warning(error_msg)
-                        env_messages.append({
-                            "role": "tool",
-                            "type": "function_call_output",
-                            "call_id": action.call_id,
-                            "output": error_msg,
-                        })
+                        env_messages.append(
+                            {
+                                "role": "tool",
+                                "type": "function_call_output",
+                                "call_id": action.call_id,
+                                "output": error_msg,
+                            }
+                        )
                         done = True
                         truncated = True
                         if not updated_try_step:
@@ -435,18 +458,22 @@ class Tau2BenchEnv(Environment):
                         if not done:
                             user_response = parse_observation(obs)
                             if user_response:
-                                env_messages.append({
-                                    "role": "user",
-                                    "content": user_response,
-                                })
+                                env_messages.append(
+                                    {
+                                        "role": "user",
+                                        "content": user_response,
+                                    }
+                                )
                     else:
                         # Empty text — treat as failure
                         done = True
                         truncated = True
-                        env_messages.append({
-                            "role": "user",
-                            "content": "You must use tool calls to interact. Please try again.",
-                        })
+                        env_messages.append(
+                            {
+                                "role": "user",
+                                "content": "You must use tool calls to interact. Please try again.",
+                            }
+                        )
                         if not updated_try_step:
                             try_step += 1
                             updated_try_step = True
@@ -467,10 +494,12 @@ class Tau2BenchEnv(Environment):
 
         # Ensure we always have at least one response message
         if len(env_messages) == 0:
-            env_messages.append({
-                "role": "user",
-                "content": "No actions were parsed. Please use tool calls to continue.",
-            })
+            env_messages.append(
+                {
+                    "role": "user",
+                    "content": "No actions were parsed. Please use tool calls to continue.",
+                }
+            )
             logger.error("No actions parsed in tau2bench step.")
 
         # Handle observation hiding for prior messages
@@ -484,13 +513,15 @@ class Tau2BenchEnv(Environment):
         if reward >= 1.0:
             metadata["correct"] = 1
 
-        metadata.update({
-            "reward": reward,
-            "done": done,
-            "truncated": truncated,
-            "made_tool_call": made_tool_call,
-            "task_id": current_state.task_id,
-        })
+        metadata.update(
+            {
+                "reward": reward,
+                "done": done,
+                "truncated": truncated,
+                "made_tool_call": made_tool_call,
+                "task_id": current_state.task_id,
+            }
+        )
 
         new_state = Tau2BenchState(
             system_prompt=current_state.system_prompt,

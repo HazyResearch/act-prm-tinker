@@ -12,6 +12,11 @@ from .openai import (
     AsyncOpenAIResponsesLLM,
     Response,
 )
+from .claude_agent_sdk import (
+    ClaudeQueryLLM,
+    ClaudeClientLLM,
+    ClaudeAgentResponse,
+)
 from .tinker import TinkerCompleter
 from .types import ActionFromLLM
 
@@ -34,6 +39,12 @@ def load_llm(
         else:
             return OpenAIResponsesLLM(**model_config)
 
+    if name == "claude_query":
+        return ClaudeQueryLLM(**model_config)
+
+    if name == "claude_client":
+        return ClaudeClientLLM(**model_config)
+
     raise ValueError(f"Invalid model name: {name}")
 
 
@@ -45,6 +56,9 @@ __all__ = [
     "Response",
     "OpenAIResponsesLLM",
     "AsyncOpenAIResponsesLLM",
+    "ClaudeQueryLLM",
+    "ClaudeClientLLM",
+    "ClaudeAgentResponse",
     "HuggingFaceLLM",
     "TinkerCompleter",
 ]
