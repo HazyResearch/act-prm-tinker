@@ -276,6 +276,7 @@ class ActPrmEnv(Environment):
             "train": [all_trajectories_and_tools[i] for i in train_indices],
             "eval": [all_trajectories_and_tools[i] for i in eval_indices],
             "test": [all_trajectories_and_tools[i] for i in test_indices],
+            "train_eval": [all_trajectories_and_tools[i] for i in train_indices + eval_indices],
         }
         return datasets
 
