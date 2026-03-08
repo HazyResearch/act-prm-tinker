@@ -916,7 +916,7 @@ class TestSnorkelFinanceGradingWithClaude:
             correct_answer = sample["answer"]
 
             # The final action content is the agent's response
-            action_content = sample["action"]["content_0"]
+            action_content = sample["action"]["content"]
             response_text = _extract_final_response(action_content)
             assert response_text is not None, (
                 f"Could not extract response from sample {i}"
@@ -976,7 +976,7 @@ class TestSnorkelFinanceGradingWithClaude:
                 continue
 
             correct_answer = sample["answer"]
-            action_content = sample["action"]["content_0"]
+            action_content = sample["action"]["content"]
             response_text = _extract_final_response(action_content)
             if response_text is None:
                 continue
