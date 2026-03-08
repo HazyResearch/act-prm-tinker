@@ -9,6 +9,7 @@ Two subclasses of LLM using the Claude Agent SDK:
 import asyncio
 import json
 import os
+import queue
 import threading
 
 from dataclasses import dataclass, field
@@ -230,14 +231,19 @@ class ClaudeQueryLLM(LLM):
 
         mcp_servers, allowed_tools = _convert_tools_to_mcp_server(tools or [])
 
-        options = ClaudeAgentOptions(
-            model=self.model,
-            system_prompt=system_prompt,
-            max_turns=self.max_turns,
-            permission_mode=self.permission_mode,
-            mcp_servers=mcp_servers,
-            allowed_tools=allowed_tools,
-        )
+        options_kwargs: dict[str, Any] = {
+            "model": self.model,
+            "system_prompt": system_prompt,
+            "max_turns": self.max_turns,
+            "permission_mode": self.permission_mode,
+            "mcp_servers": mcp_servers,
+            "allowed_tools": allowed_tools,
+        }
+        # When env tools are provided, restrict Claude to only those tools
+        # (otherwise Claude Code's built-in tools like ToolSearch are also available)
+        if allowed_tools:
+            options_kwargs["tools"] = allowed_tools
+        options = ClaudeAgentOptions(**options_kwargs)
 
         response = ClaudeAgentResponse()
 
@@ -326,8 +332,10 @@ class ClaudeClientLLM(LLM):
     remembers previous context, making it suitable for multi-step agent interactions
     where you want Claude to maintain state.
 
-    Uses a dedicated background event loop thread so that the async ClaudeSDKClient
-    persists across synchronous `sample()` calls.
+    Uses a single-task worker pattern on a background event loop thread so that all
+    async SDK operations (connect, query, disconnect) run in the same asyncio Task.
+    This is required because `ClaudeSDKClient` uses anyio cancel scopes internally,
+    which are task-local and cannot cross task boundaries.
 
     Example usage:
     ```
@@ -365,25 +373,65 @@ class ClaudeClientLLM(LLM):
         self.last_usage = None
         self._client: ClaudeSDKClient | None = None
         self._connected = False
-        # Persistent event loop in a background thread for ClaudeSDKClient
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread: threading.Thread | None = None
+        self._cmd_queue: asyncio.Queue | None = None
+        self._result_queue: queue.Queue = queue.Queue()
 
     def _ensure_loop(self) -> asyncio.AbstractEventLoop:
-        """Start a background event loop thread if not already running."""
-        if self._loop is None or self._loop.is_closed():
-            self._loop = asyncio.new_event_loop()
-            self._loop_thread = threading.Thread(
-                target=self._loop.run_forever, daemon=True
-            )
-            self._loop_thread.start()
+        """Start a background event loop with a single worker task.
+
+        All SDK operations are dispatched to the worker task via an asyncio.Queue,
+        ensuring they all run in the same task context (required by anyio).
+        """
+        if self._loop is not None and not self._loop.is_closed():
+            return self._loop
+
+        self._loop = asyncio.new_event_loop()
+        ready = threading.Event()
+
+        def _run() -> None:
+            asyncio.set_event_loop(self._loop)
+            self._cmd_queue = asyncio.Queue()
+            self._loop.create_task(self._worker())
+            ready.set()
+            self._loop.run_forever()
+
+        self._loop_thread = threading.Thread(target=_run, daemon=True)
+        self._loop_thread.start()
+        ready.wait(timeout=10)
         return self._loop
 
-    def _run_async(self, coro: Any, timeout: float | None = _ASYNC_TIMEOUT) -> Any:
-        """Run an async coroutine on the persistent event loop."""
+    async def _worker(self) -> None:
+        """Single persistent task that processes all SDK commands sequentially."""
+        while True:
+            cmd_name, args, kwargs = await self._cmd_queue.get()
+            if cmd_name == "__stop__":
+                self._result_queue.put((True, None))
+                break
+            try:
+                method = getattr(self, f"_do_{cmd_name}")
+                result = await method(*args, **kwargs)
+                self._result_queue.put((True, result))
+            except Exception as e:
+                self._result_queue.put((False, e))
+
+    def _send_cmd(
+        self,
+        cmd_name: str,
+        *args: Any,
+        timeout: float = _ASYNC_TIMEOUT,
+        **kwargs: Any,
+    ) -> Any:
+        """Send a command to the worker task and wait for the result."""
         loop = self._ensure_loop()
-        future = asyncio.run_coroutine_threadsafe(coro, loop)
-        return future.result(timeout=timeout)
+        loop.call_soon_threadsafe(
+            self._cmd_queue.put_nowait, (cmd_name, args, kwargs)
+        )
+        ok, result = self._result_queue.get(timeout=timeout)
+        if not ok:
+            raise result
+        return result
 
     def _get_options(
         self,
@@ -392,45 +440,38 @@ class ClaudeClientLLM(LLM):
     ) -> ClaudeAgentOptions:
         """Build ClaudeAgentOptions from current config."""
         mcp_servers, allowed_tools = _convert_tools_to_mcp_server(tools or [])
-        return ClaudeAgentOptions(
-            model=self.model,
-            system_prompt=system_prompt,
-            max_turns=self.max_turns,
-            permission_mode=self.permission_mode,
-            mcp_servers=mcp_servers,
-            allowed_tools=allowed_tools,
-        )
+        options_kwargs: dict[str, Any] = {
+            "model": self.model,
+            "system_prompt": system_prompt,
+            "max_turns": self.max_turns,
+            "permission_mode": self.permission_mode,
+            "mcp_servers": mcp_servers,
+            "allowed_tools": allowed_tools,
+        }
+        if allowed_tools:
+            options_kwargs["tools"] = allowed_tools
+        return ClaudeAgentOptions(**options_kwargs)
 
-    def connect(
+    # -- Worker command handlers (run inside the single worker task) --
+
+    async def _do_connect(
         self,
         system_prompt: str | None = None,
         tools: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Connect the client and start a session."""
         _clear_nested_session_guard()
         options = self._get_options(system_prompt, tools)
         self._client = ClaudeSDKClient(options=options)
-        self._run_async(self._client.connect())
+        await self._client.connect()
         self._connected = True
 
-    def disconnect(self) -> None:
-        """Disconnect the client and end the session."""
+    async def _do_disconnect(self) -> None:
         if self._client is not None:
-            self._run_async(self._client.disconnect())
+            await self._client.disconnect()
             self._client = None
             self._connected = False
-        if self._loop is not None and self._loop.is_running():
-            self._loop.call_soon_threadsafe(self._loop.stop)
-            if self._loop_thread is not None:
-                self._loop_thread.join(timeout=5)
-            self._loop = None
-            self._loop_thread = None
 
-    async def _query_single_async(
-        self,
-        prompt: str,
-    ) -> ClaudeAgentResponse | None:
-        """Send a query and collect the response."""
+    async def _do_query(self, prompt: str) -> ClaudeAgentResponse | None:
         if self._client is None:
             raise RuntimeError("Client not connected. Call connect() first.")
 
@@ -457,6 +498,28 @@ class ClaudeClientLLM(LLM):
 
         return response
 
+    # -- Public API --
+
+    def connect(
+        self,
+        system_prompt: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Connect the client and start a session."""
+        self._send_cmd("connect", system_prompt, tools)
+
+    def disconnect(self) -> None:
+        """Disconnect the client and end the session."""
+        self._send_cmd("disconnect")
+        # Stop the worker and shut down the event loop
+        self._send_cmd("__stop__")
+        if self._loop is not None and self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            if self._loop_thread is not None:
+                self._loop_thread.join(timeout=5)
+            self._loop = None
+            self._loop_thread = None
+
     def _sample_single(
         self,
         system_prompt: str | None,
@@ -466,12 +529,11 @@ class ClaudeClientLLM(LLM):
         **generation_kwargs: Any,
     ) -> ClaudeAgentResponse | None:
         """Synchronous wrapper around async query."""
-        # Auto-connect if not yet connected
         if not self._connected:
             self.connect(system_prompt=system_prompt, tools=tools)
 
         prompt = _messages_to_prompt(None, messages)  # system_prompt set at connect
-        return self._run_async(self._query_single_async(prompt))
+        return self._send_cmd("query", prompt)
 
     def sample(
         self,
