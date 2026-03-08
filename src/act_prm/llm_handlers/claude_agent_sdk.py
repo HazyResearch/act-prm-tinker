@@ -425,9 +425,7 @@ class ClaudeClientLLM(LLM):
     ) -> Any:
         """Send a command to the worker task and wait for the result."""
         loop = self._ensure_loop()
-        loop.call_soon_threadsafe(
-            self._cmd_queue.put_nowait, (cmd_name, args, kwargs)
-        )
+        loop.call_soon_threadsafe(self._cmd_queue.put_nowait, (cmd_name, args, kwargs))
         ok, result = self._result_queue.get(timeout=timeout)
         if not ok:
             raise result
