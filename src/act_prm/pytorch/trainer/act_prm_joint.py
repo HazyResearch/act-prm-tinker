@@ -130,8 +130,7 @@ class ActPrmJointTrainer(RLTrainer):
             no_initial_eval = cfg.get("no_initial_eval", False)
             is_last_step = batch_idx == num_steps - 1
             do_eval = (
-                (eval_every > 0 and batch_idx % eval_every == 0)
-                or is_last_step
+                (eval_every > 0 and batch_idx % eval_every == 0) or is_last_step
             ) and not (no_initial_eval and batch_idx == 0)
             if do_eval:
                 with timed("run_evals", metrics):
@@ -164,9 +163,7 @@ class ActPrmJointTrainer(RLTrainer):
 
                     # Check best gen_think metric
                     gen_think_metric_key = [
-                        k
-                        for k in gen_think_eval_metrics
-                        if self.best_metric_name in k
+                        k for k in gen_think_eval_metrics if self.best_metric_name in k
                     ]
                     if gen_think_metric_key:
                         last_gen_think = gen_think_eval_metrics[gen_think_metric_key[0]]
@@ -356,5 +353,7 @@ class ActPrmJointTrainer(RLTrainer):
                 self.best_metric_think_act,
             )
         else:
-            logger.warning("No best think_act checkpoint was saved; returning current model")
+            logger.warning(
+                "No best think_act checkpoint was saved; returning current model"
+            )
         return llm
