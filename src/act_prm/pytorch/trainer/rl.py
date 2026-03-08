@@ -442,15 +442,18 @@ class RLTrainer(BaseTrainer):
         # Save thought-action rollouts so far to a HF Dataset and push to hub
         # -> Then can evaluate by seeing how training another LLM from scratch performs
         # -> Will overwrite existing dataset if it already exists (e.g., to hit total samples)
+        # Build ds_identifier from run_name, extracting abbreviated key=value pairs:
+        #   E<env_config>-G<generator_config>-S<seed>-R<replicate>
+        # e.g. "Eact_prm_snorkel-Gaprm_qwen3_ap_nobandit-S42-R0"
         ds_identifier = "-".join(
             [
                 f"{delim[:1].upper()}{self.run_name.split(delim)[-1].split('-')[0]}"
                 for delim in [
-                    "enco=",
-                    "geco=",
-                    "se=",
-                    "re=",
-                ]  # env, generator, seed, replicate
+                    "enco=",  # E: --env_config
+                    "geco=",  # G: --generator_config
+                    "se=",  # S: --seed
+                    "re=",  # R: --replicate
+                ]
             ]
         )
         if "joint" in self.run_name:
@@ -466,10 +469,32 @@ class RLTrainer(BaseTrainer):
                 .replace("act_prm", "aprm")
                 .replace("qwen3", "qw3")
             )
+        ds_name = _sanitize_hf_repo_name(ds_name)
         cfg.dataset_url_sft = f"https://huggingface.co/datasets/{ds_name}"
+
+        # Build metadata for the dataset card
+        _trajectories = new_trajectories[trajectory_key]
+        metadata = {
+            "run_name": self.run_name,
+            "run_cmd": self.run_cmd,
+            "env_config": cfg.get("env_config", None),
+            "generator_config": cfg.get("generator_config", None),
+            "trainer_config": cfg.get("trainer_config", None),
+            "model_name": cfg.get("model_name", None),
+            "seed": cfg.get("seed", None),
+            "replicate": cfg.get("replicate", None),
+            "batch_idx": save_batch_idx,
+            "split": split,
+            "trajectory_key": trajectory_key,
+            "num_trajectories": len(_trajectories),
+            "num_episodes": sum(len(t.episode_steps) for t in _trajectories),
+            "group_size": cfg.get("group_size", None),
+            "batch_size": cfg.get("batch_size", None),
+        }
         try:
-            _save_trajectories_to_hf_dataset(new_trajectories[trajectory_key], ds_name)
-            # logger.info("Saved trajectories to HF Dataset: %s", ds_name)
+            _save_trajectories_to_hf_dataset(
+                _trajectories, ds_name, metadata=metadata
+            )
             logger.info("Saved trajectories to HF Dataset: %s", cfg.dataset_url_sft)
         except Exception as e:
             _error_text = f"({type(e).__name__}: {e})"
@@ -482,14 +507,45 @@ class RLTrainer(BaseTrainer):
         return new_trajectories[trajectory_key]
 
 
+def _sanitize_hf_repo_name(name: str, max_length: int = 96) -> str:
+    """
+    Sanitize a HuggingFace repo name to comply with Hub restrictions:
+    - Only alphanumeric, '-', '_', '.' allowed
+    - '--' and '..' are forbidden
+    - Cannot start or end with '-' or '.'
+    - Max length is 96
+    """
+    import re
+
+    # Keep only allowed characters
+    name = re.sub(r"[^a-zA-Z0-9/_\-.]", "_", name)
+    # Collapse '--' and '..' sequences
+    while "--" in name:
+        name = name.replace("--", "-")
+    while ".." in name:
+        name = name.replace("..", ".")
+    # Strip leading/trailing '-' and '.' from the repo name part (after namespace/)
+    if "/" in name:
+        namespace, repo = name.split("/", 1)
+        repo = repo.strip("-.")
+        name = f"{namespace}/{repo}"
+    else:
+        name = name.strip("-.")
+    # Truncate to max length
+    if len(name) > max_length:
+        name = name[:max_length].rstrip("-.")
+    return name
+
+
 def _save_trajectories_to_hf_dataset(
     trajectories: list[Trajectory],
     dataset_name: str,
     exclude_keys: list[str] | None = None,
     private: bool = False,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     """
-    Save a list of trajectories to a HF Dataset
+    Save a list of trajectories to a HF Dataset, with optional metadata in the README
     """
     exclude_keys = exclude_keys or ["state_action_tokens", "old_logprobs"]
     ds_samples = [
@@ -499,9 +555,37 @@ def _save_trajectories_to_hf_dataset(
     ]  # Flatten to get dicts from list of EpisodeSteps in each Trajectory
     try:
         Dataset.from_list(ds_samples).push_to_hub(dataset_name, private=private)
+        if metadata:
+            _push_dataset_card(dataset_name, metadata)
     except Exception as e:
         _error_text = f"({type(e).__name__}: {e})"
         logger.error("Failed to save trajectories to HF Dataset: %s", _error_text)
         dataset_name = dataset_name.replace("/", "-")
         Dataset.from_list(ds_samples).save_to_disk(dataset_name)
         logger.info("Saved trajectories to local directory: %s", dataset_name)
+
+
+def _push_dataset_card(
+    dataset_name: str,
+    metadata: dict[str, Any],
+) -> None:
+    """
+    Push a DatasetCard (README.md) with metadata to the HuggingFace Hub
+    """
+    from huggingface_hub import DatasetCard, DatasetCardData
+
+    # Standard HF card fields
+    card_data = DatasetCardData(
+        license="mit",
+        tags=["act-prm", "rollouts"],
+    )
+    # Build card body with run metadata
+    body_lines = ["# Act-PRM Rollout Dataset\n"]
+    body_lines.append("## Run Metadata\n")
+    for key, value in metadata.items():
+        if value is not None:
+            body_lines.append(f"- **{key}**: `{value}`")
+    body = "\n".join(body_lines)
+
+    card = DatasetCard.from_template(card_data, template_str=body)
+    card.push_to_hub(dataset_name)
