@@ -2,21 +2,17 @@
 Parent class PyTorch trainer for Hugging Face Transformers models
 """
 
-import os
 import logging
 import sys
 from abc import ABC, abstractmethod
-from copy import copy, deepcopy
+from copy import deepcopy
 from typing import Any, Callable
 
 from omegaconf import DictConfig
 from rich import print as rich_print
 from rich.console import Console
 from rich.table import Table
-from tqdm import tqdm
 
-import numpy as np
-import pandas as pd
 import torch
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
@@ -24,13 +20,12 @@ from torch.utils.data import DataLoader
 from transformers import PreTrainedTokenizerBase
 from tinker_cookbook.utils import ml_log
 
-from act_prm.lora import load_lora, save_lora
 from act_prm.llm_handlers import HuggingFaceLLM
 from act_prm.environments import Environment
 from act_prm.replay_buffer import ReplayBuffer
 
 from ..generator import get_generator_constructor, HuggingFaceGenerator
-from ..train import run_rollouts, hide_observations, prepare_minibatch
+from ..train import hide_observations, prepare_minibatch
 
 logger = logging.getLogger(__name__)
 console = Console()
