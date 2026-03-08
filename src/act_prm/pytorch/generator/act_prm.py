@@ -455,7 +455,7 @@ class ActionPromptActPrmGenerator(HuggingFaceGenerator):
                     for _ in range(num_return_sequences)
                 ]
                 for i, _thought_text in enumerate(thoughts_in_group):
-                    state_action_thought_messages_G[i][-1]["content"] += _thought_text
+                    state_action_thought_messages_G[i][-1]["content"] += _thought_text + "\n" + self.thought_eos
 
                 _state_messages_in_group = [
                     act_prompt_state_messages
