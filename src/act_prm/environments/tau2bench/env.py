@@ -123,7 +123,7 @@ class Tau2BenchEnv(Environment):
         self.tool_descriptions, self.domain_policy = self._init_tools_and_policy()
 
         # Build full system prompt incorporating domain policy
-        self._full_system_prompt = self._build_system_prompt()
+        self._full_system_prompt = self.build_system_prompt()
 
     def _init_data(self) -> dict[str, list[Any]]:
         """
@@ -223,17 +223,26 @@ class Tau2BenchEnv(Environment):
         tmp_env.close()
         return tool_descriptions, policy
 
-    def _build_system_prompt(self) -> str:
+    def build_system_prompt(self, system_prompt: str | None = None) -> str:
         """
         Build the full system prompt incorporating domain policy and respond_user instruction.
 
-        Combines the base system prompt with the airline/domain policy and
-        an instruction to always use the respond_user tool for user-facing messages.
+        Combines the base system prompt with the domain policy and an instruction
+        to always use the respond_user tool for user-facing messages.
+
+        Like TextWorldEnv.build_system_prompt(), accepts an optional system_prompt
+        override so that trace configs (act_prm, act_lm) can inject their own
+        base prompt while still getting the domain-specific policy.
+
+        Args:
+            system_prompt: Optional override for the base system prompt.
+                If None, uses self.system_prompt from the config.
 
         Returns:
             Complete system prompt string.
         """
-        parts = [self.system_prompt]
+        system_prompt = system_prompt or self.system_prompt
+        parts = [system_prompt]
 
         if self.domain_policy:
             parts.append(f"\n\n<policy>\n{self.domain_policy}\n</policy>")
