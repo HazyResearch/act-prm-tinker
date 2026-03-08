@@ -201,6 +201,8 @@ class RLTrainer(BaseTrainer):
         dataloader_batch_size = (
             1 if cfg.get("group_size", 1) == 1 else 2
         )  # HF behavior w/ batches and padding, also GPU poor
+        # MZ 03/07/2026: just set this to 1 for now
+        dataloader_batch_size = 1
         # mini_batch_size = mini_batch_size or cfg.mini_batch_size
         # grad_accum_step = gradient_accumulation_steps or cfg.gradient_accumulation_steps or 1
         # dataloader_batch_size = mini_batch_size // grad_accum_step
