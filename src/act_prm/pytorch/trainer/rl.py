@@ -403,6 +403,7 @@ class RLTrainer(BaseTrainer):
         trajectory_key: str = "policy",
         dataset_prefix: str = "mzio/aprm-sft_rollouts",
         dataset_suffix: str = "",
+        split: str | None = None,
     ) -> list[list[Trajectory]]:
         """
         Generate trajectories for all tasks in an environment
@@ -413,7 +414,11 @@ class RLTrainer(BaseTrainer):
         cfg = cfg or self.cfg
         hf_tokenizer = hf_tokenizer or self.hf_tokenizer
 
-        env.split = "train"
+        if split is not None:
+            dataset_suffix = f"-{split}" if len(dataset_suffix) > 0 else f"{split}"
+        split = split or "train"
+
+        env.split = split
         was_training = copy(llm.model.training)
         llm.model.eval()
 
@@ -428,7 +433,7 @@ class RLTrainer(BaseTrainer):
             cfg=cfg,
             batch_id=save_batch_idx,
             checkpoint_name="sft_gen",
-            split="train",
+            split=split,
             num_tries=cfg.num_tries,
             start_idx=0,  # Sequentially generate trajectories for all tasks
             tasks_per_update=len(env),
