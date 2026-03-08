@@ -5,7 +5,7 @@ name: "action_lm"
 is_async: false
 dataset_config:
   path: "mzio/aprm-sft_thinkact-Eact_prm_tw_coin_hard_sp-Gaprm_qwen3_ap-S42-Rlr1e4-train_eval-b009"
-  cache_dir: "./data/act_prm/tw_coin_hard_sp/aprm_bandit_ta_train_eval_b009"
+  cache_dir: "./data/act_prm/tw_coin_hard_sp/aprm_ta_train_eval_b009"
 
 fp32_loss: false
 loss_on_past_assistant_messages: true

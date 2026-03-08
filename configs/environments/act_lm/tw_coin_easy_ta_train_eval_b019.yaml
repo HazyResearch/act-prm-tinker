@@ -1,11 +1,11 @@
 # TextWorld coin_collector easy - Act-PRM think_act SFT demonstrations
 # Source: aprm_qwen3_ap generator on act_prm/tw_coin_easy_sp
-# Split: train | Batches: 0-19
+# Split: train_eval | Batches: 0-19
 name: "action_lm"
 is_async: false
 dataset_config:
-  path: "mzio/aprm-sft_thinkact-Eact_prm_tw_coin_easy_sp-Gaprm_qwen3_ap-S42-R0-ap1-b019"
-  cache_dir: "./data/act_prm/tw_coin_easy_sp/aprm_bandit_ta_train_b019"
+  path: "mzio/aprm-sft_thinkact-Eact_prm_tw_coin_easy_sp-Gaprm_qwen3_ap-S0-R1-train_eval-b019"
+  cache_dir: "./data/act_prm/tw_coin_easy_sp/aprm_ta_train_eval_b019"
 
 fp32_loss: false
 loss_on_past_assistant_messages: true
