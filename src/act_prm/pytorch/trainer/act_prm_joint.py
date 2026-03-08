@@ -128,11 +128,11 @@ class ActPrmJointTrainer(RLTrainer):
 
             # === Evaluations ===
             no_initial_eval = cfg.get("no_initial_eval", False)
+            is_last_step = batch_idx == num_steps - 1
             do_eval = (
-                eval_every > 0
-                and (batch_idx % eval_every == 0 or batch_idx == num_steps - 1)
-                and not (no_initial_eval and batch_idx == 0)
-            )
+                (eval_every > 0 and batch_idx % eval_every == 0)
+                or is_last_step
+            ) and not (no_initial_eval and batch_idx == 0)
             if do_eval:
                 with timed("run_evals", metrics):
                     llm.model.eval()
