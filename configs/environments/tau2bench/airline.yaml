@@ -1,15 +1,15 @@
 name: "tau2bench"
 is_async: false
 domain: "airline"
-task_split: null
+task_split: null  # loads tau2's canonical train (30) / test (20) splits
 user_llm: "gpt-4.1-2025-04-14"
 user_llm_args:
   temperature: 0.0
   max_tokens: 512
 max_steps: 50
-num_train_tasks: 100
-num_val_tasks: null
-num_test_tasks: 30
+num_train_tasks: 30   # tau2 airline has 30 train tasks
+num_val_tasks: null    # eval = test by default
+num_test_tasks: 20    # tau2 airline has 20 test tasks
 hide_observations: false
 hidden_obs_content: "..."
 first_obs_to_show: 1
