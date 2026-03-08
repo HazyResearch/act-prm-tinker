@@ -7,9 +7,9 @@ user_llm_args:
   temperature: 0.0
   max_tokens: 512
 max_steps: 50
-num_train_tasks: 80
+num_train_tasks: 100
 num_val_tasks: null
-num_test_tasks: 50
+num_test_tasks: 30
 hide_observations: false
 hidden_obs_content: "..."
 first_obs_to_show: 1
