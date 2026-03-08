@@ -107,10 +107,7 @@ class SnorkelFinanceEnv(Environment):
         self.num_tries = num_tries
         self.seed = seed
 
-        self.system_prompt = (
-            system_prompt
-            or SYSTEM_PROMPT.format(max_turns=max_turns)
-        )
+        self.system_prompt = system_prompt or SYSTEM_PROMPT.format(max_turns=max_turns)
         self.truncation_message = truncation_message
 
         # Load data and build trace-replay backend
@@ -271,10 +268,12 @@ class SnorkelFinanceEnv(Environment):
                     reward = float(reward)
                     done = True
                     result_label = "CORRECT" if reward == 1 else "INCORRECT"
-                    env_messages.append({
-                        "role": "user",
-                        "content": f"# RESULT: {result_label}!",
-                    })
+                    env_messages.append(
+                        {
+                            "role": "user",
+                            "content": f"# RESULT: {result_label}!",
+                        }
+                    )
                     metadata["correct"] = reward
                     continue
 
@@ -289,18 +288,17 @@ class SnorkelFinanceEnv(Environment):
                         result = tool(**fc_args, backend=backend)
                 except Exception as e:
                     _error_class = type(e).__name__
-                    result = (
-                        f"Tool call error:\n\n{action.text}\n\n"
-                        f"{_error_class}: {e}"
-                    )
+                    result = f"Tool call error:\n\n{action.text}\n\n{_error_class}: {e}"
                     logger.warning(f"Error during tool call: {_error_class}: {e}")
 
-                env_messages.append({
-                    "role": "tool",
-                    "type": "function_call_output",
-                    "call_id": action.call_id,
-                    "output": result,
-                })
+                env_messages.append(
+                    {
+                        "role": "tool",
+                        "type": "function_call_output",
+                        "call_id": action.call_id,
+                        "output": result,
+                    }
+                )
 
             elif action.type in ["message", "reasoning"]:
                 text = action.text or ""
@@ -321,10 +319,12 @@ class SnorkelFinanceEnv(Environment):
                     reward = float(reward)
                     done = True
                     result_label = "CORRECT" if reward == 1 else "INCORRECT"
-                    env_messages.append({
-                        "role": "user",
-                        "content": f"# RESULT: {result_label}!",
-                    })
+                    env_messages.append(
+                        {
+                            "role": "user",
+                            "content": f"# RESULT: {result_label}!",
+                        }
+                    )
                     metadata["correct"] = reward
 
         # Update timesteps
@@ -332,23 +332,27 @@ class SnorkelFinanceEnv(Environment):
         if timestep >= self.max_turns:
             truncated = True
             done = True
-            env_messages.append({
-                "role": "user",
-                "content": self.truncation_message,
-            })
+            env_messages.append(
+                {
+                    "role": "user",
+                    "content": self.truncation_message,
+                }
+            )
             if not updated_try_step:
                 try_step += 1
                 updated_try_step = True
 
         # Handle no response
         if len(env_messages) == 0:
-            env_messages.append({
-                "role": "user",
-                "content": (
-                    "No tool calls or final answers were parsed. "
-                    "Please call a tool or use respond_user to answer."
-                ),
-            })
+            env_messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "No tool calls or final answers were parsed. "
+                        "Please call a tool or use respond_user to answer."
+                    ),
+                }
+            )
 
         # Handle past observations
         current_messages = self.maybe_hide_observations(

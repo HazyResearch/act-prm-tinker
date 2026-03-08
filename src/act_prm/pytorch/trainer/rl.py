@@ -492,9 +492,7 @@ class RLTrainer(BaseTrainer):
             "batch_size": cfg.get("batch_size", None),
         }
         try:
-            _save_trajectories_to_hf_dataset(
-                _trajectories, ds_name, metadata=metadata
-            )
+            _save_trajectories_to_hf_dataset(_trajectories, ds_name, metadata=metadata)
             logger.info("Saved trajectories to HF Dataset: %s", cfg.dataset_url_sft)
         except Exception as e:
             _error_text = f"({type(e).__name__}: {e})"
