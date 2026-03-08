@@ -1,15 +1,24 @@
 """
 Tests for the Claude Agent SDK LLM handlers (ClaudeQueryLLM, ClaudeClientLLM).
 
-Uses mocks to avoid real Claude Agent SDK calls.
+Unit tests use mock objects; live integration tests (marked with @pytest.mark.live)
+call the real Claude Agent SDK and require valid credentials.
+
+Run unit tests only:  pytest tests/test_claude_agent_sdk_handler.py -m "not live"
+Run live tests only:  pytest tests/test_claude_agent_sdk_handler.py -m live -v
+Run all tests:        pytest tests/test_claude_agent_sdk_handler.py -v
 """
 
 import json
 from dataclasses import dataclass
 from typing import Any
 
+import pytest
+from dotenv import load_dotenv
 
-from act_prm.llm_handlers.claude_agent_sdk import (
+load_dotenv()
+
+from act_prm.llm_handlers.claude_agent_sdk import (  # noqa: E402
     ClaudeAgentResponse,
     ClaudeClientLLM,
     ClaudeQueryLLM,
@@ -247,9 +256,7 @@ class TestExtractActions:
             assistant_messages=[
                 MockAssistantMessage(
                     content=[
-                        MockToolResultBlock(
-                            tool_use_id="call_123", content="result"
-                        )
+                        MockToolResultBlock(tool_use_id="call_123", content="result")
                     ]
                 )
             ]
@@ -264,9 +271,7 @@ class TestExtractActions:
                     content=[
                         MockThinkingBlock(thinking="Hmm..."),
                         MockTextBlock(text="I'll search for that."),
-                        MockToolUseBlock(
-                            id="c1", name="search", input={"q": "test"}
-                        ),
+                        MockToolUseBlock(id="c1", name="search", input={"q": "test"}),
                     ]
                 )
             ]
@@ -312,9 +317,7 @@ class TestResponseToMessageDicts:
             assistant_messages=[
                 MockAssistantMessage(
                     content=[
-                        MockToolUseBlock(
-                            id="c1", name="search", input={"q": "test"}
-                        )
+                        MockToolUseBlock(id="c1", name="search", input={"q": "test"})
                     ]
                 )
             ]
@@ -328,9 +331,7 @@ class TestResponseToMessageDicts:
     def test_thinking_block(self):
         response = ClaudeAgentResponse(
             assistant_messages=[
-                MockAssistantMessage(
-                    content=[MockThinkingBlock(thinking="reasoning")]
-                )
+                MockAssistantMessage(content=[MockThinkingBlock(thinking="reasoning")])
             ]
         )
         dicts = _response_to_message_dicts(response)
@@ -470,11 +471,7 @@ class TestClaudeClientLLM:
         response = ClaudeAgentResponse(
             assistant_messages=[
                 MockAssistantMessage(
-                    content=[
-                        MockToolUseBlock(
-                            id="c1", name="search", input={"q": "x"}
-                        )
-                    ]
+                    content=[MockToolUseBlock(id="c1", name="search", input={"q": "x"})]
                 )
             ]
         )
@@ -526,3 +523,277 @@ class TestToolCallTextFormat:
         )
         expected = f"<tool_call>\n{expected_inner}\n</tool_call>"
         assert actions[0].text == expected
+
+
+# ---------------------------------------------------------------------------
+# Live integration tests — require valid Claude credentials
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.live
+class TestClaudeQueryLLMLive:
+    """Live tests for ClaudeQueryLLM using real Claude Agent SDK calls."""
+
+    def test_simple_text_response(self):
+        """query() should return a text response for a simple prompt."""
+        llm = ClaudeQueryLLM(model="claude-sonnet-4-6", max_turns=1)
+        responses = llm.sample(
+            system_prompt="You are a helpful assistant. Respond in one short sentence.",
+            messages=[{"role": "user", "content": "What is 2 + 2?"}],
+            tools=[],
+            num_return_sequences=1,
+        )
+        assert len(responses) == 1
+        response = responses[0]
+        assert response is not None, "Response should not be None"
+        assert len(response.assistant_messages) > 0, "Should have assistant messages"
+        assert response.result is not None, "Should have a ResultMessage"
+
+        # Extract actions and verify we got a text message
+        actions = llm.get_actions(response)
+        assert len(actions) > 0, "Should have at least one action"
+        text_actions = [a for a in actions if a.type == "message"]
+        assert len(text_actions) > 0, "Should have at least one text message"
+        # The response should mention "4"
+        combined_text = " ".join(a.text for a in text_actions if a.text)
+        assert "4" in combined_text, f"Expected '4' in response, got: {combined_text}"
+
+    def test_token_tracking(self):
+        """Token usage should be tracked after a query."""
+        llm = ClaudeQueryLLM(model="claude-sonnet-4-6", max_turns=1)
+        responses = llm.sample(
+            system_prompt="Respond with exactly one word.",
+            messages=[{"role": "user", "content": "Say hello."}],
+            tools=[],
+        )
+        response = responses[0]
+        assert response is not None
+        # Check that tokens were tracked
+        assert llm.prompt_tokens > 0 or llm.completion_tokens > 0, (
+            "Token counts should be incremented"
+        )
+
+    def test_get_actions_from_live_response(self):
+        """get_actions() should correctly parse a live response."""
+        llm = ClaudeQueryLLM(model="claude-sonnet-4-6", max_turns=1)
+        responses = llm.sample(
+            system_prompt="You are a calculator. Only respond with the numeric answer.",
+            messages=[{"role": "user", "content": "What is 7 * 8?"}],
+            tools=[],
+        )
+        response = responses[0]
+        assert response is not None
+        actions = llm.get_actions(response)
+        assert len(actions) > 0
+        # Should have a message action with "56"
+        text_actions = [a for a in actions if a.type == "message"]
+        assert len(text_actions) > 0
+        combined = " ".join(a.text for a in text_actions if a.text)
+        assert "56" in combined, f"Expected '56' in response, got: {combined}"
+
+    def test_update_messages_roundtrip(self):
+        """update_messages() should integrate live response into message history."""
+        llm = ClaudeQueryLLM(model="claude-sonnet-4-6", max_turns=1)
+        responses = llm.sample(
+            system_prompt="Respond briefly.",
+            messages=[{"role": "user", "content": "Hi"}],
+            tools=[],
+        )
+        response = responses[0]
+        assert response is not None
+
+        # Use update_messages to build a conversation history
+        updated = llm.update_messages(
+            messages=[{"role": "user", "content": "Follow up question"}],
+            model_response=response,
+            prior_messages=[{"role": "user", "content": "Hi"}],
+        )
+        # Should have: prior user msg + response content + new user msg
+        assert len(updated) >= 3, f"Expected >= 3 messages, got {len(updated)}"
+        assert updated[0]["content"] == "Hi"
+        assert updated[-1]["content"] == "Follow up question"
+
+    def test_multiple_return_sequences(self):
+        """num_return_sequences > 1 should return multiple independent responses."""
+        llm = ClaudeQueryLLM(model="claude-sonnet-4-6", max_turns=1)
+        responses = llm.sample(
+            system_prompt="Respond with one word.",
+            messages=[{"role": "user", "content": "Say any color."}],
+            tools=[],
+            num_return_sequences=2,
+        )
+        assert len(responses) == 2
+        for r in responses:
+            assert r is not None
+            actions = llm.get_actions(r)
+            assert len(actions) > 0
+
+
+@pytest.mark.live
+class TestClaudeQueryLLMLiveWithTools:
+    """Live tests for ClaudeQueryLLM with tool definitions."""
+
+    def test_tool_call_response(self):
+        """Claude should produce a tool call when given tools and an appropriate prompt."""
+        tools = [
+            {
+                "type": "function",
+                "name": "get_weather",
+                "description": "Get the current weather for a city",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "city": {
+                            "type": "string",
+                            "description": "City name",
+                        }
+                    },
+                    "required": ["city"],
+                },
+            }
+        ]
+        llm = ClaudeQueryLLM(model="claude-sonnet-4-6", max_turns=1)
+        responses = llm.sample(
+            system_prompt=(
+                "You are a weather assistant. Use the get_weather tool to answer questions. "
+                "Always use the tool, never answer directly."
+            ),
+            messages=[
+                {"role": "user", "content": "What's the weather in San Francisco?"}
+            ],
+            tools=tools,
+        )
+        response = responses[0]
+        assert response is not None, "Response should not be None"
+
+        actions = llm.get_actions(response)
+        # Should have at least one function_call action
+        tool_actions = [a for a in actions if a.type == "function_call"]
+        assert len(tool_actions) > 0, (
+            f"Expected tool call, got actions: {[(a.type, a.name) for a in actions]}"
+        )
+
+        tool_action = tool_actions[0]
+        assert tool_action.name == "get_weather"
+        assert "city" in tool_action.arguments
+        assert tool_action.call_id is not None
+
+
+@pytest.mark.live
+class TestLoadLLMLive:
+    """Test load_llm() factory with live instantiation."""
+
+    def test_load_and_sample_claude_query(self):
+        """load_llm('claude_query') should produce a working ClaudeQueryLLM."""
+        from act_prm.llm_handlers import load_llm
+
+        llm = load_llm("claude_query", model_config={"model": "claude-sonnet-4-6"})
+        assert isinstance(llm, ClaudeQueryLLM)
+
+        responses = llm.sample(
+            system_prompt="Respond with one word only.",
+            messages=[{"role": "user", "content": "Say yes."}],
+            tools=[],
+        )
+        assert responses[0] is not None
+        actions = llm.get_actions(responses[0])
+        assert len(actions) > 0
+
+
+# ---------------------------------------------------------------------------
+# Live LLM-as-a-judge tests — ClaudeQueryLLM as grader via LLMGraderForQA
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.live
+class TestLLMGraderWithClaudeQuery:
+    """Test LLMGraderForQA using ClaudeQueryLLM as the grader model."""
+
+    def _make_grader(self):
+        from act_prm.graders.qa import LLMGraderForQA
+
+        llm = ClaudeQueryLLM(model="claude-sonnet-4-6", max_turns=1)
+        return LLMGraderForQA(grader_model=llm, num_samples=1, verbose=True)
+
+    def test_correct_answer(self):
+        """Grader should mark a correct answer as correct."""
+        grader = self._make_grader()
+        is_correct, msg = grader(
+            question="What is the capital of France?",
+            correct_answer="Paris",
+            response="The capital of France is Paris.",
+        )
+        assert is_correct, f"Expected correct, grader said: {msg}"
+
+    def test_incorrect_answer(self):
+        """Grader should mark an incorrect answer as incorrect."""
+        grader = self._make_grader()
+        is_correct, msg = grader(
+            question="What is the capital of France?",
+            correct_answer="Paris",
+            response="The capital of France is Berlin.",
+        )
+        assert not is_correct, f"Expected incorrect, grader said: {msg}"
+
+    def test_numeric_answer(self):
+        """Grader should handle numeric answers correctly."""
+        grader = self._make_grader()
+        is_correct, msg = grader(
+            question="What is 15 * 23?",
+            correct_answer="345",
+            response="15 multiplied by 23 equals 345.",
+        )
+        assert is_correct, f"Expected correct, grader said: {msg}"
+
+    def test_numeric_wrong_answer(self):
+        """Grader should reject wrong numeric answers."""
+        grader = self._make_grader()
+        is_correct, msg = grader(
+            question="What is 15 * 23?",
+            correct_answer="345",
+            response="15 multiplied by 23 equals 350.",
+        )
+        assert not is_correct, f"Expected incorrect, grader said: {msg}"
+
+    def test_metrics_tracking(self):
+        """Grader should track running metrics across calls."""
+        grader = self._make_grader()
+
+        grader(
+            question="What is 2+2?",
+            correct_answer="4",
+            response="4",
+            sample_id=0,
+            split="test",
+        )
+        grader(
+            question="What is 3+3?",
+            correct_answer="6",
+            response="The answer is 7.",
+            sample_id=1,
+            split="test",
+        )
+
+        assert len(grader.metrics["correct"]) == 2
+        assert "test/acc" in grader.running_metrics
+        assert "test/total" in grader.running_metrics
+        assert grader.running_metrics["test/total"] == 2
+
+    def test_grader_via_load_llm(self):
+        """LLMGraderForQA should work when instantiated via grader_model_config."""
+        from act_prm.graders.qa import LLMGraderForQA
+
+        grader = LLMGraderForQA(
+            grader_model_config={
+                "name": "claude_query",
+                "model_config": {"model": "claude-sonnet-4-6"},
+            },
+            num_samples=1,
+            verbose=True,
+        )
+        is_correct, msg = grader(
+            question="What color is the sky on a clear day?",
+            correct_answer="Blue",
+            response="The sky is blue.",
+        )
+        assert is_correct, f"Expected correct, grader said: {msg}"

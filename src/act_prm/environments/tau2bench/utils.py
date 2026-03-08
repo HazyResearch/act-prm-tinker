@@ -82,7 +82,7 @@ def parse_observation(obs_str: str) -> str:
         # Strip known role prefixes
         for prefix in ["user: ", "tool: ", "assistant: ", "system: "]:
             if line.startswith(prefix):
-                line = line[len(prefix):]
+                line = line[len(prefix) :]
                 break
         cleaned_lines.append(line)
     return "\n".join(cleaned_lines)

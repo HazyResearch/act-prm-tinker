@@ -8,11 +8,16 @@ Two subclasses of LLM using the Claude Agent SDK:
 
 import asyncio
 import json
+import os
 import threading
 
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
+
+# Allow launching Claude Code from within another Claude Code session
+# (e.g., when running tests from inside Claude Code).
+os.environ.pop("CLAUDECODE", None)
 
 from claude_agent_sdk import (
     ClaudeAgentOptions,
@@ -294,11 +299,11 @@ class ClaudeQueryLLM(LLM):
         interleave: bool = False,
     ) -> list[dict[str, Any]]:
         """Return updated messages for the model."""
-        return _update_messages_impl(messages, model_response, prior_messages, interleave)
+        return _update_messages_impl(
+            messages, model_response, prior_messages, interleave
+        )
 
-    def get_actions(
-        self, response: ClaudeAgentResponse | None
-    ) -> list[ActionFromLLM]:
+    def get_actions(self, response: ClaudeAgentResponse | None) -> list[ActionFromLLM]:
         """Extract actions from a ClaudeAgentResponse."""
         return _extract_actions(response)
 
@@ -486,11 +491,11 @@ class ClaudeClientLLM(LLM):
         interleave: bool = False,
     ) -> list[dict[str, Any]]:
         """Return updated messages for the model."""
-        return _update_messages_impl(messages, model_response, prior_messages, interleave)
+        return _update_messages_impl(
+            messages, model_response, prior_messages, interleave
+        )
 
-    def get_actions(
-        self, response: ClaudeAgentResponse | None
-    ) -> list[ActionFromLLM]:
+    def get_actions(self, response: ClaudeAgentResponse | None) -> list[ActionFromLLM]:
         """Extract actions from a ClaudeAgentResponse."""
         return _extract_actions(response)
 

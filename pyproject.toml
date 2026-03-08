@@ -38,5 +38,10 @@ dev = [
     "ruff>=0.15.4",
 ]
 
+[tool.pytest.ini_options]
+markers = [
+    "live: live integration tests requiring Claude Agent SDK credentials",
+]
+
 [tool.ruff]
 exclude = ["notebooks/", "reference_envs/"]

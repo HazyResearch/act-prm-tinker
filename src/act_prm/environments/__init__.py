@@ -95,9 +95,11 @@ def get_env(name: str, is_async: bool = False, **kwargs: Any) -> Environment:
     elif name == "tau2bench":
         if is_async:
             from .tau2bench import AsyncTau2BenchEnv
+
             return AsyncTau2BenchEnv(**kwargs)
         else:
             from .tau2bench import Tau2BenchEnv
+
             return Tau2BenchEnv(**kwargs)
 
     raise NotImplementedError(f"Sorry invalid environment: '{name}'.")
