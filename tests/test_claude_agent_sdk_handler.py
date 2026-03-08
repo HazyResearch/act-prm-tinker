@@ -834,3 +834,176 @@ class TestClaudeClientLLMLive:
             assert len(text_actions) > 0, "Should have at least one text message"
         finally:
             llm.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# Snorkel Finance grading integration test
+# ---------------------------------------------------------------------------
+
+
+def _extract_final_response(action_content: str) -> str | None:
+    """Extract the agent's final response text from the last action content.
+
+    Handles two patterns:
+    1. respond_user tool call: extracts the text argument
+    2. Plain text ending with "Final Answer: ..."
+    """
+    # Try to parse as a tool call with respond_user
+    if "<tool_call>" in action_content:
+        try:
+            tc_start = action_content.index("<tool_call>") + len("<tool_call>")
+            tc_end = action_content.index("</tool_call>")
+            tc_json = json.loads(action_content[tc_start:tc_end].strip())
+            if tc_json.get("name") == "respond_user":
+                return tc_json.get("arguments", {}).get("text", "")
+        except (ValueError, json.JSONDecodeError, KeyError):
+            pass
+
+    # Try plain text with "Final Answer:"
+    if "Final Answer:" in action_content:
+        return action_content.split("Final Answer:")[-1].strip()
+
+    # Fall back to returning the whole content (may be the direct response)
+    return action_content.strip() if action_content.strip() else None
+
+
+@pytest.mark.live
+class TestSnorkelFinanceGradingWithClaude:
+    """Integration test: grade Snorkel Finance traces using SnorkelFinanceGrader
+    with ClaudeQueryLLM as the grader model.
+
+    Loads completed (done=True) episodes from the aligned HF dataset and verifies
+    that the grader produces sensible results.
+    """
+
+    NUM_SAMPLES = 5  # grade this many completed episodes
+
+    @staticmethod
+    def _load_done_samples():
+        """Load completed episodes from the aligned dataset."""
+        from datasets import load_dataset
+
+        ds = load_dataset(
+            "mzio/aprm-snorkelai_agent_finance_reasoning-aligned",
+            split="train",
+        )
+        # Filter for done episodes with reward=1 (known-correct trajectories)
+        done_correct = [s for s in ds if s["done"] and s["reward"] == 1]
+        assert len(done_correct) > 0, "No done+correct samples found in dataset"
+        return done_correct
+
+    def test_grade_correct_traces(self):
+        """Grading known-correct completed traces should yield mostly correct."""
+        from act_prm.graders.snorkel_finance import SnorkelFinanceGrader
+
+        samples = self._load_done_samples()
+        grader = SnorkelFinanceGrader(
+            grader_model=ClaudeQueryLLM(model="claude-sonnet-4-6", max_turns=1),
+            num_samples=1,
+            verbose=True,
+        )
+
+        results = []
+        for i, sample in enumerate(samples[: self.NUM_SAMPLES]):
+            # Extract question from first user message in state
+            question = None
+            for msg in sample["state"]:
+                if msg["role"] == "user":
+                    question = msg["content"]
+                    break
+            assert question is not None, f"No user message in sample {i}"
+
+            correct_answer = sample["answer"]
+
+            # The final action content is the agent's response
+            action_content = sample["action"]["content_0"]
+            response_text = _extract_final_response(action_content)
+            assert response_text is not None, (
+                f"Could not extract response from sample {i}"
+            )
+
+            is_correct, msg = grader(
+                question=question,
+                correct_answer=correct_answer,
+                response=response_text,
+                sample_id=sample["unique_data_sample_id"],
+                generation_id=sample.get("generation_id", 0),
+                split="test",
+            )
+            results.append(is_correct)
+            print(
+                f"Sample {i} (id={sample['unique_data_sample_id']}): "
+                f"graded={'correct' if is_correct else 'incorrect'}, "
+                f"answer={correct_answer!r}"
+            )
+
+        n_correct = sum(results)
+        print(f"\nGrading results: {n_correct}/{len(results)} correct")
+        # These are reward=1 traces, so the grader should agree most of the time
+        assert n_correct >= len(results) // 2, (
+            f"Expected at least half correct for reward=1 traces, "
+            f"got {n_correct}/{len(results)}"
+        )
+
+    def test_grade_incorrect_traces(self):
+        """Grading known-incorrect traces (reward=0, done=True) should yield mostly incorrect."""
+        from datasets import load_dataset
+
+        from act_prm.graders.snorkel_finance import SnorkelFinanceGrader
+
+        ds = load_dataset(
+            "mzio/aprm-snorkelai_agent_finance_reasoning-aligned",
+            split="train",
+        )
+        done_incorrect = [s for s in ds if s["done"] and s["reward"] == 0]
+        if len(done_incorrect) == 0:
+            pytest.skip("No done+incorrect samples in dataset")
+
+        grader = SnorkelFinanceGrader(
+            grader_model=ClaudeQueryLLM(model="claude-sonnet-4-6", max_turns=1),
+            num_samples=1,
+            verbose=True,
+        )
+
+        results = []
+        for i, sample in enumerate(done_incorrect[: self.NUM_SAMPLES]):
+            question = None
+            for msg in sample["state"]:
+                if msg["role"] == "user":
+                    question = msg["content"]
+                    break
+            if question is None:
+                continue
+
+            correct_answer = sample["answer"]
+            action_content = sample["action"]["content_0"]
+            response_text = _extract_final_response(action_content)
+            if response_text is None:
+                continue
+
+            is_correct, msg = grader(
+                question=question,
+                correct_answer=correct_answer,
+                response=response_text,
+                sample_id=sample["unique_data_sample_id"],
+                generation_id=sample.get("generation_id", 0),
+                split="test",
+            )
+            results.append(is_correct)
+            print(
+                f"Sample {i} (id={sample['unique_data_sample_id']}): "
+                f"graded={'correct' if is_correct else 'incorrect'}, "
+                f"answer={correct_answer!r}"
+            )
+
+        if not results:
+            pytest.skip("Could not extract responses from incorrect traces")
+
+        n_incorrect = sum(not r for r in results)
+        print(
+            f"\nGrading results: {n_incorrect}/{len(results)} correctly identified as wrong"
+        )
+        assert n_incorrect >= len(results) // 2, (
+            f"Expected at least half graded incorrect for reward=0 traces, "
+            f"got {n_incorrect}/{len(results)}"
+        )

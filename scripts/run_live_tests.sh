@@ -4,6 +4,7 @@
 # Usage:
 #   ./scripts/run_live_tests.sh           # run all live tests
 #   ./scripts/run_live_tests.sh grader    # run only grader tests
+#   ./scripts/run_live_tests.sh snorkel   # run snorkel finance grading tests
 #   ./scripts/run_live_tests.sh quick     # run only the simple text response test
 #
 # Prerequisites:
@@ -12,8 +13,8 @@
 
 set -euo pipefail
 
-# Unset CLAUDECODE to allow launching Claude Code subprocess from agent SDK
-unset CLAUDECODE 2>/dev/null || true
+# # Unset CLAUDECODE to allow launching Claude Code subprocess from agent SDK
+# unset CLAUDECODE 2>/dev/null || true
 
 cd "$(git rev-parse --show-toplevel)"
 
@@ -26,12 +27,16 @@ case "${1:-all}" in
     echo "==> Running LLM-as-a-judge grader tests..."
     uv run python -m pytest tests/test_claude_agent_sdk_handler.py::TestLLMGraderWithClaudeQuery -v -s
     ;;
+  snorkel)
+    echo "==> Running Snorkel Finance grading integration tests..."
+    uv run python -m pytest tests/test_claude_agent_sdk_handler.py::TestSnorkelFinanceGradingWithClaude -v -s
+    ;;
   all)
     echo "==> Running all live integration tests..."
     uv run python -m pytest tests/test_claude_agent_sdk_handler.py -m live -v -s
     ;;
   *)
-    echo "Usage: $0 [quick|grader|all]"
+    echo "Usage: $0 [quick|grader|snorkel|all]"
     exit 1
     ;;
 esac
