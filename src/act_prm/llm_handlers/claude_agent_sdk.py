@@ -606,6 +606,14 @@ def _is_tool_result_block(block: Any) -> bool:
     return hasattr(block, "tool_use_id") and not hasattr(block, "name")
 
 
+def _strip_mcp_prefix(name: str) -> str:
+    """Strip MCP server prefix from tool names (e.g. 'mcp__env_tools__get_weather' -> 'get_weather')."""
+    prefix = "mcp__env_tools__"
+    if name.startswith(prefix):
+        return name[len(prefix) :]
+    return name
+
+
 def _extract_actions(response: ClaudeAgentResponse | None) -> list[ActionFromLLM]:
     """
     Extract ActionFromLLM items from a ClaudeAgentResponse.
@@ -621,7 +629,8 @@ def _extract_actions(response: ClaudeAgentResponse | None) -> list[ActionFromLLM
 
     for block in response.output:
         if _is_tool_use_block(block):
-            text_repr = json.dumps({"name": block.name, "arguments": block.input})
+            tool_name = _strip_mcp_prefix(block.name)
+            text_repr = json.dumps({"name": tool_name, "arguments": block.input})
             text_repr = f"<tool_call>\n{text_repr}\n</tool_call>"
             actions.append(
                 ActionFromLLM(
@@ -629,7 +638,7 @@ def _extract_actions(response: ClaudeAgentResponse | None) -> list[ActionFromLLM
                     type="function_call",
                     text=text_repr,
                     call_id=block.id,
-                    name=block.name,
+                    name=tool_name,
                     arguments=block.input,
                 )
             )
@@ -679,7 +688,7 @@ def _response_to_message_dicts(
                     "role": "assistant",
                     "type": "function_call",
                     "call_id": block.id,
-                    "name": block.name,
+                    "name": _strip_mcp_prefix(block.name),
                     "arguments": json.dumps(block.input),
                 }
             )
