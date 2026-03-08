@@ -96,7 +96,8 @@ class Tau2BenchEnv(Environment):
         **kwargs: Any,
     ) -> None:
         super().__init__(
-            max_turns=max_turns, num_tries=num_tries, seed=seed, split=split, **kwargs
+            max_turns=max_turns, num_tries=num_tries, eval_num_tries=eval_num_tries,
+            seed=seed, split=split, **kwargs
         )
         self.domain = domain
         self.user_llm = user_llm
@@ -240,6 +241,14 @@ class Tau2BenchEnv(Environment):
         Returns:
             Initial Tau2BenchState with tools, system prompt, and first user message.
         """
+        # Close any previous episode's environment to prevent resource leaks
+        if hasattr(self, '_current_tau2_env') and self._current_tau2_env is not None:
+            try:
+                self._current_tau2_env.close()
+            except Exception as e:
+                logger.warning(f"tau2bench: failed to close previous env: {e}")
+            self._current_tau2_env = None
+
         sample_idx_adj = sample_idx % len(self.datasets[self.split])
         task = self.datasets[self.split][sample_idx_adj]
 
@@ -253,6 +262,7 @@ class Tau2BenchEnv(Environment):
             user_llm_args=self.user_llm_args,
             max_steps=self.max_steps,
         )
+        self._current_tau2_env = tau2_env  # track for cleanup on next reset
         obs_str, info = tau2_env.reset(seed=self.seed + sample_idx)
 
         # Parse observation to get initial user message
@@ -346,17 +356,19 @@ class Tau2BenchEnv(Environment):
                         "output": "Message sent to user.",
                     })
 
+                    reward = float(step_reward)
+                    done = bool(terminated) or bool(step_truncated)
+                    if step_truncated:
+                        truncated = True
+
                     # If not done, add the user's response as a new user message
-                    if not terminated:
+                    if not done:
                         user_response = parse_observation(obs)
                         if user_response:
                             env_messages.append({
                                 "role": "user",
                                 "content": user_response,
                             })
-
-                    reward = float(step_reward)
-                    done = bool(terminated)
                     made_tool_call = True
 
                 else:
@@ -381,7 +393,9 @@ class Tau2BenchEnv(Environment):
                         })
 
                         reward = float(step_reward)
-                        done = bool(terminated)
+                        done = bool(terminated) or bool(step_truncated)
+                        if step_truncated:
+                            truncated = True
                         made_tool_call = True
 
                     except Exception as e:
@@ -414,9 +428,11 @@ class Tau2BenchEnv(Environment):
                         )
                         tau2_info = info
                         reward = float(step_reward)
-                        done = bool(terminated)
+                        done = bool(terminated) or bool(step_truncated)
+                        if step_truncated:
+                            truncated = True
 
-                        if not terminated:
+                        if not done:
                             user_response = parse_observation(obs)
                             if user_response:
                                 env_messages.append({
