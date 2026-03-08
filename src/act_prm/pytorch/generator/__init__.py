@@ -22,6 +22,11 @@ def get_generator_constructor(
 
         return partial(ActionPromptActPrmGenerator, **kwargs)
 
+    elif name == "nobandit_action_prompt_act_prm":
+        from .act_prm_nobandit import NoBanditActionPromptActPrmGenerator
+
+        return partial(NoBanditActionPromptActPrmGenerator, **kwargs)
+
     else:
         raise NotImplementedError(f"Generator {name} not implemented")
 
