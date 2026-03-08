@@ -35,7 +35,7 @@ def maybe_hide_observations(
     hide_observations: bool = False,
     hidden_obs_content: str = "...",
     first_obs_to_show: int = 2,  # e.g., to keep prompt
-    last_obs_to_show: int = 1,   # e.g., to keep last observation
+    last_obs_to_show: int = 1,  # e.g., to keep last observation
 ) -> list[dict[str, str]]:
     """
     Hide past observations from messages
@@ -44,9 +44,13 @@ def maybe_hide_observations(
         return messages
 
     user_indices = [
-        idx for idx, message in enumerate(messages) if message["role"] in ["user", "tool"]
+        idx
+        for idx, message in enumerate(messages)
+        if message["role"] in ["user", "tool"]
     ]
-    last_message_idx = user_indices[-last_obs_to_show] if last_obs_to_show > 0 else len(messages)
+    last_message_idx = (
+        user_indices[-last_obs_to_show] if last_obs_to_show > 0 else len(messages)
+    )
     return [
         {"role": message["role"], "content": hidden_obs_content}
         if (
@@ -62,6 +66,7 @@ class SFTTrainer(BaseTrainer):
     """
     Trainer for supervised fine-tuning (SFT) with Tinker
     """
+
     def __init__(self, hide_observations: bool = False, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.hide_observations = hide_observations
@@ -90,7 +95,7 @@ class SFTTrainer(BaseTrainer):
                 "System prompt must be provided if first message is not a system prompt"
             )
             messages = [system_prompt] + messages
-        
+
         last_message_idx = 3  # messages[:3] includes system_prompt, user_message, first assistant_message
         while last_message_idx < len(messages):
             step_messages = self.maybe_hide_observations(messages[:last_message_idx])
@@ -99,11 +104,13 @@ class SFTTrainer(BaseTrainer):
                 add_generation_prompt=False,
                 **_tokenize_kwargs,
             )
-            state_len = len(hf_tokenizer.apply_chat_template(
-                step_messages[:-1],
-                add_generation_prompt=True,
-                **_tokenize_kwargs,
-            ))
+            state_len = len(
+                hf_tokenizer.apply_chat_template(
+                    step_messages[:-1],
+                    add_generation_prompt=True,
+                    **_tokenize_kwargs,
+                )
+            )
             episode_steps.append(
                 StateActionSample(
                     state_action_tokens=state_action_input_ids,
@@ -111,17 +118,17 @@ class SFTTrainer(BaseTrainer):
                 )
             )
             last_message_idx += 2
-        
+
         return Trajectory(
             episode_steps=episode_steps,
-            try_step=0,           # below are dummy values for SFT
+            try_step=0,  # below are dummy values for SFT
             discount_factor=1.0,
             final_reward=1.0,
         )
 
     # Modified from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L989
     async def train(
-        self, 
+        self,
         start_batch: int,
         end_batch: int,
         cfg: DictConfig | None = None,
@@ -155,10 +162,14 @@ class SFTTrainer(BaseTrainer):
             checkpoint_name=checkpoint_name,
         )
 
-        model_name = cfg.model_name or self.training_client.get_info().model_data.model_name
+        model_name = (
+            cfg.model_name or self.training_client.get_info().model_data.model_name
+        )
         hf_tokenizer = self.hf_tokenizer or self.training_client.get_tokenizer()
         # ^Same as tinker_cookbook.tokenizer_utils.get_tokenizer(cfg.model_name)?
-        renderer_name = cfg.renderer_name or model_info.get_recommended_renderer_name(model_name)
+        renderer_name = cfg.renderer_name or model_info.get_recommended_renderer_name(
+            model_name
+        )
         renderer = renderers.get_renderer(renderer_name, hf_tokenizer)
         logger.info("Using renderer: %s", renderer_name)
 
@@ -197,8 +208,12 @@ class SFTTrainer(BaseTrainer):
                     metrics.update(eval_rollout_metrics)
 
                 # Save best checkpoints
-                _metric_prefix = "eval" if checkpoint_name is None else f"{checkpoint_name}_eval"
-                best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
+                _metric_prefix = (
+                    "eval" if checkpoint_name is None else f"{checkpoint_name}_eval"
+                )
+                best_metric_key = (
+                    f"{_metric_prefix}/try_{cfg.eval_num_tries - 1}/{cfg.best_metric}"
+                )
                 last_metric = eval_rollout_metrics[best_metric_key]
                 best_ckpt_name = (
                     f"{batch_idx:06d}_best"
@@ -215,16 +230,22 @@ class SFTTrainer(BaseTrainer):
                         kind="both",
                     )
                     best_sampling_client_path = path_dict["sampler_path"]
-                    logger.info("Saved best sampling client to %s", best_sampling_client_path)
+                    logger.info(
+                        "Saved best sampling client to %s", best_sampling_client_path
+                    )
                     logger.info(
                         "Updated best %s to %f at batch %d",
-                        cfg.best_metric, self.best_metric, batch_idx,
+                        cfg.best_metric,
+                        self.best_metric,
+                        batch_idx,
                     )
-                    metrics.update({
-                        f"{_metric_prefix}/best_batch": batch_idx,
-                        f"{_metric_prefix}/best_metric": self.best_metric,
-                        f"{_metric_prefix}/best_sampling_client_path": best_sampling_client_path,
-                    })
+                    metrics.update(
+                        {
+                            f"{_metric_prefix}/best_batch": batch_idx,
+                            f"{_metric_prefix}/best_metric": self.best_metric,
+                            f"{_metric_prefix}/best_sampling_client_path": best_sampling_client_path,
+                        }
+                    )
 
             # 1. "Sample rollouts" for training
             env.split = "train"
@@ -232,23 +253,30 @@ class SFTTrainer(BaseTrainer):
             # -> To match training samples vs RL, we set the total number of trajectories
             #    as cfg.batch_size * cfg.group_size (i.e., tasks_per_update * num_return_sequences)
             num_trajectories = cfg.batch_size * cfg.group_size
-            if len(indices_to_sample) < num_trajectories:  # Reset and shuffle indices_to_sample
+            if (
+                len(indices_to_sample) < num_trajectories
+            ):  # Reset and shuffle indices_to_sample
                 indices_to_sample = list(range(len(env)))
                 random.shuffle(indices_to_sample)
 
             try:
-                sampled_indices = [indices_to_sample.pop() for _ in range(num_trajectories)]
+                sampled_indices = [
+                    indices_to_sample.pop() for _ in range(num_trajectories)
+                ]
             except IndexError:
                 logger.warning(
-                    "num_trajectories: %d, batch_size: %d, group_size: %d" "len(env): %d",
-                    num_trajectories, cfg.batch_size, cfg.group_size, len(env),
+                    "num_trajectories: %d, batch_size: %d, group_size: %dlen(env): %d",
+                    num_trajectories,
+                    cfg.batch_size,
+                    cfg.group_size,
+                    len(env),
                 )
                 logger.warning(
                     "Not enough tasks in the environment, using all %d tasks instead",
                     len(indices_to_sample),
                 )
                 sampled_indices = indices_to_sample
-            
+
             states: list[EnvironmentState] = await asyncio.gather(
                 *[
                     env.reset_async(sample_idx=idx, batch_idx=batch_idx)
@@ -269,7 +297,10 @@ class SFTTrainer(BaseTrainer):
             )
 
             # 2. Update policy LLM with generated rollouts
-            sampling_client, update_metrics = await self.do_train_step_and_get_sampling_client(
+            (
+                sampling_client,
+                update_metrics,
+            ) = await self.do_train_step_and_get_sampling_client(
                 batch_idx=batch_idx,
                 training_client=self.training_client,
                 data_D=data_D,
@@ -285,7 +316,9 @@ class SFTTrainer(BaseTrainer):
 
         return best_sampling_client_path
 
-    async def prepare_minibatch(self, **kwargs: Any) -> tuple[list[tinker.Datum], dict[str, Any]]:
+    async def prepare_minibatch(
+        self, **kwargs: Any
+    ) -> tuple[list[tinker.Datum], dict[str, Any]]:
         """
         Prepare a minibatch of trajectories for training; see `_prepare_minibatch` for details
         """
@@ -310,12 +343,14 @@ class SFTTrainer(BaseTrainer):
                     target_state_len = episode_step.state_len - 1
                     target_action_len = len(target_tokens) - target_state_len
                     weights = [0.0] * target_state_len + [1.0] * target_action_len
-                    
+
                     data_D.append(
                         tinker.Datum(
                             model_input=tinker.ModelInput.from_ints(input_tokens),
                             loss_fn_inputs={
-                                "target_tokens": TensorData.from_torch(torch.tensor(target_tokens)),
+                                "target_tokens": TensorData.from_torch(
+                                    torch.tensor(target_tokens)
+                                ),
                                 "weights": TensorData.from_torch(torch.tensor(weights)),
                             },
                         )

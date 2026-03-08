@@ -44,10 +44,7 @@ def convert_msg_to_think(
 
     role = message["role"]
     if role != "assistant":  # Only apply to assistant messages
-        message = {
-            "role": role,
-            "content": message["content"]
-        }
+        message = {"role": role, "content": message["content"]}
         return message, new_tools, old_texts
 
     # Build the message content in think-act format
@@ -73,13 +70,15 @@ def convert_msg_to_think(
         print(f"Message: {message}")
         print("-" * 100)
         return None, None, None
-    
+
     if len(content) > 0:  # assistant is responding to user
         tool_dict = {
             "name": "respond_user",
             "arguments": {"text": content},
         }
-        _new_msg_contents.append(f"{tool_call_bos}\n{json.dumps(tool_dict)}\n{tool_call_eos}")
+        _new_msg_contents.append(
+            f"{tool_call_bos}\n{json.dumps(tool_dict)}\n{tool_call_eos}"
+        )
         new_tools.append(tool_dict)
         old_texts.append(old_text)
 
@@ -88,32 +87,36 @@ def convert_msg_to_think(
         try:
             tool_dict = {
                 "name": tool_call["name"],
-                "arguments": json.loads(tool_call["arguments"])
+                "arguments": json.loads(tool_call["arguments"]),
             }
             if isinstance(tool_dict["arguments"], str):
-                print(f"Original json.loads(tool_call['arguments']): {tool_dict['arguments']}, (type: {type(tool_dict['arguments'])})")
+                print(
+                    f"Original json.loads(tool_call['arguments']): {tool_dict['arguments']}, (type: {type(tool_dict['arguments'])})"
+                )
                 tool_dict["arguments"] = json.loads(tool_dict["arguments"])
-                print(f"After 2nd json.loads(tool_dict['arguments']): {tool_dict['arguments']}, (type: {type(tool_dict['arguments'])})")
+                print(
+                    f"After 2nd json.loads(tool_dict['arguments']): {tool_dict['arguments']}, (type: {type(tool_dict['arguments'])})"
+                )
             assert isinstance(tool_dict["arguments"], dict), (
                 "Tool call arguments must be a dictionary"
             )
         except Exception as e:
             print(ast.literal_eval(tool_call["arguments"]))
             print(f"{e.__class__.__name__}: {e}")
-            print('tool_call', tool_call)
-            print('message', message)
+            print("tool_call", tool_call)
+            print("message", message)
             raise e
         tool_content = f"{tool_call_bos}\n{json.dumps(tool_dict)}\n{tool_call_eos}"
         _new_msg_contents.append(tool_content)
         new_tools.append(tool_dict)
         old_texts.append(old_text)
-        
+
     new_msg_content = "\n".join(_new_msg_contents)
     new_msg = {"role": role, "content": new_msg_content}
     return new_msg, new_tools, old_texts
 
 
-def build_state_action_samples( 
+def build_state_action_samples(
     sample: dict[str, Any],
     sample_idx: int,
     all_tools_store: dict[str, Any],
@@ -122,7 +125,9 @@ def build_state_action_samples(
     """
     Build state-action samples from a single sample of the dataset
     """
-    new_samples: list[dict[str, Any]] = []   # state, action, done, reward, return_, timestep, discount_factor
+    new_samples: list[
+        dict[str, Any]
+    ] = []  # state, action, done, reward, return_, timestep, discount_factor
     running_chat: list[dict[str, Any]] = []  # (no next_obs)
 
     tools = [respond_user_tool] + sample["tools"]
@@ -137,7 +142,14 @@ def build_state_action_samples(
     reward = 1  # assume always correct
 
     # Get domain / policy
-    domain = system_prompt.split("<policy>")[-1].strip().lower().split("agent")[0].replace("#", "").strip()
+    domain = (
+        system_prompt.split("<policy>")[-1]
+        .strip()
+        .lower()
+        .split("agent")[0]
+        .replace("#", "")
+        .strip()
+    )
 
     for msg_idx, message in enumerate(messages):
         try:
@@ -147,7 +159,7 @@ def build_state_action_samples(
             print(f"Local error: Above {e_class}: {e}")
             print(json.dumps(message, indent=2))
             raise e
-        
+
         if new_tools is not None and len(new_tools) > 0:
             for tool in new_tools:
                 name = tool["name"]
@@ -164,7 +176,7 @@ def build_state_action_samples(
                         "name": name,
                         "property_names": argnames,
                         "examples": [],
-                        "count": 0
+                        "count": 0,
                     }
                 # Add examples of tool usage
                 if len(all_tools_store[tool_hash]["examples"]) < 3:
@@ -187,8 +199,8 @@ def build_state_action_samples(
                 "action": action,
                 "done": done,
                 "reward": reward,
-                "return_": None,       # to fill in
-                "advantage": None,     # to fill in
+                "return_": None,  # to fill in
+                "advantage": None,  # to fill in
                 "timestep": timestep,
                 "max_timestep": None,  # to fill in
                 "discount_factor": discount_factor,
@@ -206,13 +218,14 @@ def build_state_action_samples(
     # Update the return and max timesteps
     max_timestep = timestep - 1
     for _idx in range(len(new_samples)):
-        return_ = reward * (discount_factor ** (max_timestep - new_samples[_idx]["timestep"]))
+        return_ = reward * (
+            discount_factor ** (max_timestep - new_samples[_idx]["timestep"])
+        )
         new_samples[_idx]["return_"] = return_
         new_samples[_idx]["advantage"] = return_
         new_samples[_idx]["max_timestep"] = max_timestep
-    
-    return new_samples
 
+    return new_samples
 
 
 def main():
@@ -223,7 +236,7 @@ def main():
     dataset_config = {
         "path": "amityco/apigen-tau-bench-split-turn",
         "cache_dir": "/scr/mzhang/data/",
-        "split": "train"
+        "split": "train",
     }
     ds = load_dataset(**dataset_config)
 
@@ -231,11 +244,13 @@ def main():
     chat_samples = []
     last_chat_len = 0
     # Go through and get only full trajectories
-    for sample_idx, sample in enumerate(tqdm(ds, desc="Getting full trajectories", colour="green")):
+    for sample_idx, sample in enumerate(
+        tqdm(ds, desc="Getting full trajectories", colour="green")
+    ):
         if len(sample["messages"]) < last_chat_len:  # indicates a new trajectory
             # max_timestep = len(chat_samples)
             # for _idx in chat_samples:
-                # all_samples[_idx]["max_timestep"] = max_timestep
+            # all_samples[_idx]["max_timestep"] = max_timestep
             all_samples.append(chat_samples[-1])
             chat_samples = []
         last_chat_len = len(sample["messages"])
@@ -251,7 +266,6 @@ def main():
         all_samples.extend(new_samples)
 
     ds = Dataset.from_list(all_samples)
-    
 
     # Split into "airline", "retail" splits and push to HuggingFace hub
     df = ds.to_pandas()
@@ -267,7 +281,7 @@ def main():
     hf_repo_path = f"mzio/aprm-{hf_repo_path}"
 
     ds_dict.push_to_hub(hf_repo_path)
-    hf_repo_url = f"https://huggingface.co/datasets/{hf_repo_path}" 
+    hf_repo_url = f"https://huggingface.co/datasets/{hf_repo_path}"
     print(f"-> Pushed to HuggingFace hub: {hf_repo_url}")
     return ds_dict
 

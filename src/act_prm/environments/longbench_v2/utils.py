@@ -96,7 +96,9 @@ def convert_text_chunks_to_dicts(text_chunks: list[str]) -> list[dict[str, Any]]
         {
             "text": chunk,
             "chunk_idx": chunk_idx,
-            "next_chunk_idx": chunk_idx + 1 if chunk_idx < len(text_chunks) - 1 else None,
+            "next_chunk_idx": chunk_idx + 1
+            if chunk_idx < len(text_chunks) - 1
+            else None,
             "prev_chunk_idx": chunk_idx - 1 if chunk_idx > 0 else None,
         }
         for chunk_idx, chunk in enumerate(text_chunks)

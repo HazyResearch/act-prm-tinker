@@ -27,7 +27,7 @@ def _process_sample_for_multiple_choice(
     - all_docs (list[str]): List of all documents
 
     sample.keys() are:
-    ['id', 'question', 'answer', 'type', 'level', 
+    ['id', 'question', 'answer', 'type', 'level',
      'supporting_facts', 'context', 'correctness', 'explanation'],
     """
     # Create lookup dictionary for all documents by title
@@ -40,7 +40,7 @@ def _process_sample_for_multiple_choice(
 
     all_titles = list(all_docs_dict.keys())
     all_docs = list(all_docs_dict.values())
-    
+
     return all_docs_dict, all_titles, all_docs
 
 
@@ -83,19 +83,19 @@ def process_sample_from_gen_dataset(
     """
     Process generated HotpotQA HF dataset samples into consistent format
     """
-    query_id = f"{sample["sample_idx"]}_{sample["generation_idx"]}"
+    query_id = f"{sample['sample_idx']}_{sample['generation_idx']}"
     question = sample["final_question"]
     answer = sample["final_answer"]
     all_docs_dict = json.loads(sample["all_docs_dict"])
     all_titles = list(all_docs_dict.keys())
     all_docs = list(all_docs_dict.values())
-    
+
     if ambiguous_titles:
         all_titles = [f"Title {i:02d}" for i in range(len(all_titles))]
     sort_idx = np.argsort(all_titles)  # sort titles alphabetically
     all_titles = [all_titles[i] for i in sort_idx]
     all_docs = [all_docs[i] for i in sort_idx]
-    
+
     prompt = render_prompt(question, all_titles, include_titles_in_prompt, actions_only)
     return {
         "query_id": query_id,

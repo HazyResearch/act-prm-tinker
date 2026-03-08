@@ -10,6 +10,7 @@ class ActionFromLLM(BaseModel):
     """
     LLM action
     """
+
     role: str
     type: str
     text: str | None = None

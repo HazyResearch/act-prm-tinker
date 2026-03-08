@@ -2,6 +2,7 @@
 Replay buffer utilities
 """
 
+
 def compute_returns_with_last_value(
     rewards: list[float],
     discount_factor: float = 0.9,

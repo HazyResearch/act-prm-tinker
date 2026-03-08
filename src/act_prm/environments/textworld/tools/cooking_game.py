@@ -234,7 +234,10 @@ TOOL_DESCRIPTIONS = {
             "type": "object",
             "properties": {
                 "food": {"type": "string", "description": "The food to slice."},
-                "tool": {"type": "string", "description": "A sharp tool to slice with."},
+                "tool": {
+                    "type": "string",
+                    "description": "A sharp tool to slice with.",
+                },
             },
             "required": ["food", "tool"],
         },

@@ -28,15 +28,12 @@ import random
 import time
 from typing import Any, Callable
 
-import torch
 from omegaconf import DictConfig
-from rich import print as rich_print
 from rich.console import Console
 from rich.table import Table
 from tqdm import tqdm
 
 import tinker
-from tinker import TensorData
 from tinker_cookbook import model_info, renderers
 from tinker_cookbook.checkpoint_utils import save_checkpoint_async
 from tinker_cookbook.utils import ml_log
@@ -44,18 +41,15 @@ from tinker_cookbook.utils import ml_log
 from datasets.arrow_writer import SchemaInferenceError
 from transformers import PreTrainedTokenizerBase
 
-from ..environments import Environment, EnvironmentState
+from ..environments import Environment
 from ..environments.act_prm import ActPrmEnv
 from ..generator.tinker import TinkerGenerator
-from ..llm_handlers.action_utils import get_actions
 from ..replay_buffer import ReplayBuffer
-from ..replay_buffer.types import StateActionSample, Trajectory
+from ..replay_buffer.types import Trajectory
 
-from .rl import RLTrainer, _save_trajectories_to_hf_dataset
+from .rl import RLTrainer
 from .tinker.utils import (
-    gather_with_progress,
     save_checkpoint_and_get_sampling_client,
-    split_list,
     timed,
 )
 from .train import is_better, run_rollouts
@@ -82,8 +76,9 @@ class ActPrmJointTrainer(RLTrainer):
     """
     Trainer for fully synchronous Act-PRM training
     """
+
     def __init__(
-        self, 
+        self,
         cfg: DictConfig,
         training_client: tinker.TrainingClient,
         service_client: tinker.ServiceClient,
@@ -123,7 +118,7 @@ class ActPrmJointTrainer(RLTrainer):
         # Paths to the best sampling clients
         self.best_gen_think_sampling_client_path = ""
         self.best_gen_think_state_path = ""
-        
+
         self.best_think_act_sampling_client_path = ""
         self.best_think_act_state_path = ""
 
@@ -132,9 +127,9 @@ class ActPrmJointTrainer(RLTrainer):
 
     # Modified from https://github.com/thinking-machines-lab/tinker-cookbook/blob/22483a6b04400f79da13557a8229bc98b309b026/tinker_cookbook/rl/train.py#L989
     async def train(
-        self, 
-        start_batch: int, 
-        end_batch: int, 
+        self,
+        start_batch: int,
+        end_batch: int,
         cfg: DictConfig | None = None,
         env: Environment | None = None,
         eval_env: Environment | None = None,
@@ -164,10 +159,14 @@ class ActPrmJointTrainer(RLTrainer):
             start_batch=start_batch,
         )
 
-        model_name = cfg.model_name or self.training_client.get_info().model_data.model_name
+        model_name = (
+            cfg.model_name or self.training_client.get_info().model_data.model_name
+        )
         hf_tokenizer = self.hf_tokenizer or self.training_client.get_tokenizer()
         # ^Same as tinker_cookbook.tokenizer_utils.get_tokenizer(cfg.model_name)?
-        renderer_name = cfg.renderer_name or model_info.get_recommended_renderer_name(model_name)
+        renderer_name = cfg.renderer_name or model_info.get_recommended_renderer_name(
+            model_name
+        )
         renderer = renderers.get_renderer(renderer_name, hf_tokenizer)
         logger.info("Using renderer: %s", renderer_name)
 
@@ -181,7 +180,9 @@ class ActPrmJointTrainer(RLTrainer):
             name_or_identifier: str,
             metrics: dict[str, Any],
             best_val_metric: float,
-        ) -> tuple[dict[str, Any], float, bool, dict[str, Any] | None, list[Trajectory]]:
+        ) -> tuple[
+            dict[str, Any], float, bool, dict[str, Any] | None, list[Trajectory]
+        ]:
             """
             Convenience function for running evaluations with shared parameters
 
@@ -195,7 +196,7 @@ class ActPrmJointTrainer(RLTrainer):
             num_eval_tasks = len(eval_env.datasets["eval"])
             new_best_metric = False  # set to True if eval_metric is better
             best_metric_path_dict: dict[str, Any] | None = None
-            
+
             eval_rollout_metrics, new_trajectories = await run_rollouts(
                 sampling_client=sampling_client,
                 renderer=renderer,
@@ -214,12 +215,14 @@ class ActPrmJointTrainer(RLTrainer):
             metrics.update(eval_rollout_metrics)
             display_metrics(
                 eval_rollout_metrics,
-                title=f"{split.upper()} Split Rollouts, Train Step {batch_id}/{num_batches-1}",
+                title=f"{split.upper()} Split Rollouts, Train Step {batch_id}/{num_batches - 1}",
                 style="bright_yellow" if split == "eval" else "bright_cyan",
             )
             # Get last metric to validate against best_metric
             _metric_prefix = f"{checkpoint_prefix}_{split}"
-            best_metric_key = f"{_metric_prefix}/try_{cfg.eval_num_tries-1}/{cfg.best_metric}"
+            best_metric_key = (
+                f"{_metric_prefix}/try_{cfg.eval_num_tries - 1}/{cfg.best_metric}"
+            )
             last_val_metric = eval_rollout_metrics[best_metric_key]
             best_ckpt_name = f"{_metric_prefix}_{batch_id:04d}_best"
             if (
@@ -236,29 +239,43 @@ class ActPrmJointTrainer(RLTrainer):
                 )
                 logger.info(
                     "Saved best %s sampling_client to %s",
-                    checkpoint_prefix, path_dict["sampler_path"],
+                    checkpoint_prefix,
+                    path_dict["sampler_path"],
                 )
                 logger.info(
-                    "Saved best %s state to %s", checkpoint_prefix, path_dict["state_path"]
+                    "Saved best %s state to %s",
+                    checkpoint_prefix,
+                    path_dict["state_path"],
                 )
                 logger.info(
                     "Updated best %s %s to %f at batch %d",
-                    checkpoint_prefix, cfg.best_metric, last_val_metric, batch_id,
+                    checkpoint_prefix,
+                    cfg.best_metric,
+                    last_val_metric,
+                    batch_id,
                 )
-                metrics.update({
-                    f"{checkpoint_prefix}/best_batch": batch_id,
-                    f"{checkpoint_prefix}/best_metric": last_val_metric,
-                    f"{checkpoint_prefix}/best_sampling_client_path": path_dict["sampler_path"],
-                    f"{checkpoint_prefix}/best_state_path": path_dict["state_path"],
-                })
+                metrics.update(
+                    {
+                        f"{checkpoint_prefix}/best_batch": batch_id,
+                        f"{checkpoint_prefix}/best_metric": last_val_metric,
+                        f"{checkpoint_prefix}/best_sampling_client_path": path_dict[
+                            "sampler_path"
+                        ],
+                        f"{checkpoint_prefix}/best_state_path": path_dict["state_path"],
+                    }
+                )
                 best_metric_path_dict = path_dict
             return (
-                metrics, last_val_metric, new_best_metric, best_metric_path_dict, new_trajectories
+                metrics,
+                last_val_metric,
+                new_best_metric,
+                best_metric_path_dict,
+                new_trajectories,
             )
-        
+
         num_batches = end_batch - start_batch
         wen_shuffle = len(env.datasets["train"])
-        
+
         pbar = tqdm(
             range(start_batch, end_batch),
             desc="Training to (think from actions) and (act from thoughts)",
@@ -272,11 +289,11 @@ class ActPrmJointTrainer(RLTrainer):
                 "progress/done_frac": (batch_idx + 1) / num_batches,
             }
             t_start = time.time()
-            
+
             # Run evaluations
-            if (
-                cfg.eval_every > 0 
-                and ((batch_idx + 1) % cfg.eval_every == 0 or batch_idx + 1 == cfg.num_batches)
+            if cfg.eval_every > 0 and (
+                (batch_idx + 1) % cfg.eval_every == 0
+                or batch_idx + 1 == cfg.num_batches
             ):
                 with timed("run_evals", metrics):
                     # Run `gen_think` evaluation on held-out eval tasks
@@ -295,12 +312,22 @@ class ActPrmJointTrainer(RLTrainer):
                         metrics=metrics,
                         best_val_metric=self.best_metric_gen_think,
                     )
-                    metrics, last_val_metric, new_best_metric, best_metric_path_dict, _ = eval_results
+                    (
+                        metrics,
+                        last_val_metric,
+                        new_best_metric,
+                        best_metric_path_dict,
+                        _,
+                    ) = eval_results
                     if new_best_metric:
                         self.best_metric_gen_think = last_val_metric
-                        self.best_gen_think_sampling_client_path = best_metric_path_dict["sampler_path"]
-                        self.best_gen_think_state_path = best_metric_path_dict["state_path"]
-                        
+                        self.best_gen_think_sampling_client_path = (
+                            best_metric_path_dict["sampler_path"]
+                        )
+                        self.best_gen_think_state_path = best_metric_path_dict[
+                            "state_path"
+                        ]
+
                     # Run `think_act` evaluation on both train and eval splits
                     for _split in ["train", "eval"]:
                         eval_env.split = _split
@@ -319,20 +346,35 @@ class ActPrmJointTrainer(RLTrainer):
                             metrics=metrics,
                             best_val_metric=self.best_metric_think_act,
                         )
-                        metrics, last_val_metric, new_best_metric, best_metric_path_dict, _ = eval_results
+                        (
+                            metrics,
+                            last_val_metric,
+                            new_best_metric,
+                            best_metric_path_dict,
+                            _,
+                        ) = eval_results
                         if new_best_metric:
                             self.best_metric_think_act = last_val_metric
-                            self.best_think_act_sampling_client_path = best_metric_path_dict["sampler_path"]
-                            self.best_think_act_state_path = best_metric_path_dict["state_path"]
+                            self.best_think_act_sampling_client_path = (
+                                best_metric_path_dict["sampler_path"]
+                            )
+                            self.best_think_act_state_path = best_metric_path_dict[
+                                "state_path"
+                            ]
                             try:  # Saving replay buffer
-                                self.replay_buffer.save_to_hf_dataset(self.best_replay_buffer_path)
-                                logger.info("Saved best replay buffer to %s", self.best_replay_buffer_path)
+                                self.replay_buffer.save_to_hf_dataset(
+                                    self.best_replay_buffer_path
+                                )
+                                logger.info(
+                                    "Saved best replay buffer to %s",
+                                    self.best_replay_buffer_path,
+                                )
                             except SchemaInferenceError:
                                 logger.warning(
                                     "Failed to save best replay buffer to %s\nIs replay buffer empty?",
-                                    self.best_replay_buffer_path
+                                    self.best_replay_buffer_path,
                                 )
-            
+
             # 1. Sample rollouts for training
             env.split = "train"
             rl_start_idx = batch_idx * cfg.batch_size
@@ -352,7 +394,7 @@ class ActPrmJointTrainer(RLTrainer):
                 env=env,
                 cfg=cfg,
                 batch_id=batch_idx,
-                checkpoint_name=_checkpoint_name,
+                checkpoint_name=_ckeckpoint_name,
                 split="train",
                 num_tries=cfg.num_tries,
                 start_idx=rl_start_idx,
@@ -370,7 +412,9 @@ class ActPrmJointTrainer(RLTrainer):
             self.replay_buffer.save_to_hf_dataset(self.last_replay_buffer_path)
 
             # 2. Update policy LLM with combined rollouts
-            all_trajectories = new_trajectories["think_act_policy"] + new_trajectories["policy"]
+            all_trajectories = (
+                new_trajectories["think_act_policy"] + new_trajectories["policy"]
+            )
             random.shuffle(all_trajectories)
             data_D, prepare_minibatch_metrics = await self.prepare_minibatch(
                 new_trajectories=all_trajectories,
@@ -379,7 +423,10 @@ class ActPrmJointTrainer(RLTrainer):
                 kl_penalty_coef=cfg.kl_penalty_coef,
                 kl_discount_factor=cfg.kl_discount_factor,
             )
-            sampling_client, update_metrics = await self.do_train_step_and_get_sampling_client(
+            (
+                sampling_client,
+                update_metrics,
+            ) = await self.do_train_step_and_get_sampling_client(
                 batch_idx=batch_idx,
                 training_client=self.training_client,
                 data_D=data_D,

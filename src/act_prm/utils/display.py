@@ -16,8 +16,11 @@ class RichTextStreamer(TextStreamer):
     """
     A streamer that prints the text in a rich format
     """
+
     def on_finalized_text(self, text: str, stream_end: bool = False) -> None:
-        rich_print_messages(msg_text=text, flush=True, end="" if not stream_end else None)
+        rich_print_messages(
+            msg_text=text, flush=True, end="" if not stream_end else None
+        )
 
 
 def rich_print_messages(
@@ -45,7 +48,7 @@ def rich_print_messages(
     system_bos = f"{bos_token}system"
     user_bos = f"{bos_token}user"
     assistant_bos = f"{bos_token}assistant"
-    
+
     for ix, msg in enumerate(msgs):
         # system prompt
         if msg.startswith(system_bos):
@@ -56,16 +59,26 @@ def rich_print_messages(
         # assistant messages
         elif msg.startswith(assistant_bos):
             msgs[ix] = f"[{assistant_color}]{msg}[/{assistant_color}]"
-        
+
         # tool calls
         if tool_call_bos_token in msgs[ix] and tool_call_eos_token in msgs[ix]:
-            msgs[ix] = msgs[ix].replace(tool_call_bos_token, f"[{tool_call_color}]{tool_call_bos_token}")
-            msgs[ix] = msgs[ix].replace(tool_call_eos_token, f"{tool_call_eos_token}[/{tool_call_color}]")
+            msgs[ix] = msgs[ix].replace(
+                tool_call_bos_token, f"[{tool_call_color}]{tool_call_bos_token}"
+            )
+            msgs[ix] = msgs[ix].replace(
+                tool_call_eos_token, f"{tool_call_eos_token}[/{tool_call_color}]"
+            )
         # tool responses
         if tool_response_bos_token in msgs[ix] and tool_response_eos_token in msgs[ix]:
-            msgs[ix] = msgs[ix].replace(tool_response_bos_token, f"[{tool_response_color}]{tool_response_bos_token}")
-            msgs[ix] = msgs[ix].replace(tool_response_eos_token, f"{tool_response_eos_token}[/{tool_response_color}]")
-        
+            msgs[ix] = msgs[ix].replace(
+                tool_response_bos_token,
+                f"[{tool_response_color}]{tool_response_bos_token}",
+            )
+            msgs[ix] = msgs[ix].replace(
+                tool_response_eos_token,
+                f"{tool_response_eos_token}[/{tool_response_color}]",
+            )
+
     msgs_text = eos_token.join(msgs)
     try:
         rich_print(msgs_text, **rich_print_kwargs)

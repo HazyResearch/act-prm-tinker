@@ -67,7 +67,9 @@ def get_instruction_prompt(task: str, max_turns: int | None = None) -> str:
             return INSTRUCTION_PROMPT_TREASURE_HUNT.format(max_turns=max_turns).strip()
         case "the_cooking_game":
             max_turns = max_turns or 80
-            return INSTRUCTION_PROMPT_THE_COOKING_GAME.format(max_turns=max_turns).strip()
+            return INSTRUCTION_PROMPT_THE_COOKING_GAME.format(
+                max_turns=max_turns
+            ).strip()
         case "coin_collector":
             max_turns = max_turns or 25
             return INSTRUCTION_PROMPT_COIN_COLLECTOR.format(max_turns=max_turns).strip()

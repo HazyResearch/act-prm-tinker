@@ -19,7 +19,6 @@ def get_thought_and_actions(
     action_eos: str = "</tool_call>",
     final_answer_bos: str = "Final Answer: ",
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-
     """
     From a given chat message, return two messages where the first only contains "thought text"
     and the second only contains "actions text".
@@ -43,15 +42,21 @@ def get_thought_and_actions(
             thought_msg["content"] = thought_str
             actions_msg["content"] = f"{final_answer_bos}{actions_str}"
 
-        elif action_bos not in content:  # No action in this message, e.g., because invalid tool call
+        elif (
+            action_bos not in content
+        ):  # No action in this message, e.g., because invalid tool call
             return thought_msg, None
 
         else:
             # Extract content from tool calls, e.g., f"<tool_call>{content}</tool_call>"
             # -> Assumes only one action per message
-            assert action_bos in content, f"No explicit action found in message: {content}"
+            assert action_bos in content, (
+                f"No explicit action found in message: {content}"
+            )
             thought_str, actions_str = content.split(action_bos, maxsplit=1)
-            assert action_eos in actions_str, f"No closing action tag found in message: {actions_str}"
+            assert action_eos in actions_str, (
+                f"No closing action tag found in message: {actions_str}"
+            )
             # Extract the action text content
             actions_str = actions_str.split(action_eos, maxsplit=1)[0].strip()
             # Add back the action tags (maybe redundant)
@@ -76,7 +81,7 @@ def get_latent_completion(
         ...,
         {"role": "assistant", "content": "<action_message_last><thought_message_last>"},
     ]
-    
+
     For training convenience, if `continue_final_message` is True, then we return `action_target`
     as the last assistant action message, e.g., "<action_message_last>"
     - We also change messages to prompt for the last thought, e.g., "<thought_message_last>"
@@ -90,7 +95,9 @@ def get_latent_completion(
             latent_inputs.append(msg)
         else:
             assistant_indices.append(msg_idx)
-            msg_thought, msg_actions = get_thought_and_actions(msg, **get_thought_actions_kwargs)
+            msg_thought, msg_actions = get_thought_and_actions(
+                msg, **get_thought_actions_kwargs
+            )
             # Extract content from message dicts
             c_thought, c_actions = msg_thought["content"], msg_actions["content"]
             latent_content = f"{c_actions}\n\n<thought>\n{c_thought}\n</thought>"
@@ -109,7 +116,7 @@ def get_latent_completion(
             "role": last_assistant_msg["role"],
             "content": msg_content,
         }
-        latent_inputs = latent_inputs[:last_assistant_idx + 1]
+        latent_inputs = latent_inputs[: last_assistant_idx + 1]
     return latent_inputs, action_target
 
 
@@ -147,8 +154,10 @@ def get_chat_from_ds_sample(
     action: dict = row["action"]
     if "next_obs" in column_names:
         next_obs: dict = row["next_obs"]
-        next_obs["content"] = next_obs["content"].split("\n\nextracted_final_answer:")[0]
-    reward:  float = row["reward"]
+        next_obs["content"] = next_obs["content"].split("\n\nextracted_final_answer:")[
+            0
+        ]
+    reward: float = row["reward"]
     return_: float = row["return_"]
 
     chat = [system_prompt]
@@ -167,17 +176,21 @@ def get_full_trajectories_from_dataset(
     **get_thought_and_actions_kwargs: Any,
 ) -> list[list[dict[str, Any]], list[dict[str, Any]]]:
     """
-    Get full action-only trajectories from Dataset, 
+    Get full action-only trajectories from Dataset,
     where each trajectory is a tuple of (list of messages, list of tools)
     """
     # full_trajectory_samples = ds.filter(lambda x: x["reward"] != 0)  # only last step reward != 0
     full_trajectory_samples = ds.filter(lambda x: x["done"])
-    
+
     all_trajectories = []
     for last_step_sample in tqdm(full_trajectory_samples):
         # Parse Dataset sample into message chat
-        last_step_messages, _ = get_chat_from_ds_sample(last_step_sample, column_names=["state", "action"])
-        tools = last_step_sample.get("tools", [])  # assume tools are consistent for all steps
+        last_step_messages, _ = get_chat_from_ds_sample(
+            last_step_sample, column_names=["state", "action"]
+        )
+        tools = last_step_sample.get(
+            "tools", []
+        )  # assume tools are consistent for all steps
         if actions_only:
             messages = [
                 # returns tuple of (thought_msgs, action_msgs)
@@ -190,16 +203,14 @@ def get_full_trajectories_from_dataset(
         if messages[0] is not None and messages[0]["role"] == "system":
             messages = messages[1:]
         # Remove any invalid actions (will be None, also should remove the next-step-obs)
-        invalid_act_next_obs_idx = [
-            i for i, msg in enumerate(messages) if msg is None
-        ]
+        invalid_act_next_obs_idx = [i for i, msg in enumerate(messages) if msg is None]
         final_messages = []
         # Go through and remove any bad (action, next-obs) pairs
         bad_next_obs = False
         for i, msg in enumerate(messages):
             if i in invalid_act_next_obs_idx and not bad_next_obs:
                 bad_next_obs = True
-            elif bad_next_obs:        # Don't add the next-obs,
+            elif bad_next_obs:  # Don't add the next-obs,
                 bad_next_obs = False  # But reset the flag
             else:
                 final_messages.append(msg)
