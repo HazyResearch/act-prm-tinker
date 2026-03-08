@@ -70,13 +70,15 @@ def _convert_langchain_trace(
                         continue
                     if item.get("type") == "tool_use":
                         # LangChain tool_use → our function call format
-                        tool_calls.append({
-                            "type": "function",
-                            "function": {
-                                "name": item.get("name", ""),
-                                "arguments": item.get("input", {}),
-                            },
-                        })
+                        tool_calls.append(
+                            {
+                                "type": "function",
+                                "function": {
+                                    "name": item.get("name", ""),
+                                    "arguments": item.get("input", {}),
+                                },
+                            }
+                        )
                     elif item.get("type") == "text":
                         text_parts.append(item.get("text", ""))
             elif isinstance(content, str):
@@ -91,18 +93,22 @@ def _convert_langchain_trace(
                     msg_out["content"] = "\n".join(text_parts)
                 converted.append(msg_out)
             elif text_parts:
-                converted.append({
-                    "role": "assistant",
-                    "content": "\n".join(text_parts),
-                })
+                converted.append(
+                    {
+                        "role": "assistant",
+                        "content": "\n".join(text_parts),
+                    }
+                )
 
         elif msg_type in ("tool", "function"):
-            converted.append({
-                "role": "tool",
-                "type": "function_call_output",
-                "call_id": msg.get("id"),
-                "output": content,
-            })
+            converted.append(
+                {
+                    "role": "tool",
+                    "type": "function_call_output",
+                    "call_id": msg.get("id"),
+                    "output": content,
+                }
+            )
 
     return converted
 
@@ -222,9 +228,7 @@ class TraceReplayBackend:
         # Try partial match on company + table (ignoring query differences)
         partial_key = _normalize_key(company_name, table_name)
         available_queries = [
-            k.split("|", 2)[-1]
-            for k in self.sql_cache
-            if k.startswith(partial_key)
+            k.split("|", 2)[-1] for k in self.sql_cache if k.startswith(partial_key)
         ]
         if available_queries:
             return (
@@ -233,8 +237,7 @@ class TraceReplayBackend:
                 + "\n".join(f"- {q}" for q in available_queries[:5])
             )
         return (
-            f"No SQL data found for table '{table_name}' "
-            f"in company '{company_name}'."
+            f"No SQL data found for table '{table_name}' in company '{company_name}'."
         )
 
     def list_companies(self) -> list[str]:

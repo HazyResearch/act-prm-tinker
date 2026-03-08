@@ -310,9 +310,7 @@ class ActionLmEnv(Environment):
         if "split" in df.columns:
             split_vals = df["split"].unique()
             if len(split_vals) > 1:
-                max_train_id = df.loc[
-                    df["split"] == "train", self.sample_id_name
-                ].max()
+                max_train_id = df.loc[df["split"] == "train", self.sample_id_name].max()
                 non_train_mask = df["split"] != "train"
                 df.loc[non_train_mask, self.sample_id_name] = (
                     df.loc[non_train_mask, self.sample_id_name] + max_train_id + 1

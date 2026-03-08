@@ -136,7 +136,7 @@ def get_action_prompted_completion(
             "content": f"{msg_content}{thought_bos}\n",
         }
         latent_inputs = latent_inputs[: last_assistant_idx + 1]
-    
+
     return latent_inputs, action_target
 
 
@@ -287,7 +287,9 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             first_msg_to_show = getattr(state, "first_obs_to_show", 0) - 3
             # ^-1 ActPRM environment previously counts system prompt as first message,
             # but we apply after system_prompt in process_state_messages_for_metrics
-            standard_system_prompt = state.original_system_prompt or env.original_system_prompt
+            standard_system_prompt = (
+                state.original_system_prompt or env.original_system_prompt
+            )
             standard_chat = process_state_messages_for_metrics(
                 state_messages,
                 system_prompt=standard_system_prompt,

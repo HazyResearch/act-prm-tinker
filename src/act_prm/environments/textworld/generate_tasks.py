@@ -129,7 +129,9 @@ def gen_cooking(
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"tw_cook_r{recipe:03d}_go{go:03d}_seed{seed:03d}_{split}.z8"
-    take = take or recipe  # Following Intelligent-Go-Explore (which BALROG uses): https://github.com/conglu1997/intelligent-go-explore/blob/821ad194080a30b1df7055fc6250cf45ccfcb477/textworld/misc/make_cooking.py#L51
+    take = (
+        take or recipe
+    )  # Following Intelligent-Go-Explore (which BALROG uses): https://github.com/conglu1997/intelligent-go-explore/blob/821ad194080a30b1df7055fc6250cf45ccfcb477/textworld/misc/make_cooking.py#L51
     cmd = [
         "tw-make",
         "tw-cooking",

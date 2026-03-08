@@ -153,7 +153,7 @@ class SftTrainer:
             try:
                 rich_print(f"[cyan]Input {idx}:\n{decoded_input}\n[/cyan]")
                 rich_print(f"[green]Label {idx}:\n{decoded_labels[idx]}\n[/green]")
-            except Exception as e:
+            except Exception:
                 print(f"[cyan]Input {idx}:\n{decoded_input}\n[/cyan]")
                 print(f"[green]Label {idx}:\n{decoded_labels[idx]}\n[/green]")
             rich_print("=" * 100)
@@ -165,7 +165,7 @@ class SftTrainer:
             rich_print(
                 f"[bold]Run cmd: [bright_cyan]{self.run_cmd}[/bright_cyan][/bold]"
             )
-        except Exception as e:
+        except Exception:
             print(f"Run url: {self.run_url}")
             print(f"Run cmd: {self.run_cmd}")
 
