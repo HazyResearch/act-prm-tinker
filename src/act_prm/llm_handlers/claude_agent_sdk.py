@@ -8,8 +8,10 @@ Two subclasses of LLM using the Claude Agent SDK:
 
 import asyncio
 import json
+import threading
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 from claude_agent_sdk import (
@@ -48,7 +50,7 @@ class ClaudeAgentResponse:
 
 def _convert_tools_to_mcp_server(
     tools: list[dict[str, Any]],
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[str]]:
     """
     Convert OpenAI-style function tool definitions to an in-process MCP server.
 
@@ -71,14 +73,16 @@ def _convert_tools_to_mcp_server(
         )
 
         @sdk_tool(name, description, parameters)
-        async def _placeholder_handler(args: dict[str, Any]) -> dict[str, Any]:
+        async def _placeholder_handler(
+            args: dict[str, Any], _name: str = name
+        ) -> dict[str, Any]:
             # This handler should never be called — the environment handles tool
             # execution. Return an error if somehow invoked.
             return {
                 "content": [
                     {
                         "type": "text",
-                        "text": f"Error: tool '{name}' should be handled by the environment, not the SDK.",
+                        "text": f"Error: tool '{_name}' should be handled by the environment, not the SDK.",
                     }
                 ],
                 "isError": True,
@@ -123,6 +127,46 @@ def _messages_to_prompt(
             parts.append(f"[System]\n{content}")
 
     return "\n\n".join(parts)
+
+
+def _update_messages_impl(
+    messages: list[dict[str, Any]],
+    model_response: ClaudeAgentResponse | None,
+    prior_messages: list[dict[str, Any]],
+    interleave: bool = False,
+) -> list[dict[str, Any]]:
+    """
+    Shared update_messages logic for both ClaudeQueryLLM and ClaudeClientLLM.
+
+    Converts ClaudeAgentResponse content blocks back into message dicts
+    that can be passed in the next call's messages list.
+    """
+    if interleave or model_response is None:
+        new_messages: list[dict[str, Any]] = []
+    else:
+        new_messages = _response_to_message_dicts(model_response)
+
+    for message in messages:
+        if message.get("type") == "function_call_output":
+            msg = {k: v for k, v in message.items() if k != "role"}
+            try:
+                image_message = msg.pop("image_output")
+                new_messages.extend([msg, image_message])
+            except KeyError:
+                new_messages.append(msg)
+        else:
+            new_messages.append(message)
+
+    return prior_messages + new_messages
+
+
+def _track_usage(llm: LLM, usage: dict[str, int]) -> None:
+    """Track token usage from a ClaudeAgentResponse on an LLM instance."""
+    llm.last_usage = llm._track_tokens(SimpleNamespace(**usage))
+    if llm.last_usage is not None:
+        print("Claude Agent SDK token usage:")
+        for k, v in llm.last_usage.items():
+            print(f"-> {k}: {v}")
 
 
 class ClaudeQueryLLM(LLM):
@@ -197,15 +241,8 @@ class ClaudeQueryLLM(LLM):
             print(f"ClaudeQueryLLM query error: {type(e).__name__}: {e}")
             return None
 
-        # Track tokens
         if response.usage:
-            self.last_usage = self._track_tokens(
-                type("Usage", (), response.usage)()
-            )
-            if self.last_usage is not None:
-                print("Claude Agent SDK token usage:")
-                for k, v in self.last_usage.items():
-                    print(f"-> {k}: {v}")
+            _track_usage(self, response.usage)
 
         return response
 
@@ -256,30 +293,8 @@ class ClaudeQueryLLM(LLM):
         prior_messages: list[dict[str, Any]],
         interleave: bool = False,
     ) -> list[dict[str, Any]]:
-        """
-        Return updated messages for the model.
-
-        Converts ClaudeAgentResponse content blocks back into message dicts
-        that can be passed in the next call's messages list.
-        """
-        if interleave or model_response is None:
-            new_messages: list[dict[str, Any]] = []
-        else:
-            # Convert assistant content blocks to message dicts
-            new_messages = _response_to_message_dicts(model_response)
-
-        for message in messages:
-            if message.get("type") == "function_call_output":
-                msg = {k: v for k, v in message.items() if k != "role"}
-                try:
-                    image_message = msg.pop("image_output")
-                    new_messages.extend([msg, image_message])
-                except KeyError:
-                    new_messages.append(msg)
-            else:
-                new_messages.append(message)
-
-        return prior_messages + new_messages
+        """Return updated messages for the model."""
+        return _update_messages_impl(messages, model_response, prior_messages, interleave)
 
     def get_actions(
         self, response: ClaudeAgentResponse | None
@@ -295,6 +310,9 @@ class ClaudeClientLLM(LLM):
     Maintains a conversation session across multiple `sample()` calls. The client
     remembers previous context, making it suitable for multi-step agent interactions
     where you want Claude to maintain state.
+
+    Uses a dedicated background event loop thread so that the async ClaudeSDKClient
+    persists across synchronous `sample()` calls.
 
     Example usage:
     ```
@@ -332,6 +350,25 @@ class ClaudeClientLLM(LLM):
         self.last_usage = None
         self._client: ClaudeSDKClient | None = None
         self._connected = False
+        # Persistent event loop in a background thread for ClaudeSDKClient
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_thread: threading.Thread | None = None
+
+    def _ensure_loop(self) -> asyncio.AbstractEventLoop:
+        """Start a background event loop thread if not already running."""
+        if self._loop is None or self._loop.is_closed():
+            self._loop = asyncio.new_event_loop()
+            self._loop_thread = threading.Thread(
+                target=self._loop.run_forever, daemon=True
+            )
+            self._loop_thread.start()
+        return self._loop
+
+    def _run_async(self, coro: Any) -> Any:
+        """Run an async coroutine on the persistent event loop."""
+        loop = self._ensure_loop()
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result()
 
     def _get_options(
         self,
@@ -357,15 +394,21 @@ class ClaudeClientLLM(LLM):
         """Connect the client and start a session."""
         options = self._get_options(system_prompt, tools)
         self._client = ClaudeSDKClient(options=options)
-        asyncio.run(self._client.connect())
+        self._run_async(self._client.connect())
         self._connected = True
 
     def disconnect(self) -> None:
         """Disconnect the client and end the session."""
         if self._client is not None:
-            asyncio.run(self._client.disconnect())
+            self._run_async(self._client.disconnect())
             self._client = None
             self._connected = False
+        if self._loop is not None and self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            if self._loop_thread is not None:
+                self._loop_thread.join(timeout=5)
+            self._loop = None
+            self._loop_thread = None
 
     async def _query_single_async(
         self,
@@ -393,15 +436,8 @@ class ClaudeClientLLM(LLM):
             print(f"ClaudeClientLLM query error: {type(e).__name__}: {e}")
             return None
 
-        # Track tokens
         if response.usage:
-            self.last_usage = self._track_tokens(
-                type("Usage", (), response.usage)()
-            )
-            if self.last_usage is not None:
-                print("Claude Agent SDK token usage:")
-                for k, v in self.last_usage.items():
-                    print(f"-> {k}: {v}")
+            _track_usage(self, response.usage)
 
         return response
 
@@ -419,7 +455,7 @@ class ClaudeClientLLM(LLM):
             self.connect(system_prompt=system_prompt, tools=tools)
 
         prompt = _messages_to_prompt(None, messages)  # system_prompt set at connect
-        return asyncio.run(self._query_single_async(prompt))
+        return self._run_async(self._query_single_async(prompt))
 
     def sample(
         self,
@@ -449,29 +485,8 @@ class ClaudeClientLLM(LLM):
         prior_messages: list[dict[str, Any]],
         interleave: bool = False,
     ) -> list[dict[str, Any]]:
-        """
-        Return updated messages for the model.
-
-        For ClaudeClientLLM, the session maintains its own context, so this
-        primarily formats new messages for the next prompt.
-        """
-        if interleave or model_response is None:
-            new_messages: list[dict[str, Any]] = []
-        else:
-            new_messages = _response_to_message_dicts(model_response)
-
-        for message in messages:
-            if message.get("type") == "function_call_output":
-                msg = {k: v for k, v in message.items() if k != "role"}
-                try:
-                    image_message = msg.pop("image_output")
-                    new_messages.extend([msg, image_message])
-                except KeyError:
-                    new_messages.append(msg)
-            else:
-                new_messages.append(message)
-
-        return prior_messages + new_messages
+        """Return updated messages for the model."""
+        return _update_messages_impl(messages, model_response, prior_messages, interleave)
 
     def get_actions(
         self, response: ClaudeAgentResponse | None
