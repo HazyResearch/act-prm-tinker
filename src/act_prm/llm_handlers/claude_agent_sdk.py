@@ -25,12 +25,15 @@ from claude_agent_sdk import (
     tool as sdk_tool,
     create_sdk_mcp_server,
 )
+from dotenv import load_dotenv
 
 from .base import LLM
 from .types import ActionFromLLM
 
 # Default timeout (seconds) for async operations run from sync wrappers
 _ASYNC_TIMEOUT = 300
+
+load_dotenv()
 
 
 def _clear_nested_session_guard() -> None:
@@ -604,9 +607,8 @@ def _is_tool_result_block(block: Any) -> bool:
     return hasattr(block, "tool_use_id") and not hasattr(block, "name")
 
 
-def _strip_mcp_prefix(name: str) -> str:
+def _strip_mcp_prefix(name: str, prefix: str = "mcp__env_tools__") -> str:
     """Strip MCP server prefix from tool names (e.g. 'mcp__env_tools__get_weather' -> 'get_weather')."""
-    prefix = "mcp__env_tools__"
     if name.startswith(prefix):
         return name[len(prefix) :]
     return name

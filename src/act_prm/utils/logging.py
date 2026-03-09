@@ -57,3 +57,29 @@ def print_config(config: DictConfig, name: str = "CONFIG", style="bright") -> No
             print(f"-> Config section: {config_section}")
 
     rich_print(tree)
+
+
+class AnsiColorLoggingFormatter(logging.Formatter):
+    """
+    ANSI color logging formatter
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        """
+        Format the log record
+        """
+        no_style = "\033[0m"
+        bold = "\033[91m"
+        red = "\033[91m"
+        yellow = "\033[93m"
+        green = "\033[92m"
+        cyan = "\033[96m"
+        start_style = {
+            "DEBUG": cyan,
+            "INFO": green,
+            "WARNING": yellow,
+            "ERROR": red,
+            "CRITICAL": red + bold,
+        }.get(record.levelname, no_style)
+        end_style = no_style
+        return f"{start_style}{super().format(record)}{end_style}"
