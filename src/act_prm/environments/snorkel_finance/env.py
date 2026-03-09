@@ -4,7 +4,12 @@ Snorkel Agent Finance Reasoning Environment
 Online evaluation environment where the agent queries financial data via tools
 and answers questions about company 10-K filings.
 
-Uses a trace-replay backend built from the snorkelai/agent-finance-reasoning dataset.
+Supports two benchmark tasks:
+- finqa: Quantitative financial QA (10,645 questions, boxed numeric answers)
+- finqa_reasoning: Qualitative financial reasoning (79 questions, paragraph answers)
+
+Tools execute real SQL queries against local JSON table data, matching the
+reference implementation at https://github.com/snorkel-ai/FinQABenchmark
 """
 
 from __future__ import annotations
@@ -14,7 +19,8 @@ from copy import copy
 from typing import Any
 
 import numpy as np
-from datasets import Dataset, DatasetDict, load_dataset
+import pandas as pd
+from datasets import Dataset, DatasetDict
 from pydantic import ConfigDict, InstanceOf
 
 from ...graders.snorkel_finance import SnorkelFinanceGrader
@@ -22,8 +28,8 @@ from ...llm_handlers import ActionFromLLM
 from ..base import BaseTool, Environment
 from ..types import EnvironmentStateWithAnswer, EnvironmentStepResult
 
-from .backend import TraceReplayBackend
-from .prompts import SYSTEM_PROMPT, render_prompt
+from .backend import DataBackend
+from .prompts import SYSTEM_PROMPTS, render_prompt
 from .tools import (
     TOOL_CLASSES,
 )
@@ -40,7 +46,7 @@ class SnorkelFinanceState(EnvironmentStateWithAnswer):
     company: str
     tool_registry: dict[str, InstanceOf[BaseTool]]
     tools: list[dict[str, Any]]
-    backend: InstanceOf[TraceReplayBackend]
+    backend: InstanceOf[DataBackend]
 
 
 class SnorkelFinanceStepResult(EnvironmentStepResult):
@@ -61,20 +67,29 @@ class SnorkelFinanceEnv(Environment):
     must use tools (get_descriptions, get_table_info, sql_query, calculator,
     respond_user) to gather data and answer the question.
 
-    Tool responses are replayed from recorded traces in the
-    snorkelai/agent-finance-reasoning dataset.
+    Supports two task types:
+    - "finqa": 10,645 quantitative questions with boxed numeric answers
+    - "finqa_reasoning": 79 qualitative reasoning questions with paragraph answers
+
+    Tool responses are computed live against local financial table data
+    via in-memory SQLite queries.
     """
 
     def __init__(
         self,
-        dataset_config: dict[str, Any],
+        data_path: str,
+        benchmark_csv: str,
+        task: str = "finqa_reasoning",
         grader_model_config: dict[str, Any] | None = None,
         grader_model_samples: int = 1,
         grader_model_verbose: bool = False,
         num_fewshot_prompts: int = 0,
-        num_train_samples: int = 100,
-        num_val_samples: int = 30,
-        num_test_samples: int = 37,
+        num_train_samples: int | None = None,
+        num_val_samples: int | None = None,
+        num_test_samples: int | None = None,
+        frac_train: float = 0.6,
+        frac_val: float = 0.2,
+        frac_test: float = 0.2,
         max_turns: int = 50,
         num_tries: int = 1,
         seed: int = 0,
@@ -84,7 +99,9 @@ class SnorkelFinanceEnv(Environment):
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
-        self.dataset_config = dataset_config
+        self.data_path = data_path
+        self.benchmark_csv = benchmark_csv
+        self.task = task
 
         self.num_fewshot_prompts = num_fewshot_prompts
 
@@ -97,21 +114,32 @@ class SnorkelFinanceEnv(Environment):
             verbose=grader_model_verbose,
         )
 
-        # Build environment
+        # Split config
         self.num_train_samples = num_train_samples
         self.num_val_samples = num_val_samples
         self.num_test_samples = num_test_samples
+        self.frac_train = frac_train
+        self.frac_val = frac_val
+        self.frac_test = frac_test
         self.split = split
 
         self.max_turns = max_turns
         self.num_tries = num_tries
         self.seed = seed
 
-        self.system_prompt = system_prompt or SYSTEM_PROMPT.format(max_turns=max_turns)
+        # System prompt: explicit > task default
+        if system_prompt is not None:
+            self.system_prompt = system_prompt
+        else:
+            template = SYSTEM_PROMPTS.get(task, SYSTEM_PROMPTS["finqa_reasoning"])
+            self.system_prompt = template.format(max_turns=max_turns)
         self.truncation_message = truncation_message
 
-        # Load data and build trace-replay backend
-        self.datasets, self.backend = self.init_data()
+        # Load questions from benchmark CSV
+        self.datasets = self.init_data()
+
+        # Initialize real data backend for tools
+        self.backend = DataBackend(data_path)
 
         # Initialize tools
         self.tool_registry: dict[str, BaseTool] = {
@@ -124,49 +152,72 @@ class SnorkelFinanceEnv(Environment):
     def __len__(self) -> int:
         return len(self.datasets[self.split])
 
-    def init_data(self) -> tuple[DatasetDict, TraceReplayBackend]:
-        """
-        Load the snorkelai/agent-finance-reasoning dataset and build
-        the trace-replay backend + processed splits.
-        """
-        ds = load_dataset(**self.dataset_config)
+    def init_data(self) -> DatasetDict:
+        """Load questions from the benchmark CSV and split into train/eval/test."""
+        df = pd.read_csv(self.benchmark_csv)
 
-        # Build trace-replay backend from ALL traces (including incorrect ones)
-        backend = TraceReplayBackend.from_dataset(ds)
+        # Normalize columns across finqa vs finqa_reasoning schemas
+        records = []
+        for _, row in df.iterrows():
+            company = str(row.get("company", ""))
+            question = str(row.get("question", ""))
+            answer = str(row.get("answer", ""))
+            query_id = int(row.get("id", 0))
 
-        # Process into our format
-        ds = ds.map(
-            self._process_sample,
-            remove_columns=ds.column_names,
-            load_from_cache_file=False,
-        )
+            # Build user_query if not present
+            user_query = row.get("user_query", None)
+            if pd.isna(user_query) or user_query is None:
+                user_query = question
 
-        splits = self._get_splits(ds)
-        return splits, backend
+            records.append(
+                {
+                    "query_id": query_id,
+                    "question": question,
+                    "answer": answer,
+                    "company": company,
+                    "prompt": render_prompt(
+                        user_query=user_query,
+                        company=company,
+                    ),
+                }
+            )
 
-    def _process_sample(self, sample: dict[str, Any]) -> dict[str, Any]:
-        """Process a raw dataset sample into our format."""
-        return {
-            "query_id": sample["id"],
-            "question": sample["user_query"],
-            "answer": sample["answer"],
-            "company": sample["company"],
-            "correctness": sample["correctness"],
-            "prompt": render_prompt(
-                user_query=sample["user_query"],
-                company=sample["company"],
-            ),
-        }
+        ds = Dataset.from_list(records)
+        return self._get_splits(ds)
 
     def _get_splits(self, dataset: Dataset) -> DatasetDict:
         """Split dataset into train/eval/test."""
+        n = len(dataset)
+
+        if self.num_test_samples is not None:
+            n_test = self.num_test_samples
+        else:
+            n_test = max(1, int(n * self.frac_test))
+
+        if self.num_val_samples is not None:
+            n_val = self.num_val_samples
+        else:
+            n_val = max(1, int(n * self.frac_val))
+
+        if self.num_train_samples is not None:
+            n_train = self.num_train_samples
+        else:
+            n_train = n - n_test - n_val
+
+        # Ensure splits don't exceed dataset size
+        total_requested = n_train + n_val + n_test
+        if total_requested > n:
+            n_test = min(n_test, n - 2)  # leave at least 2 for train+val
+            n_val = min(n_val, n - n_test - 1)  # leave at least 1 for train
+            n_train = n - n_test - n_val
+
         trainval_test = dataset.train_test_split(
-            test_size=self.num_test_samples,
+            test_size=n_test,
             shuffle=True,
             seed=self.seed,
         )
         train_val = trainval_test["train"].train_test_split(
-            test_size=self.num_val_samples,
+            test_size=n_val,
             shuffle=True,
             seed=self.seed,
         )

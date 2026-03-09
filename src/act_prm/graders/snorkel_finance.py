@@ -1,8 +1,12 @@
 """
 LLM-based grader for Snorkel Finance QA tasks.
 
-Matches the grading prompt from FinQABenchmark/src/llmj.py with
-decimal matching rules specific to financial QA.
+Matches the grading logic from FinQABenchmark/src/llmj.py:
+- System prompt: correctness evaluation instructions
+- User prompt: question, model response, label
+- Decimal matching rules specific to financial QA
+
+Reference: https://github.com/snorkel-ai/FinQABenchmark/blob/main/src/llmj.py
 """
 
 import logging
@@ -12,8 +16,10 @@ from .qa import LLMGraderForQA
 
 logger = logging.getLogger(__name__)
 
+# System prompt for correctness evaluation.
 # From: https://github.com/snorkel-ai/FinQABenchmark/blob/main/src/llmj.py
-SNORKEL_FINANCE_GRADER_TEMPLATE = """I am going to give you
+SNORKEL_FINANCE_GRADER_SYSTEM_PROMPT = """\
+I am going to give you
 - question
 - model response
 - label
@@ -32,22 +38,28 @@ It's allowed to have model response as a fraction. You can compute the fraction 
 
 If model response OR label exceeds more than two decimal places, you will compare only uptill the first two decimal places for the model answer and the label, without rounding off.
 
+Provide your judgement in the following format:
+correct: Answer 'yes' if the model response matches the label, 'no' otherwise.
+rationale: Brief explanation of why they match or don't match."""
+
+# User prompt template (matches reference llmj.py get_correctness())
+SNORKEL_FINANCE_GRADER_USER_TEMPLATE = """\
 Question: {question}
 
 Model Response: {response}
 
-Label: {correct_answer}
-
-Provide your judgement in the following format:
-correct: Answer 'yes' if the model response matches the label, 'no' otherwise.
-rationale: Brief explanation of why they match or don't match."""
+Label: {correct_answer}"""
 
 
 class SnorkelFinanceGrader(LLMGraderForQA):
     """Grader for Snorkel Finance QA using the reference FinQABenchmark prompt.
 
+    Follows the same system/user message structure as llmj.py:
+    - System: correctness evaluation instructions with decimal matching rules
+    - User: question, model response, and ground truth label
+
     Inherits majority voting, metrics tracking from LLMGraderForQA.
-    Overrides grade_sample to use decimal-matching-aware prompt.
+    Overrides grade_sample to use the Snorkel Finance-specific prompt.
     """
 
     def grade_sample(
@@ -56,14 +68,14 @@ class SnorkelFinanceGrader(LLMGraderForQA):
         correct_answer: str,
         response: str,
     ) -> tuple[str, str]:
-        grader_prompt = SNORKEL_FINANCE_GRADER_TEMPLATE.format(
+        user_prompt = SNORKEL_FINANCE_GRADER_USER_TEMPLATE.format(
             question=question,
             correct_answer=correct_answer,
             response=response,
         ).strip()
-        prompt_messages = [{"role": "user", "content": grader_prompt}]
+        prompt_messages = [{"role": "user", "content": user_prompt}]
         sampler_response = self.grader_model.sample(
-            system_prompt="",
+            system_prompt=SNORKEL_FINANCE_GRADER_SYSTEM_PROMPT,
             messages=prompt_messages,
             tools=None,
             max_new_tokens=self.max_new_tokens,
