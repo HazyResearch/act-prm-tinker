@@ -285,7 +285,9 @@ class ActionPromptActPrmGenerator(HuggingFaceGenerator):
                 )
                 # Generate `num_return_sequences` thoughts
                 batch_state_input_ids = input_ids.expand(num_return_sequences, -1)
-                prompt_len = input_ids.shape[1]  # unpadded prompt length (single sequence, no padding)
+                prompt_len = input_ids.shape[
+                    1
+                ]  # unpadded prompt length (single sequence, no padding)
                 # Generate model responses
                 outputs = llm.model.generate(
                     input_ids=batch_state_input_ids.to(device),
@@ -455,7 +457,9 @@ class ActionPromptActPrmGenerator(HuggingFaceGenerator):
                     for _ in range(num_return_sequences)
                 ]
                 for i, _thought_text in enumerate(thoughts_in_group):
-                    state_action_thought_messages_G[i][-1]["content"] += _thought_text + "\n" + self.thought_eos
+                    state_action_thought_messages_G[i][-1]["content"] += (
+                        _thought_text + "\n" + self.thought_eos
+                    )
 
                 _state_messages_in_group = [
                     act_prompt_state_messages
@@ -481,8 +485,7 @@ class ActionPromptActPrmGenerator(HuggingFaceGenerator):
                 state_act_thought_trajectory_group = _get_trajectory_group_from_generations(
                     state_messages_in_group=_state_messages_in_group,
                     actions_in_group=_actions_in_group,  # list[dict[str, str]], not exactly what we want, but we get thru state_action_tokens_in_group
-                    state_len_in_group=[prompt_len]
-                    * num_return_sequences,
+                    state_len_in_group=[prompt_len] * num_return_sequences,
                     state_action_tokens_in_group=state_act_thought_tokens,
                     old_logprobs_in_group=thought_logprobs,
                     rewards_in_group=rewards_in_group,
