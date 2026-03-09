@@ -123,8 +123,7 @@ class SqlQueryTool(BaseTool):
                     "query": {
                         "type": "string",
                         "description": (
-                            "SQL query to execute on the table. "
-                            "No SELECT * allowed."
+                            "SQL query to execute on the table. No SELECT * allowed."
                         ),
                     },
                 },
@@ -165,8 +164,7 @@ class CalculatorTool(BaseTool):
                     "expression": {
                         "type": "string",
                         "description": (
-                            "A Python math expression "
-                            "(e.g., '(310 / 6759) * 100')"
+                            "A Python math expression (e.g., '(310 / 6759) * 100')"
                         ),
                     },
                 },

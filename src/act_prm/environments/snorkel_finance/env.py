@@ -5,7 +5,7 @@ Online evaluation environment where the agent queries financial data via tools
 and answers questions about company 10-K filings.
 
 Supports two benchmark tasks:
-- finqa: Quantitative financial QA (10,645 questions, boxed numeric answers)
+- finqa: Quantitative financial QA (290 questions, boxed numeric answers)
 - finqa_reasoning: Qualitative financial reasoning (79 questions, paragraph answers)
 
 Tools execute real SQL queries against local JSON table data, matching the
@@ -68,7 +68,7 @@ class SnorkelFinanceEnv(Environment):
     respond_user) to gather data and answer the question.
 
     Supports two task types:
-    - "finqa": 10,645 quantitative questions with boxed numeric answers
+    - "finqa": 290 quantitative questions with boxed numeric answers
     - "finqa_reasoning": 79 qualitative reasoning questions with paragraph answers
 
     Tool responses are computed live against local financial table data

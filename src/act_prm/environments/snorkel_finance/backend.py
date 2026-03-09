@@ -100,16 +100,12 @@ class DataBackend:
                 f"Available companies: {self._companies}"
             )
         table_paths = glob.glob(os.path.join(company_dir, "*.json"))
-        table_names = [
-            os.path.basename(f).replace(".json", "") for f in table_paths
-        ]
+        table_names = [os.path.basename(f).replace(".json", "") for f in table_paths]
         return json.dumps(table_names)
 
     def get_table_info(self, company_name: str, table_name: str) -> str:
         """Get metadata about a table: columns, dtypes, unique values."""
-        cleaned_table_name = (
-            table_name.replace(".json", "").replace(".txt", "")
-        )
+        cleaned_table_name = table_name.replace(".json", "").replace(".txt", "")
         key = f"{company_name}/{cleaned_table_name}"
 
         if key not in self.tables_cleaned:
@@ -128,9 +124,7 @@ class DataBackend:
             cleaned_vals = [
                 "".join(c for c in str(x) if c.isalnum()).strip() for x in vals
             ]
-            all_numeric = all(
-                v.isnumeric() or len(v) == 0 for v in cleaned_vals
-            )
+            all_numeric = all(v.isnumeric() or len(v) == 0 for v in cleaned_vals)
             if all_numeric:
                 cols_to_drop.append(col)
 
@@ -144,9 +138,7 @@ class DataBackend:
         }
         return json.dumps(cleaned_table_info, indent=0).replace("\n", "")
 
-    def sql_query(
-        self, company_name: str, table_name: str, query: str
-    ) -> str:
+    def sql_query(self, company_name: str, table_name: str, query: str) -> str:
         """Execute a SQL query on a financial table via in-memory SQLite."""
         # Block SELECT *
         if "select *" in query.lower():
@@ -154,13 +146,11 @@ class DataBackend:
 
         # Check for required filter clauses
         query_cleaned = re.sub(r"(\\r|\\n|\\t|[\r\n\t])+", " ", query).upper()
-        pattern = r"(?<!\w|\[)(" + "|".join(
-            re.escape(f) for f in SQL_FILTERS
-        ) + r")(?!\w|\])"
+        pattern = (
+            r"(?<!\w|\[)(" + "|".join(re.escape(f) for f in SQL_FILTERS) + r")(?!\w|\])"
+        )
 
-        has_filter = any(
-            f" {filt} " in query_cleaned for filt in SQL_FILTERS
-        ) or len(re.findall(pattern, query_cleaned)) > 0
+        has_filter = len(re.findall(pattern, query_cleaned)) > 0
 
         if not has_filter:
             return (
@@ -168,27 +158,30 @@ class DataBackend:
                 "which is not allowed!"
             )
 
-        cleaned_table_name = (
-            table_name.replace(".txt", "").replace(".json", "")
-        )
+        # Only allow SELECT statements
+        stmt = query.strip().upper()
+        if not stmt.startswith("SELECT"):
+            return "Error: Only SELECT queries are allowed."
+
+        cleaned_table_name = table_name.replace(".txt", "").replace(".json", "")
         table_path = os.path.join(
             self.data_path, company_name, f"{cleaned_table_name}.json"
         )
         if not os.path.isfile(table_path):
             return (
-                f"Error: Table '{table_name}' not found for company "
-                f"'{company_name}'."
+                f"Error: Table '{table_name}' not found for company '{company_name}'."
             )
 
+        conn = sqlite3.connect(":memory:")
         try:
-            conn = sqlite3.connect(":memory:")
             df = pd.read_json(table_path)
             df.to_sql(cleaned_table_name, conn, index=False, if_exists="replace")
             result = pd.read_sql_query(query, conn)
-            conn.close()
             return result.to_json(orient="records")
         except Exception as e:
             return f"SQL error: {type(e).__name__}: {e}"
+        finally:
+            conn.close()
 
     def list_companies(self) -> list[str]:
         """List all available companies."""

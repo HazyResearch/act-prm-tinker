@@ -27,7 +27,24 @@ BENCHMARK_FINQA_CSV = "./data/snorkel_finance/benchmark/finqa.csv"
 
 @pytest.fixture
 def data_path():
-    return os.environ.get(DATA_PATH_ENV, DEFAULT_DATA_PATH)
+    path = os.environ.get(DATA_PATH_ENV, DEFAULT_DATA_PATH)
+    if not os.path.isdir(path):
+        pytest.skip(f"Data not found at {path}")
+    return path
+
+
+@pytest.fixture
+def benchmark_reasoning_csv():
+    if not os.path.isfile(BENCHMARK_REASONING_CSV):
+        pytest.skip(f"Benchmark CSV not found at {BENCHMARK_REASONING_CSV}")
+    return BENCHMARK_REASONING_CSV
+
+
+@pytest.fixture
+def benchmark_finqa_csv():
+    if not os.path.isfile(BENCHMARK_FINQA_CSV):
+        pytest.skip(f"Benchmark CSV not found at {BENCHMARK_FINQA_CSV}")
+    return BENCHMARK_FINQA_CSV
 
 
 @pytest.fixture
@@ -115,9 +132,7 @@ class TestDataBackend:
 
         backend = DataBackend(data_path)
         tables = json.loads(backend.get_descriptions("at_t"))
-        result = backend.sql_query(
-            "at_t", tables[0], f'SELECT * FROM "{tables[0]}"'
-        )
+        result = backend.sql_query("at_t", tables[0], f'SELECT * FROM "{tables[0]}"')
         assert "not allowed" in result.lower()
 
     def test_sql_query_rejects_no_filter(self, data_path):
@@ -125,9 +140,7 @@ class TestDataBackend:
 
         backend = DataBackend(data_path)
         tables = json.loads(backend.get_descriptions("at_t"))
-        result = backend.sql_query(
-            "at_t", tables[0], f'SELECT item FROM "{tables[0]}"'
-        )
+        result = backend.sql_query("at_t", tables[0], f'SELECT item FROM "{tables[0]}"')
         assert "not allowed" in result.lower()
 
     def test_sql_query_invalid_table(self, data_path):
@@ -259,7 +272,9 @@ class TestSnorkelFinanceGraderPrompt:
         )
 
         # Key phrases from the reference llmj.py prediction_correctness_prompt
-        assert "model response matches the label" in SNORKEL_FINANCE_GRADER_SYSTEM_PROMPT
+        assert (
+            "model response matches the label" in SNORKEL_FINANCE_GRADER_SYSTEM_PROMPT
+        )
         assert "two decimal places" in SNORKEL_FINANCE_GRADER_SYSTEM_PROMPT
         assert "without rounding off" in SNORKEL_FINANCE_GRADER_SYSTEM_PROMPT
         assert "boxed" in SNORKEL_FINANCE_GRADER_SYSTEM_PROMPT
@@ -305,12 +320,12 @@ class TestSnorkelFinanceGraderPrompt:
 class TestSnorkelFinanceEnvReasoning:
     """Tests for SnorkelFinanceEnv with finqa_reasoning task."""
 
-    def test_init(self, data_path, mock_grader):
+    def test_init(self, data_path, mock_grader, benchmark_reasoning_csv):
         from act_prm.environments.snorkel_finance.env import SnorkelFinanceEnv
 
         env = SnorkelFinanceEnv(
             data_path=data_path,
-            benchmark_csv=BENCHMARK_REASONING_CSV,
+            benchmark_csv=benchmark_reasoning_csv,
             task="finqa_reasoning",
             max_turns=50,
             num_train_samples=47,
@@ -322,12 +337,12 @@ class TestSnorkelFinanceEnvReasoning:
         assert len(env.datasets["test"]) == 16
         assert "step by step" in env.system_prompt
 
-    def test_reset(self, data_path, mock_grader):
+    def test_reset(self, data_path, mock_grader, benchmark_reasoning_csv):
         from act_prm.environments.snorkel_finance.env import SnorkelFinanceEnv
 
         env = SnorkelFinanceEnv(
             data_path=data_path,
-            benchmark_csv=BENCHMARK_REASONING_CSV,
+            benchmark_csv=benchmark_reasoning_csv,
             task="finqa_reasoning",
             max_turns=50,
         )
@@ -339,12 +354,12 @@ class TestSnorkelFinanceEnvReasoning:
         assert len(state.tools) == 5
         assert state.backend is not None
 
-    def test_reset_wraps_around(self, data_path, mock_grader):
+    def test_reset_wraps_around(self, data_path, mock_grader, benchmark_reasoning_csv):
         from act_prm.environments.snorkel_finance.env import SnorkelFinanceEnv
 
         env = SnorkelFinanceEnv(
             data_path=data_path,
-            benchmark_csv=BENCHMARK_REASONING_CSV,
+            benchmark_csv=benchmark_reasoning_csv,
             task="finqa_reasoning",
             max_turns=50,
         )
@@ -353,12 +368,14 @@ class TestSnorkelFinanceEnvReasoning:
         state2 = env.reset(sample_idx=n)
         assert state1.question == state2.question
 
-    def test_tools_work_through_state(self, data_path, mock_grader):
+    def test_tools_work_through_state(
+        self, data_path, mock_grader, benchmark_reasoning_csv
+    ):
         from act_prm.environments.snorkel_finance.env import SnorkelFinanceEnv
 
         env = SnorkelFinanceEnv(
             data_path=data_path,
-            benchmark_csv=BENCHMARK_REASONING_CSV,
+            benchmark_csv=benchmark_reasoning_csv,
             task="finqa_reasoning",
             max_turns=50,
         )
@@ -369,20 +386,20 @@ class TestSnorkelFinanceEnvReasoning:
         tables = json.loads(result)
         assert len(tables) > 0
 
-    def test_split_deterministic(self, data_path, mock_grader):
+    def test_split_deterministic(self, data_path, mock_grader, benchmark_reasoning_csv):
         """Same seed produces same splits."""
         from act_prm.environments.snorkel_finance.env import SnorkelFinanceEnv
 
         env1 = SnorkelFinanceEnv(
             data_path=data_path,
-            benchmark_csv=BENCHMARK_REASONING_CSV,
+            benchmark_csv=benchmark_reasoning_csv,
             task="finqa_reasoning",
             max_turns=50,
             seed=42,
         )
         env2 = SnorkelFinanceEnv(
             data_path=data_path,
-            benchmark_csv=BENCHMARK_REASONING_CSV,
+            benchmark_csv=benchmark_reasoning_csv,
             task="finqa_reasoning",
             max_turns=50,
             seed=42,
@@ -401,12 +418,12 @@ class TestSnorkelFinanceEnvReasoning:
 class TestSnorkelFinanceEnvFinQA:
     """Tests for SnorkelFinanceEnv with finqa task."""
 
-    def test_init(self, data_path, mock_grader):
+    def test_init(self, data_path, mock_grader, benchmark_finqa_csv):
         from act_prm.environments.snorkel_finance.env import SnorkelFinanceEnv
 
         env = SnorkelFinanceEnv(
             data_path=data_path,
-            benchmark_csv=BENCHMARK_FINQA_CSV,
+            benchmark_csv=benchmark_finqa_csv,
             task="finqa",
             max_turns=50,
             num_train_samples=174,
@@ -418,12 +435,12 @@ class TestSnorkelFinanceEnvFinQA:
         assert len(env.datasets["test"]) == 58
         assert env.system_prompt == "Only execute one tool call at a time"
 
-    def test_boxed_answers(self, data_path, mock_grader):
+    def test_boxed_answers(self, data_path, mock_grader, benchmark_finqa_csv):
         from act_prm.environments.snorkel_finance.env import SnorkelFinanceEnv
 
         env = SnorkelFinanceEnv(
             data_path=data_path,
-            benchmark_csv=BENCHMARK_FINQA_CSV,
+            benchmark_csv=benchmark_finqa_csv,
             task="finqa",
             max_turns=50,
         )
