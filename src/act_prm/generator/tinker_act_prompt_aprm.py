@@ -382,7 +382,9 @@ class TinkerActionPromptActPrmGenerator(TinkerActPrmGenerator):
             ]
             state_action_thought_tokens_G = []
             for i, response in enumerate(responses_in_group):
-                state_action_thought_messages_G[i][-1]["content"] += response.text + "\n" + self.thought_eos
+                state_action_thought_messages_G[i][-1]["content"] += (
+                    response.text + "\n" + self.thought_eos
+                )
                 state_action_thought_tokens_G.append(
                     hf_tokenizer.apply_chat_template(
                         state_action_thought_messages_G[i],

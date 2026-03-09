@@ -2,6 +2,9 @@
 Tools for Snorkel Agent Finance Reasoning environment.
 
 5 tools: get_descriptions, get_table_info, sql_query, calculator, respond_user
+
+Tool implementations match the reference at
+https://github.com/snorkel-ai/FinQABenchmark/blob/main/src/tools.py
 """
 
 from __future__ import annotations
@@ -26,15 +29,17 @@ class GetDescriptionsTool(BaseTool):
             "type": "function",
             "name": "get_descriptions",
             "description": (
-                "Get the list of available financial tables/documents for a company. "
-                "Returns a JSON array of table names from the company's 10-K filing."
+                "Get a list of possible texts to look up for. Each text "
+                "contains a singular table that is described by its complete name."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "company_name": {
                         "type": "string",
-                        "description": "The company name to query (e.g., 'at_t', 'meta', 'disney')",
+                        "description": (
+                            "The name of the company to get the table names for"
+                        ),
                     },
                 },
                 "required": ["company_name"],
@@ -59,19 +64,20 @@ class GetTableInfoTool(BaseTool):
             "type": "function",
             "name": "get_table_info",
             "description": (
-                "Get metadata about a financial table including column names, "
-                "unique values per column, and column data types."
+                "Get table associated with table_name. Returns metadata "
+                "including column names, data types, and unique values per "
+                "column for query columns."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "company_name": {
                         "type": "string",
-                        "description": "The company name to query",
+                        "description": "The name of the company to query",
                     },
                     "table_name": {
                         "type": "string",
-                        "description": "The table name (from get_descriptions results)",
+                        "description": "The name of the table to retrieve",
                     },
                 },
                 "required": ["company_name", "table_name"],
@@ -97,24 +103,27 @@ class SqlQueryTool(BaseTool):
             "type": "function",
             "name": "sql_query",
             "description": (
-                "Execute a SQL query on a financial table. "
-                "Must include specific column names (no SELECT *) and WHERE filters."
+                "Given a table name and a SQL query, use SQLite to process "
+                "the query over the table and return the result. "
+                "Provide queries in SQLite compatible format. "
+                "If the query is for the whole table/whole columns without "
+                "filters, the query is too inefficient and you will get an error."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "company_name": {
                         "type": "string",
-                        "description": "The company name to query",
+                        "description": "Name of the company provided by the user",
                     },
                     "table_name": {
                         "type": "string",
-                        "description": "The table name to query",
+                        "description": "Name of the table to query",
                     },
                     "query": {
                         "type": "string",
                         "description": (
-                            "SQL SELECT query with WHERE filters. No SELECT * allowed."
+                            "SQL query to execute on the table. No SELECT * allowed."
                         ),
                     },
                 },
@@ -145,16 +154,18 @@ class CalculatorTool(BaseTool):
             "type": "function",
             "name": "calculator",
             "description": (
-                "Execute a Python math expression and return the result. "
-                "Supports standard math operations (+, -, *, /, **, %) "
-                "and math module functions."
+                "Given a equation/mathematical expression, evaluate it "
+                "and return the result. Supports standard math operations "
+                "(+, -, *, /, **, %) and math module functions."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "expression": {
                         "type": "string",
-                        "description": "A Python math expression (e.g., '(310 / 6759) * 100')",
+                        "description": (
+                            "A Python math expression (e.g., '(310 / 6759) * 100')"
+                        ),
                     },
                 },
                 "required": ["expression"],

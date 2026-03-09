@@ -1,260 +1,188 @@
 """
-Trace-replay backend for Snorkel Agent Finance Reasoning.
+Data backend for Snorkel Agent Finance Reasoning.
 
-Extracts tool call → response mappings from the snorkelai/agent-finance-reasoning
-dataset traces, building a lookup table for each (tool_name, args) combination.
-
-For novel queries not in the traces, returns an informative error.
-The calculator tool is always live (uses Python eval).
-
-The HF dataset stores traces in LangChain serialization format. We convert
-these to our internal format (consistent with ActionFromLLM / action_utils.py)
-before extracting tool call → response pairs for caching.
+Loads raw financial table data (JSON) and supports real SQL queries
+via in-memory SQLite, matching the reference implementation at
+https://github.com/snorkel-ai/FinQABenchmark/blob/main/src/tools.py
 """
 
 from __future__ import annotations
 
+import glob
 import json
 import logging
+import os
+import re
+import sqlite3
+from io import StringIO
 from typing import Any
 
-from datasets import Dataset
-from tqdm import tqdm
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 
-def _normalize_key(*args: str) -> str:
-    """Create a normalized lookup key from arguments."""
-    return "|".join(str(a).strip().lower() for a in args)
+# SQL filters that indicate a valid filtered query (from reference tools.py)
+SQL_FILTERS = [
+    "WHERE",
+    "HAVING",
+    "IN",
+    "NOT IN",
+    "EXISTS",
+    "NOT EXISTS",
+    "ANY",
+    "SOME",
+    "ALL",
+    "LIKE",
+    "NOT LIKE",
+    "BETWEEN",
+    "NOT BETWEEN",
+    "IS NULL",
+    "IS NOT NULL",
+    "CASE",
+    "FILTER",
+]
 
 
-def _convert_langchain_trace(
-    trace: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Convert a LangChain-serialized trace to our internal message format.
-
-    LangChain format:
-    - AI messages: type="ai", content is a list with
-      {"type": "tool_use", "name": ..., "input": ...} items
-    - Tool responses: type="tool", content is a string
-
-    Internal format (consistent with ActionFromLLM / action_utils.py):
-    - Assistant messages with tool calls:
-      {"role": "assistant", "tool_calls": [
-        {"type": "function", "function": {"name": ..., "arguments": ...}}
-      ]}
-    - Assistant text messages:
-      {"role": "assistant", "content": "..."}
-    - Tool responses:
-      {"role": "tool", "type": "function_call_output",
-       "call_id": ..., "output": "..."}
-    - User messages:
-      {"role": "user", "content": "..."}
+class DataBackend:
     """
-    converted = []
-    for msg in trace:
-        msg_type = msg.get("type", msg.get("role", ""))
-        content = msg.get("content", "")
+    Backend that serves real financial data from local JSON files
+    and executes SQL queries via in-memory SQLite.
 
-        if msg_type in ("human", "user"):
-            converted.append({"role": "user", "content": content})
+    Expects the data directory layout from FinQABenchmark:
+      data_path/
+        tables_cleaned_all_companies.json
+        <company_name>/
+          <table_name>.json
+          ...
+    """
 
-        elif msg_type in ("ai", "assistant"):
-            tool_calls = []
-            text_parts = []
-
-            if isinstance(content, list):
-                for item in content:
-                    if not isinstance(item, dict):
-                        continue
-                    if item.get("type") == "tool_use":
-                        # LangChain tool_use → our function call format
-                        tool_calls.append(
-                            {
-                                "type": "function",
-                                "function": {
-                                    "name": item.get("name", ""),
-                                    "arguments": item.get("input", {}),
-                                },
-                            }
-                        )
-                    elif item.get("type") == "text":
-                        text_parts.append(item.get("text", ""))
-            elif isinstance(content, str):
-                text_parts.append(content)
-
-            if tool_calls:
-                msg_out: dict[str, Any] = {
-                    "role": "assistant",
-                    "tool_calls": tool_calls,
-                }
-                if text_parts:
-                    msg_out["content"] = "\n".join(text_parts)
-                converted.append(msg_out)
-            elif text_parts:
-                converted.append(
-                    {
-                        "role": "assistant",
-                        "content": "\n".join(text_parts),
-                    }
-                )
-
-        elif msg_type in ("tool", "function"):
-            converted.append(
-                {
-                    "role": "tool",
-                    "type": "function_call_output",
-                    "call_id": msg.get("id"),
-                    "output": content,
-                }
+    def __init__(self, data_path: str) -> None:
+        self.data_path = data_path
+        if not os.path.isdir(data_path):
+            raise FileNotFoundError(
+                f"Data directory not found: {data_path}. "
+                f"Clone https://github.com/snorkel-ai/FinQABenchmark "
+                f"and point data_path to its data/raw/ directory."
             )
 
-    return converted
+        # Load the cleaned tables metadata (used by get_table_info)
+        tables_json_path = os.path.join(data_path, "tables_cleaned_all_companies.json")
+        if os.path.isfile(tables_json_path):
+            with open(tables_json_path) as f:
+                self.tables_cleaned: dict[str, Any] = json.load(f)
+        else:
+            self.tables_cleaned = {}
+            logger.warning(
+                "tables_cleaned_all_companies.json not found at %s", tables_json_path
+            )
 
-
-class TraceReplayBackend:
-    """
-    Backend that replays tool responses from recorded traces.
-
-    Builds lookup tables from the original dataset:
-    - descriptions_cache: company_name → response
-    - table_info_cache: (company_name, table_name) → response
-    - sql_cache: (company_name, table_name, query) → response
-    """
-
-    def __init__(self, traces: list[list[dict[str, Any]]]) -> None:
-        self.descriptions_cache: dict[str, str] = {}
-        self.table_info_cache: dict[str, str] = {}
-        self.sql_cache: dict[str, str] = {}
-
-        self._build_caches(traces)
-        logger.info(
-            f"TraceReplayBackend: {len(self.descriptions_cache)} descriptions, "
-            f"{len(self.table_info_cache)} table_info, "
-            f"{len(self.sql_cache)} sql_query entries"
+        self._companies = sorted(
+            d
+            for d in os.listdir(data_path)
+            if os.path.isdir(os.path.join(data_path, d))
+            and not d.startswith(".")
+            and d != "raw"
         )
-
-    def _build_caches(self, traces: list[list[dict[str, Any]]]) -> None:
-        """Parse all traces and extract tool call → response mappings."""
-        for trace in tqdm(traces, desc="Building trace-replay caches"):
-            self._parse_trace(trace)
-
-    def _parse_trace(self, trace: list[dict[str, Any]]) -> None:
-        """Extract tool calls and their responses from a single trace.
-
-        Converts LangChain trace to internal format, then extracts
-        (tool_name, args) → response pairs for caching.
-        """
-        converted = _convert_langchain_trace(trace)
-
-        for i, msg in enumerate(converted):
-            if msg.get("role") != "assistant":
-                continue
-
-            tool_calls = msg.get("tool_calls", [])
-            if not tool_calls:
-                continue
-
-            # Collect consecutive tool responses after this assistant message
-            tool_responses = []
-            for j in range(i + 1, len(converted)):
-                next_msg = converted[j]
-                if next_msg.get("role") == "tool":
-                    tool_responses.append(next_msg.get("output", ""))
-                else:
-                    break
-
-            # Match tool calls to responses and cache
-            for tc_idx, tc in enumerate(tool_calls):
-                if tc_idx >= len(tool_responses):
-                    break
-                response_content = tool_responses[tc_idx]
-                func = tc.get("function", {})
-                tool_name = func.get("name", "")
-                args = func.get("arguments", {})
-
-                self._cache_tool_response(tool_name, args, response_content)
-
-    def _cache_tool_response(
-        self, tool_name: str, args: dict[str, Any], response: str
-    ) -> None:
-        """Cache a tool response based on tool type and arguments."""
-        if tool_name == "get_descriptions":
-            company = args.get("company_name", "")
-            key = _normalize_key(company)
-            self.descriptions_cache[key] = response
-
-        elif tool_name == "get_table_info":
-            company = args.get("company_name", "")
-            table = args.get("table_name", "")
-            key = _normalize_key(company, table)
-            self.table_info_cache[key] = response
-
-        elif tool_name == "sql_query":
-            company = args.get("company_name", "")
-            table = args.get("table_name", "")
-            query = args.get("query", "")
-            key = _normalize_key(company, table, query)
-            self.sql_cache[key] = response
+        logger.info(
+            "DataBackend: %d companies, %d cleaned table entries at %s",
+            len(self._companies),
+            len(self.tables_cleaned),
+            data_path,
+        )
 
     def get_descriptions(self, company_name: str) -> str:
-        key = _normalize_key(company_name)
-        if key in self.descriptions_cache:
-            return self.descriptions_cache[key]
-        # Try fuzzy match
-        for cached_key, value in self.descriptions_cache.items():
-            if company_name.lower() in cached_key:
-                return value
-        return (
-            f"No data available for company '{company_name}'. "
-            f"Available companies: {self.list_companies()}"
-        )
+        """List available tables for a company (JSON files in its directory)."""
+        company_dir = os.path.join(self.data_path, company_name)
+        if not os.path.isdir(company_dir):
+            return (
+                f"Company '{company_name}' not found. "
+                f"Available companies: {self._companies}"
+            )
+        table_paths = glob.glob(os.path.join(company_dir, "*.json"))
+        table_names = [os.path.basename(f).replace(".json", "") for f in table_paths]
+        return json.dumps(table_names)
 
     def get_table_info(self, company_name: str, table_name: str) -> str:
-        key = _normalize_key(company_name, table_name)
-        if key in self.table_info_cache:
-            return self.table_info_cache[key]
-        return (
-            f"No table info found for table '{table_name}' "
-            f"in company '{company_name}'. "
-            f"Try calling get_descriptions first to see available tables."
-        )
+        """Get metadata about a table: columns, dtypes, unique values."""
+        cleaned_table_name = table_name.replace(".json", "").replace(".txt", "")
+        key = f"{company_name}/{cleaned_table_name}"
+
+        if key not in self.tables_cleaned:
+            return (
+                f"No table info found for '{table_name}' in '{company_name}'. "
+                f"Try calling get_descriptions first to see available tables."
+            )
+
+        cleaned_table_info = dict(self.tables_cleaned[key])
+        table_df = pd.read_json(StringIO(cleaned_table_info["table"]))
+
+        # Identify numeric columns to drop (only show structure columns)
+        cols_to_drop = []
+        for col in table_df.columns.tolist()[1:]:  # skip first column
+            vals = table_df[col].tolist()[1:]
+            cleaned_vals = [
+                "".join(c for c in str(x) if c.isalnum()).strip() for x in vals
+            ]
+            all_numeric = all(v.isnumeric() or len(v) == 0 for v in cleaned_vals)
+            if all_numeric:
+                cols_to_drop.append(col)
+
+        cleaned_table_info["column_dtypes"] = {
+            col: str(table_df[col].dtype) for col in table_df.columns.tolist()
+        }
+        table_df = table_df.drop(cols_to_drop, axis=1)
+        del cleaned_table_info["table"]
+        cleaned_table_info["unique_vals_per_col"] = {
+            col: list(table_df[col].unique()) for col in table_df.columns.tolist()
+        }
+        return json.dumps(cleaned_table_info, indent=0).replace("\n", "")
 
     def sql_query(self, company_name: str, table_name: str, query: str) -> str:
-        key = _normalize_key(company_name, table_name, query)
-        if key in self.sql_cache:
-            return self.sql_cache[key]
-        # Try partial match on company + table (ignoring query differences)
-        partial_key = _normalize_key(company_name, table_name)
-        available_queries = [
-            k.split("|", 2)[-1] for k in self.sql_cache if k.startswith(partial_key)
-        ]
-        if available_queries:
-            return (
-                "Query not found in recorded data. "
-                "Try one of these recorded queries for this table:\n"
-                + "\n".join(f"- {q}" for q in available_queries[:5])
-            )
-        return (
-            f"No SQL data found for table '{table_name}' in company '{company_name}'."
+        """Execute a SQL query on a financial table via in-memory SQLite."""
+        # Block SELECT *
+        if "select *" in query.lower():
+            return "Error: SELECT * is not allowed, highly inefficient!"
+
+        # Check for required filter clauses
+        query_cleaned = re.sub(r"(\\r|\\n|\\t|[\r\n\t])+", " ", query).upper()
+        pattern = (
+            r"(?<!\w|\[)(" + "|".join(re.escape(f) for f in SQL_FILTERS) + r")(?!\w|\])"
         )
 
-    def list_companies(self) -> list[str]:
-        """List all companies with cached descriptions."""
-        return sorted(set(self.descriptions_cache.keys()))
+        has_filter = len(re.findall(pattern, query_cleaned)) > 0
 
-    @classmethod
-    def from_dataset(cls, ds: Dataset) -> TraceReplayBackend:
-        """Build backend from the snorkelai/agent-finance-reasoning HF dataset."""
-        traces = []
-        for sample in tqdm(ds, desc="Parsing dataset traces"):
-            trace = sample.get("trace", [])
-            if isinstance(trace, str):
-                try:
-                    trace = json.loads(trace)
-                except json.JSONDecodeError:
-                    continue
-            if isinstance(trace, list) and len(trace) > 0:
-                traces.append(trace)
-        return cls(traces)
+        if not has_filter:
+            return (
+                "Error: You are trying to query without any kind of filters, "
+                "which is not allowed!"
+            )
+
+        # Only allow SELECT statements
+        stmt = query.strip().upper()
+        if not stmt.startswith("SELECT"):
+            return "Error: Only SELECT queries are allowed."
+
+        cleaned_table_name = table_name.replace(".txt", "").replace(".json", "")
+        table_path = os.path.join(
+            self.data_path, company_name, f"{cleaned_table_name}.json"
+        )
+        if not os.path.isfile(table_path):
+            return (
+                f"Error: Table '{table_name}' not found for company '{company_name}'."
+            )
+
+        conn = sqlite3.connect(":memory:")
+        try:
+            df = pd.read_json(table_path)
+            df.to_sql(cleaned_table_name, conn, index=False, if_exists="replace")
+            result = pd.read_sql_query(query, conn)
+            return result.to_json(orient="records")
+        except Exception as e:
+            return f"SQL error: {type(e).__name__}: {e}"
+        finally:
+            conn.close()
+
+    def list_companies(self) -> list[str]:
+        """List all available companies."""
+        return list(self._companies)
